@@ -55,7 +55,7 @@ Aujourd'hui, le joueur parcourt sa bibliothèque Steam à la main : tri par nom,
 | Base de données | PostgreSQL + pgvector, accès via ORM avec support vectoriel (Drizzle) |
 | Données jeux | Steam Web API + Store `appdetails` |
 | IA | API d'embeddings (Gemini ou Mistral, modèle unique fixé) |
-| Hébergement | Vercel (front), Render (API), Neon (PostgreSQL) |
+| Hébergement | Render (Front + API), Neon (PostgreSQL) |
 
 Toutes les clés (Steam, modèle) restent **côté API**, hors dépôt Git.
 
