@@ -22,5 +22,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* Les tests ne doivent pas être typecheckés par le build : `types` ne
+     déclare que `vite/client`, donc les globals vitest y seraient inconnus. */
+  "exclude": ["src/**/*.test.*", "src/**/*.spec.*"]
 }

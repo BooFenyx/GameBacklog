@@ -1,4 +1,30 @@
 node_modules/
 dist/
+coverage/
+.vitest/
+
+# Secrets
 .env
+
+# Fichiers générés par TypeScript
 *.tsbuildinfo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Éditeurs
+/.vscode/*
+!/.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.local

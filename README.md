@@ -1,6 +1,6 @@
 # GameBacklog
 
-Backlog Steam intelligent. Voir [`FICHE_PROJET.md`](./FICHE_PROJET.md) pour la présentation du projet.
+Backlog Steam intelligent. Voir [`fiche_projet.md`](./fiche_projet.md) pour la présentation du projet.
 
 ## Prérequis
 
