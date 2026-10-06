@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AuthModule } from './auth/auth.module.js';
+import { LibraryModule } from './library/library.module.js';
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { AppService } from './app.service.js';
       isGlobal: true,
       envFilePath: '../.env',
     }),
+    AuthModule,
+    LibraryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -18,7 +18,7 @@ describe('AppController (e2e)', () => {
     // le préfixe global, le ValidationPipe, CORS ni cookie-parser.
     const expressApp =
       moduleFixture.createNestApplication<NestExpressApplication>();
-    configureApp(expressApp, 'http://localhost:5173');
+    configureApp(expressApp, 'http://localhost:5173', 'test-session-secret');
 
     await expressApp.init();
     app = expressApp;
