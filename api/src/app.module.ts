@@ -4,6 +4,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { LibraryModule } from './library/library.module.js';
+import { EmbeddingModule } from './embedding/embedding.module.js';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { LibraryModule } from './library/library.module.js';
     }),
     AuthModule,
     LibraryModule,
+    EmbeddingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
