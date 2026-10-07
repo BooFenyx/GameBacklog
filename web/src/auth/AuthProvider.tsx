@@ -5,6 +5,7 @@ import {
   type AuthContextValue,
   type SteamUser,
 } from './AuthContext'
+import { urlApi } from '../api'
 
 /**
  * Lit `GET /api/auth/me` avec le cookie de session. Renvoie `null` si
@@ -13,7 +14,7 @@ import {
  */
 async function lireSession(): Promise<SteamUser | null> {
   try {
-    const res = await fetch('/api/auth/me', { credentials: 'include' })
+    const res = await fetch(urlApi('/api/auth/me'), { credentials: 'include' })
     const data = (await res.json()) as { user: SteamUser | null } | null
     return data?.user ?? null
   } catch {
@@ -44,12 +45,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(() => {
-    window.location.assign('/api/auth/steam')
+    window.location.assign(urlApi('/api/auth/steam'))
   }, [])
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', {
+      await fetch(urlApi('/api/auth/logout'), {
         method: 'POST',
         credentials: 'include',
       })

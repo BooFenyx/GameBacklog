@@ -1,0 +1,41 @@
+# Blueprint Render — API GameBacklog.
+#
+# Le front est hébergé sur Vercel (voir web/vercel.json) ; ce fichier ne
+# décrit que l'API. Création : Render → New → Blueprint → ce dépôt.
+#
+# Variables marquées `sync: false` : Render les demande une seule fois au
+# moment de la création du blueprint.
+#   - DATABASE_URL   : chaîne de connexion Neon (neon.tech)
+#   - STEAM_API_KEY  : clé Steam Web API (steamcommunity.com/dev/apikey)
+#   - EMBEDDING_API_KEY : clé Gemini (aistudio.google.com)
+#   - FRONTEND_URL   : URL du site Vercel (ex. https://gamebacklog.vercel.app)
+#
+# Les migrations sont appliquées au démarrage de l'API (DbModule) : le plan
+# gratuit de Render n'admet pas de preDeployCommand, et c'est aussi ce qui
+# dispense de toute commande après l'ajout d'une fonctionnalité.
+services:
+  - type: web
+    runtime: node
+    name: gamebacklog-api
+    plan: free
+    rootDir: api
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: STEAM_API_KEY
+        sync: false
+      - key: EMBEDDING_API_KEY
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: EMBEDDING_DIMENSIONS
+        value: 1024
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false

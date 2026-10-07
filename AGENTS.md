@@ -18,14 +18,28 @@ OpenID 2.0 (Steam), la session est gérée par `express-session` (cookie `httpOn
 Web API (`IPlayerService/GetOwnedGames`). Le front a 4 pages (Connexion, bibliothèque,
 accueil, 404) avec React Router et un provider de session.
 
-**Non implémenté :** recherche vectorielle, embeddings, base de données (Drizzle installé
-mais pas configuré), déploiement.
+**Embeddings et base de données : infrastructure en place, pas encore branchée.** Le
+module `api/src/embedding/` génère des embeddings via l'API Gemini (`gemini-embedding-001`,
+1024 dimensions, retour `null` si la clé manque). Le module `api/src/db/` expose Drizzle
+(`pg` + pgvector) via un token global `DB` : schéma 5 tables dont `games.embedding
+vector(1024)`. Rien n'injecte encore `DB` ni `EmbeddingService` — aucun pipeline d'import
+ni persistance n'existe. Les migrations s'appliquent automatiquement au démarrage de
+l'API (verrou advisory).
+
+**Non implémenté :** recherche vectorielle, pipeline d'import/persistance des jeux,
+branchement des embeddings, mise en ligne (socle prêt, rien n'est encore déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID, session, guard
 - `api/src/library/` — récupération des jeux possédés
+- `api/src/embedding/` — service d'embedding Gemini (non branché)
+- `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations
+- `render.yaml` — blueprint Render (API seule)
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
+- `web/src/api.ts` — helper `urlApi()` (base `VITE_API_URL`)
+- `web/vercel.json` — rewrite SPA pour Vercel
 - `web/src/pages/` — pages de l'application
 - `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
@@ -60,6 +74,9 @@ Les deux paquets déclarent `"engines": { "node": ">=22.12.0" }`, plancher impos
 | `api/` | `npm run test:cov` | idem + couverture v8, summarized |
 | `api/` | `npm run test:e2e` | config séparée, `**/*.e2e-spec.ts` uniquement |
 | `api/` | `npm run build` | `nest build` → `api/dist` |
+| `api/` | `npm run db:generate` | drizzle-kit → nouvelle migration dans `api/drizzle/` |
+| `api/` | `npm run db:migrate` | Applique les migrations (base via `docker compose up -d`) |
+| `api/` | `npm run db:studio` | Drizzle Studio (interface web) |
 | `web/` | `npm run lint` | ESLint 10, flat config |
 | `web/` | `npm run build` | `tsc -b && vite build` — le `tsc -b` est le **seul** typecheck du projet |
 | `web/` | `npm run dev` / `npm run preview` | |
@@ -204,11 +221,9 @@ laissés de côté :
   fréquence par utilisateur » (`fiche_projet.md`). `@nestjs/throttler` n'a pas été installé :
   il raisonne par IP, ce qui n'est pas la clé demandée et serait à remplacer dès que la
   session Steam existera. À implémenter par utilisateur, en s'appuyant sur la session.
-- **`MemoryStore` pour les sessions.** `express-session` utilise `MemoryStore` par défaut :
-  les sessions sont perdues au redémarrage et ne sont pas partagées entre instances. Un store
-  persistant (Redis, PostgreSQL) sera requis en production.
-- **Pas de timeout sur les appels Steam.** `verifySteamCallback` et `fetchPlayerSummary`
-  n'ont pas de timeout : si Steam ne répond pas, la requête reste suspendue. Un
+- **Pas de timeout sur les appels externes.** `verifySteamCallback`,
+  `fetchPlayerSummary` et l'appel Gemini de `EmbeddingService.embed` n'ont pas de
+  timeout : si le service distant ne répond pas, la requête reste suspendue. Un
   `AbortSignal.timeout(5000)` ou similaire serait prudent.
 - **Pas de validation de `openid.mode`.** Le callback ne vérifie pas que le mode est
   `id_res` (un `cancel` avec un `claimed_id` pourrait passer si la signature est valide).
@@ -225,9 +240,16 @@ Cela correspond au `DATABASE_URL` du `.env` racine. Utilise pgvector, pas du Pos
 classique — la spécification exige une recherche par similarité vectorielle sur
 `Game.embedding`.
 
-Drizzle (`drizzle-orm`, `pg`, `drizzle-kit`) est installé mais **pas encore configuré** :
-il n'y a ni `drizzle.config.ts` ni dossier de migrations. Les créer relève de ta
-responsabilité ; il n'existe pas encore de script `db:*`.
+Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000 générée). `npm run db:migrate`
+applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
+manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
+démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée
+`CREATE EXTENSION IF NOT EXISTS vector` — obligatoire sur une base fraîche type Neon.
+
+`DbModule` est global et **exige `DATABASE_URL` et une base joignable au boot** : la
+migration s'exécute immédiatement, la base doit donc être up avant l'API (c'est le cas
+sur Render).
 
 ## Environnement
 
@@ -240,9 +262,34 @@ rien de lié à Steam ou aux embeddings n'est testable avant de les remplir.
 `STEAM_API_KEY` est requise pour l'authentification (profil) et la bibliothèque (jeux).
 Sans elle, `fetchPlayerSummary` renvoie `null` et `ownedGames` lève un 503.
 
+`EMBEDDING_MODEL` et `EMBEDDING_DIMENSIONS` sont optionnels (défauts :
+`gemini-embedding-001` / `1024`). Changer les dimensions exige une migration de
+`games.embedding`.
+
 ## Cible de déploiement
 
-Render pour `web` + `api`, Neon pour PostgreSQL (d'après `fiche_projet.md`). Il n'y a
-**aucune CI**, aucune GitHub Action et aucun Dockerfile — le fichier compose sert
-uniquement au développement local. La configuration de déploiement n'existe pas encore
-dans le dépôt.
+Hébergement retenu — **départ de la fiche**, qui prévoyait Render pour le front :
+**Vercel** (`web`) + **Render** (`api`) + **Neon** (PostgreSQL).
+
+- `render.yaml` (racine) : blueprint de l'API — `New → Blueprint` sur Render le
+  crée avec les bonnes commandes. Les variables `sync: false` (`DATABASE_URL`,
+  `STEAM_API_KEY`, `EMBEDDING_API_KEY`, `FRONTEND_URL`) sont demandées **une
+  seule fois** à la création, `SESSION_SECRET` est générée. Auto-deploy à chaque
+  push, plan gratuit.
+- `web/vercel.json` : rewrite SPA. Import du dépôt sur Vercel avec
+  Root Directory = `web`, et variable d'environnement **`VITE_API_URL`** = URL de
+  l'API Render (au build). Sans elle, les appels `/api` du front restent relatifs
+  et cassent en prod (`web/src/api.ts` lit cette variable).
+- Migrations appliquées au démarrage de l'API (voir « Base de données ») :
+  **pousser suffit, aucune commande après l'ajout d'une fonctionnalité.**
+- Cookie de session : `sameSite=none` + `secure` en production, car
+  `*.vercel.app` et `*.onrender.com` sont deux **sites** différents (`lax`
+  supprimerait le cookie des requêtes cross-site). En dev, `lax` est conservé
+  (localhost, même site malgré les ports). Câblage dans `app.setup.ts` :
+  ne pas y toucher sans re-vérifier le flux Steam.
+- Sessions : store PostgreSQL (`connect-pg-simple`, table `session` créée au
+  premier usage) quand `NODE_ENV=production`, `MemoryStore` sinon — c'est ce qui
+  évite de déconnecter tout le monde à chaque redéploiement.
+
+Aucune CI, aucune GitHub Action et aucun Dockerfile — le fichier compose sert
+uniquement au développement local. Rien n'est encore réellement déployé.

@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
 CREATE TABLE "achievements" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"game_id" integer NOT NULL,

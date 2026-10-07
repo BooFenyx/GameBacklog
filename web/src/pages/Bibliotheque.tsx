@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { urlApi } from '../api'
 
 export type JeuBibliotheque = {
   appId: number
@@ -18,7 +19,9 @@ export default function Bibliotheque() {
     let actif = true
     void (async () => {
       try {
-        const res = await fetch('/api/library', { credentials: 'include' })
+        const res = await fetch(urlApi('/api/library'), {
+          credentials: 'include',
+        })
         if (!res.ok) {
           const corps = (await res.json().catch(() => null)) as {
             message?: string

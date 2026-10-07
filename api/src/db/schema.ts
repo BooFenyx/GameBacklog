@@ -107,9 +107,8 @@ export const userAchievements = pgTable(
     unlockedAt: timestamp('unlocked_at').notNull().defaultNow(),
   },
   (table) => ({
-    userAchievementIdx: uniqueIndex('user_achievements_user_achievement_idx').on(
-      table.userId,
-      table.achievementId,
-    ),
+    userAchievementIdx: uniqueIndex(
+      'user_achievements_user_achievement_idx',
+    ).on(table.userId, table.achievementId),
   }),
 );

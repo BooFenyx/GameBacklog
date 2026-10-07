@@ -13,6 +13,7 @@ async function bootstrap() {
     app,
     process.env.FRONTEND_URL || 'http://localhost:5173',
     process.env.SESSION_SECRET || 'dev-insecure-session-secret',
+    process.env.DATABASE_URL,
   );
 
   await app.listen(process.env.PORT ?? 3000);
