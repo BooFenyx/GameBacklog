@@ -4,6 +4,8 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { LibraryModule } from './library/library.module.js';
+import { EmbeddingModule } from './embedding/embedding.module.js';
+import { DbModule } from './db/db.module.js';
 
 @Module({
   imports: [
@@ -16,8 +18,10 @@ import { LibraryModule } from './library/library.module.js';
       isGlobal: true,
       envFilePath: '../.env',
     }),
+    DbModule,
     AuthModule,
     LibraryModule,
+    EmbeddingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
