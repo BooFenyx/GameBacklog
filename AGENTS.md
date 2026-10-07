@@ -10,21 +10,29 @@ de données, champs des entités, pipeline d'import, conception de la recherche
 vectorielle, stack et liste des éléments hors périmètre. Lis-la avant d'implémenter
 quoi que ce soit. Les décisions architecturales doivent rester cohérentes avec elle.
 
-État actuel : **squelette uniquement**. L'infrastructure est branchée (`.env`, CORS, proxy,
-`ValidationPipe`, cookie-parser, préfixe `/api`, config vitest) mais **aucune fonctionnalité
-n'existe**. `web/src/App.tsx` est le boilerplate Vite d'origine, non modifié, et le seul point
-d'entrée de l'API est `GET /api` qui renvoie `'Hello World!'`. Tout ce qui est mentionné
-ci-dessous au sujet de Steam, des embeddings, de l'authentification et de la recherche relève
-de la spécification, pas de code existant.
+## État du projet
+
+**Authentification Steam et bibliothèque fonctionnelles.** L'authentification passe par
+OpenID 2.0 (Steam), la session est gérée par `express-session` (cookie `httpOnly`,
+7 jours, `MemoryStore` en dev). La bibliothèque récupère les jeux possédés via la Steam
+Web API (`IPlayerService/GetOwnedGames`). Le front a 4 pages (Connexion, bibliothèque,
+accueil, 404) avec React Router et un provider de session.
+
+**Non implémenté :** recherche vectorielle, embeddings, base de données (Drizzle installé
+mais pas configuré), déploiement.
+
+**Fichiers clés :**
+- `api/src/auth/` — authentification OpenID, session, guard
+- `api/src/library/` — récupération des jeux possédés
+- `api/src/app.setup.ts` — câblage (session, CORS, helmet, ValidationPipe)
+- `web/src/auth/` — provider et contexte de session
+- `web/src/pages/` — pages de l'application
+- `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
 ## Structure — deux paquets indépendants, pas de racine npm
 
-La racine ne contient **aucun `package.json`**. Un `package.json` racine avait été créé par
-erreur (une seule devDependency `vitest`, zéro script, sans script ni config qui le
-référence) ; il a été supprimé, sa devDependency étant déjà déclarée dans `web/`.
-
-`api/` et `web/` ont chacun leur propre `package.json` + `package-lock.json` et doivent être
-installés et lancés indépendamment :
+La racine ne contient **aucun `package.json`**. `api/` et `web/` ont chacun leur propre
+`package.json` + `package-lock.json` et doivent être installés et lancés indépendamment :
 
 - `cd api && npm install && npm run start:dev` → http://localhost:3000
 - `cd web && npm install && npm run dev` → http://localhost:5173
@@ -57,8 +65,8 @@ Les deux paquets déclarent `"engines": { "node": ">=22.12.0" }`, plancher impos
 | `web/` | `npm run dev` / `npm run preview` | |
 
 Exécution ciblée de tests (depuis `api/`) :
-- un seul fichier : `npx vitest run src/app.controller.spec.ts`
-- par nom de test : `npx vitest run -t "Hello World"`
+- un seul fichier : `npx vitest run src/auth/auth.service.spec.ts`
+- par nom de test : `npx vitest run -t "Steam"`
 - debug : `npm run test:debug`
 
 `npm test` n'inclut **pas** les tests e2e — lance `npm run test:e2e` séparément. Ordre
@@ -67,7 +75,53 @@ suggéré avant commit : `api: lint -> test -> test:e2e`, `web: lint -> build`.
 Toutes les routes de l'API sont sous le préfixe `/api` (`setGlobalPrefix` dans
 `api/src/app.setup.ts`). Le point de terminaison par défaut est donc `http://localhost:3000/api`.
 
-## Pièges
+## Conventions de code
+
+### API (`api/`)
+
+- **ESM strict** : `package.json` contient `"type": "module"`, `tsconfig.json` utilise
+  `module`/`moduleResolution: nodenext`. Les imports relatifs **exigent l'extension `.js`** :
+  écris `import { AuthService } from './auth.service.js'`, même si le fichier est un `.ts`.
+- **Prettier** : guillemets simples, points-virgules, `trailingComma: all`.
+- **NestJS** : controllers, services, modules, guards. Les routes sont préfixées par `/api`.
+
+### Web (`web/`)
+
+- **Bundler mode** : la résolution est de type *bundler*, les imports se font **sans extension**.
+- **Aucune config Prettier** : style du scaffold Vite — pas de points-virgules, guillemets
+  simples, pas de virgules finales. ESLint n'impose rien de tout cela ici.
+- **React 19 + React Router 7** : fonctionnel (hooks), pas de classes.
+
+### Tests
+
+- **API** : `*.spec.ts` (unitaires), `*.e2e-spec.ts` (e2e). Configs vitest séparées.
+- **Web** : `vitest` est en devDependency mais **aucun script `test`** dans `package.json`.
+  Ajouter un test côté web implique d'ajouter aussi le script dans `web/package.json`.
+- Le `tsc -b` de `npm run build` exclut déjà `src/**/*.test.*` et `src/**/*.spec.*` :
+  sans ça, le premier test web ferait échouer le build, car `tsconfig.app.json` ne déclare
+  que `types: ["vite/client"]` et ignore donc les globals vitest.
+
+### Commits
+
+- Les messages de commit sont en **français** (voir `git log`). Suis cette langue.
+- La spécification, le `README.md` et les commentaires de code sont en français ; garde les
+  chaînes visibles par l'utilisateur et la documentation cohérentes avec cela.
+- Hors périmètre selon la spécification, ne pas implémenter : Epic/GOG, fonctionnalités
+  sociales, lancement automatique de jeux, import du catalogue Steam complet,
+  recommandations générées par un LLM.
+
+## Mise à jour de l'AGENTS.md
+
+Ce fichier est maintenu par l'agent. Après chaque fonctionnalité terminée, l'agent doit
+mettre à jour les sections « État du projet » et « Fichiers clés » pour refléter le
+travail effectué.
+
+**Aucune modification de ce fichier ne peut être faite sans validation préalable du
+développeur.** L'agent doit présenter un plan décrit des modifications envisagées
+(sections concernées, contenu ajouté ou modifié) et attendre la confirmation explicite
+du développeur avant d'appliquer les changements.
+
+## Pièges techniques
 
 **ESM dans `api/` — les imports relatifs exigent l'extension `.js`.** `api/package.json`
 contient `"type": "module"` et `tsconfig.json` utilise `module`/`moduleResolution:
@@ -91,7 +145,7 @@ donc les globals vitest.
 **`@vitest/coverage-v8` est épinglé à l'exact, volontairement.** Vitest déclare ce paquet en
 peer dependency avec une version **exacte** (`5.0.2`), pas un range. Ne le passe pas en
 `^5.0.2` : à la sortie de `5.0.3`, npm installerait la nouvelle version et le peer ne serait
-plus satisfait. Bump Coordiné des deux paquets, pas de caret.
+plus satisfait. Bump coordonné des deux paquets, pas de caret.
 
 **`vite` doit être déclaré explicitement dans `api/package.json`.** En vitest 4, vite était une
 dépendance directe de vitest ; en vitest 5 il n'est plus qu'un peer dependency obligatoire. Sans
@@ -109,7 +163,7 @@ retire pas et ne le reclasse pas dans git, sinon chaque build pollue le diff.
 
 Attention, ce motif n'avait pas fonctionné jusqu'au nettoyage du squelette :
 `api/tsconfig.build.tsbuildinfo` avait été commité dans `b65a40b`, et `.gitignore` ne
-s'applique qu'aux fichiers **non** suivis. Le fichier a été retiré de l'index
+s'applique qu'aux fichiers **non** suivis. Le fichier a été retiré de l`index
 (`git rm --cached`) ; la règle s'applique désormais pour de bon.
 
 **Le `.env` est à la racine, mais vit le cwd.** `ConfigModule.forRoot` résout
@@ -138,8 +192,11 @@ et l'authentification par cookie casse dans un des deux environnements.
 qu'il est silencieusement ignoré. C'est voulu : ajoute la propriété au DTO, ne la supprime
 pas du client.
 
-**Dette de sécurité connue, à traiter avant la mise en ligne.** Deux points, volontairement
+## Sécurité — à corriger avant mise en ligne
+
+**Dette de sécurité connue, à traiter avant la mise en ligne.** Points volontairement
 laissés de côté :
+
 - **CSP désactivée.** `helmet` est branché mais avec `contentSecurityPolicy: false`, car une
   CSP stricte bloque les scripts inline et le WebSocket du HMR de Vite. Le vrai CSP reste à
   écrire pour la production.
@@ -147,12 +204,14 @@ laissés de côté :
   fréquence par utilisateur » (`fiche_projet.md`). `@nestjs/throttler` n'a pas été installé :
   il raisonne par IP, ce qui n'est pas la clé demandée et serait à remplacer dès que la
   session Steam existera. À implémenter par utilisateur, en s'appuyant sur la session.
-
-**`.env.example` porte les valeurs de développement, pas les secrets.** `DATABASE_URL` et
-`FRONTEND_URL` y sont renseignées pour que le `cp .env.example .env` du `README.md` produise
-un `.env` qui démarre l'API et la base. Les trois clés restent vides à remplir. C'est
-volontaire : `FRONTEND_URL=` (vide) donnerait `''` comme origine CORS, car `main.ts` teste
-avec `||` et non `??`. Le fichier reste commité, donc n'y mets jamais de secret.
+- **`MemoryStore` pour les sessions.** `express-session` utilise `MemoryStore` par défaut :
+  les sessions sont perdues au redémarrage et ne sont pas partagées entre instances. Un store
+  persistant (Redis, PostgreSQL) sera requis en production.
+- **Pas de timeout sur les appels Steam.** `verifySteamCallback` et `fetchPlayerSummary`
+  n'ont pas de timeout : si Steam ne répond pas, la requête reste suspendue. Un
+  `AbortSignal.timeout(5000)` ou similaire serait prudent.
+- **Pas de validation de `openid.mode`.** Le callback ne vérifie pas que le mode est
+  `id_res` (un `cancel` avec un `claimed_id` pourrait passer si la signature est valide).
 
 ## Base de données
 
@@ -178,14 +237,8 @@ par `ConfigModule.forRoot()` dans `app.module.ts`, à partir du `.env` **racine*
 clés (`STEAM_API_KEY`, `EMBEDDING_API_KEY`, `SESSION_SECRET`) sont vides dans le dépôt :
 rien de lié à Steam ou aux embeddings n'est testable avant de les remplir.
 
-## Conventions
-
-- Les messages de commit sont en **français** (voir `git log`). Suis cette langue.
-- La spécification, le `README.md` et les commentaires de code sont en français ; garde les
-  chaînes visibles par l'utilisateur et la documentation cohérentes avec cela.
-- Hors périmètre selon la spécification, ne pas implémenter : Epic/GOG, fonctionnalités
-  sociales, lancement automatique de jeux, import du catalogue Steam complet,
-  recommandations générées par un LLM.
+`STEAM_API_KEY` est requise pour l'authentification (profil) et la bibliothèque (jeux).
+Sans elle, `fetchPlayerSummary` renvoie `null` et `ownedGames` lève un 503.
 
 ## Cible de déploiement
 
