@@ -28,6 +28,7 @@ interface GetPlayerSummariesResponse {
 declare module 'express-session' {
   interface SessionData {
     steamId?: string;
+    userId?: number;
     user?: SteamProfile | null;
   }
 }

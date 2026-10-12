@@ -89,8 +89,20 @@ describe('Bibliothèque (e2e)', () => {
     const res = await agent.get('/api/library').expect(200);
 
     expect(res.body).toEqual([
-      { appId: 730, name: 'Counter-Strike 2' },
-      { appId: 570, name: 'Dota 2' },
+      {
+        appId: 730,
+        name: 'Counter-Strike 2',
+        playtimeForever: 120,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
+      {
+        appId: 570,
+        name: 'Dota 2',
+        playtimeForever: 60,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
     ]);
   });
 });

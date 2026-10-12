@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  QuotaReachedError,
+  RateLimitService,
+} from './rate-limiter.service.js';
 
 const GEMINI_EMBEDDING_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
@@ -22,7 +26,14 @@ interface GeminiEmbeddingResponse {
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly rateLimit: RateLimitService,
+  ) {}
+
+  get modelName(): string {
+    return this.config.get<string>('EMBEDDING_MODEL') ?? DEFAULT_MODEL;
+  }
 
   buildText(input: EmbeddingInput): string {
     const parts: string[] = [input.name];
@@ -49,6 +60,14 @@ export class EmbeddingService {
       return null;
     }
 
+    // Réserve une place dans les quotas (minute + jour). Si le quota quotidien
+    // est épuisé, on lève une exception dédiée : l'import s'arrête proprement
+    // et reprendra plus tard (aucune suppression).
+    const slot = await this.rateLimit.acquire();
+    if (slot === 'quota-journalier') {
+      throw new QuotaReachedError();
+    }
+
     const model = this.config.get<string>('EMBEDDING_MODEL') ?? DEFAULT_MODEL;
     const dimensions =
       this.config.get<number>('EMBEDDING_DIMENSIONS') ?? DEFAULT_DIMENSIONS;
@@ -68,6 +87,9 @@ export class EmbeddingService {
       );
 
       if (!response.ok) {
+        if (response.status === 429) {
+          throw new QuotaReachedError();
+        }
         this.logger.warn(`Gemini a répondu ${response.status}`);
         return null;
       }
@@ -82,6 +104,9 @@ export class EmbeddingService {
 
       return embedding;
     } catch (error) {
+      if (error instanceof QuotaReachedError) {
+        throw error;
+      }
       this.logger.error(
         `Erreur lors de l'appel à Gemini: ${error instanceof Error ? error.message : 'erreur inconnue'}`,
       );

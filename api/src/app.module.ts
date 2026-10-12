@@ -5,6 +5,9 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { LibraryModule } from './library/library.module.js';
 import { EmbeddingModule } from './embedding/embedding.module.js';
+import { UsersModule } from './users/users.module.js';
+import { GamesModule } from './games/games.module.js';
+import { SyncModule } from './sync/sync.module.js';
 import { DbModule } from './db/db.module.js';
 
 @Module({
@@ -22,6 +25,9 @@ import { DbModule } from './db/db.module.js';
     AuthModule,
     LibraryModule,
     EmbeddingModule,
+    UsersModule,
+    GamesModule,
+    SyncModule,
   ],
   controllers: [AppController],
   providers: [AppService],

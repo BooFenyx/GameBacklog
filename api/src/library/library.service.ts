@@ -12,13 +12,24 @@ const STEAM_API_BASE = 'https://api.steampowered.com';
 export interface BibliothequeGame {
   appId: number;
   name: string;
+  /** Temps de jeu total en minutes (source `GetOwnedGames`). */
+  playtimeForever: number;
+  /** Temps de jeu sur les deux dernières semaines, en minutes. */
+  playtimeLast2Weeks: number;
+  lastPlayedAt: Date | null;
 }
 
 /** Forme de la réponse de `IPlayerService/GetOwnedGames`. */
 interface GetOwnedGamesResponse {
   response?: {
     game_count?: number;
-    games?: Array<{ appid: number; name?: string }>;
+    games?: Array<{
+      appid: number;
+      name?: string;
+      playtime_forever?: number;
+      playtime_last_2_weeks?: number;
+      rtime_last_played?: number;
+    }>;
   };
 }
 
@@ -65,7 +76,15 @@ export class LibraryService {
 
     return (data.response?.games ?? [])
       .filter((game) => typeof game.name === 'string' && game.name.length > 0)
-      .map((game) => ({ appId: game.appid, name: game.name as string }))
+      .map((game) => ({
+        appId: game.appid,
+        name: game.name as string,
+        playtimeForever: game.playtime_forever ?? 0,
+        playtimeLast2Weeks: game.playtime_last_2_weeks ?? 0,
+        lastPlayedAt: game.rtime_last_played
+          ? new Date(game.rtime_last_played * 1000)
+          : null,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }
 }

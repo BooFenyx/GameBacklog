@@ -4,8 +4,12 @@ import { urlApi } from '../api'
 export type JeuBibliotheque = {
   appId: number
   name: string
+  playtimeForever: number
+  playtimeLast2Weeks: number
+  lastPlayedAt: string | null
 }
 
+/** État du composant Bibliothèque. */
 type Etat =
   | { statut: 'chargement' }
   | { statut: 'erreur'; message: string }
@@ -28,8 +32,21 @@ export default function Bibliotheque() {
           } | null
           throw new Error(corps?.message ?? `Réponse ${res.status}`)
         }
-        const jeux = (await res.json()) as JeuBibliotheque[]
+        const rawJeux = (await res.json()) as Array<{
+          appId: number
+          name: string
+          playtimeForever: number
+          playtimeLast2Weeks: number
+          lastPlayedAt: string | null
+        }>
         if (!actif) return
+        const jeux = rawJeux.map((j) => ({
+          appId: j.appId,
+          name: j.name,
+          playtimeForever: j.playtimeForever,
+          playtimeLast2Weeks: j.playtimeLast2Weeks,
+          lastPlayedAt: j.lastPlayedAt ?? null,
+        }))
         setEtat({ statut: 'pret', jeux })
       } catch (error) {
         if (!actif) return
@@ -71,7 +88,14 @@ export default function Bibliotheque() {
 
       <ul className="liste-jeux">
         {etat.jeux.map((jeu) => (
-          <li key={jeu.appId}>{jeu.name}</li>
+          <li key={jeu.appId}>
+            <span className="jeu-nom">{jeu.name}</span>
+            <span className="jeu-infos">
+              {jeu.playtimeForever > 0 && `${jeu.playtimeForever} min`}
+              {jeu.playtimeLast2Weeks > 0 && ` | ${jeu.playtimeLast2Weeks} min 2sem`}
+              {jeu.lastPlayedAt && ` | joué le ${jeu.lastPlayedAt}`}
+            </span>
+          </li>
         ))}
       </ul>
     </section>

@@ -10,6 +10,7 @@ import {
 import type { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService, type SteamProfile } from './auth.service.js';
+import { UsersService } from '../users/users.service.js';
 
 @Controller('auth')
 export class AuthController {
@@ -18,6 +19,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -50,6 +52,10 @@ export class AuthController {
       }
 
       const profile = await this.authService.fetchPlayerSummary(steamId);
+      // Persiste l'utilisateur (création ou mise à jour, jamais de suppression).
+      const userId = await this.usersService.upsertFromProfile(
+        profile ?? { steamId, displayName: '', avatarUrl: null },
+      );
 
       // Nouvel identifiant de session à l'ouverture de session : sans ça, un
       // identifiant placé par un tiers (fixation de session) survivrait à
@@ -60,6 +66,7 @@ export class AuthController {
       });
 
       req.session.steamId = steamId;
+      req.session.userId = userId;
       req.session.user = profile ?? {
         steamId,
         displayName: '',

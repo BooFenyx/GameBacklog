@@ -55,9 +55,27 @@ describe('LibraryService', () => {
     );
 
     expect(jeux).toEqual([
-      { appId: 10, name: 'Counter-Strike' },
-      { appId: 730, name: 'Counter-Strike 2' },
-      { appId: 570, name: 'Dota 2' },
+      {
+        appId: 10,
+        name: 'Counter-Strike',
+        playtimeForever: 0,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
+      {
+        appId: 730,
+        name: 'Counter-Strike 2',
+        playtimeForever: 120,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
+      {
+        appId: 570,
+        name: 'Dota 2',
+        playtimeForever: 60,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
     ]);
   });
 

@@ -112,3 +112,48 @@ export const userAchievements = pgTable(
     ).on(table.userId, table.achievementId),
   }),
 );
+
+/**
+ * État d'un import de bibliothèque, une ligne par utilisateur. Sert au suivi de
+ * progression et à la reprise : un job `pending`/`running` est relancé au
+ * démarrage, les étapes déjà terminées étant sautées (upserts idempotents).
+ */
+export const syncJobs = pgTable(
+  'sync_jobs',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status', {
+      enum: ['pending', 'running', 'done', 'error'],
+    })
+      .notNull()
+      .default('pending'),
+    step: text('step', {
+      enum: ['library', 'details', 'embeddings', 'done'],
+    })
+      .notNull()
+      .default('library'),
+    totalGames: integer('total_games').notNull().default(0),
+    processedGames: integer('processed_games').notNull().default(0),
+    error: text('error'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    startedAt: timestamp('started_at'),
+    finishedAt: timestamp('finished_at'),
+  },
+  (table) => ({
+    userIdIdx: uniqueIndex('sync_jobs_user_id_idx').on(table.userId),
+  }),
+);
+
+/**
+ * Compteurs de quota persistés (ex. appel d'embedding Gemini), partagés par
+ * tous les utilisateurs. Le compteur quotidien est la source de vérité survivant
+ * aux redémarrages ; la fenêtre par minute, elle, est gérée en mémoire.
+ */
+export const rateLimits = pgTable('rate_limits', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull().default(0),
+  windowStartedAt: timestamp('window_started_at').notNull().defaultNow(),
+});

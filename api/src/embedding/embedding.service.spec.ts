@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { vi } from 'vitest';
 import { EmbeddingService } from './embedding.service.js';
+import { QuotaReachedError, RateLimitService } from './rate-limiter.service.js';
 
 describe('EmbeddingService', () => {
   let service: EmbeddingService;
@@ -10,11 +11,16 @@ describe('EmbeddingService', () => {
     get: vi.fn(),
   };
 
+  const mockRateLimitService = {
+    acquire: vi.fn().mockResolvedValue('ok'),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EmbeddingService,
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: RateLimitService, useValue: mockRateLimitService },
       ],
     }).compile();
 
@@ -117,7 +123,7 @@ describe('EmbeddingService', () => {
       expect(result).toEqual([0.1, 0.2, 0.3]);
     });
 
-    it("devrait retourner null si la réponse n'est pas ok", async () => {
+    it("devrait lever QuotaReachedError si Gemini répond 429", async () => {
       mockConfigService.get.mockImplementation((key: string) => {
         if (key === 'EMBEDDING_API_KEY') return 'test-key';
         return undefined;
@@ -129,8 +135,17 @@ describe('EmbeddingService', () => {
       });
       global.fetch = mockFetch;
 
-      const result = await service.embed('test');
-      expect(result).toBeNull();
+      await expect(service.embed('test')).rejects.toThrow(QuotaReachedError);
+    });
+
+    it("devrait lever QuotaReachedError si le quota journalier est épuisé", async () => {
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'EMBEDDING_API_KEY') return 'test-key';
+        return undefined;
+      });
+      mockRateLimitService.acquire.mockResolvedValueOnce('quota-journalier');
+
+      await expect(service.embed('test')).rejects.toThrow(QuotaReachedError);
     });
 
     it("devrait retourner null si l'embedding est vide", async () => {
