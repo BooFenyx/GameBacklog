@@ -1,12 +1,14 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
+import type { Db } from '../db/db.module.js';
 import { LibraryService } from './library.service.js';
 
 function makeService(env: Record<string, string> = {}): LibraryService {
   const config = {
     get: (key: string) => env[key],
   } as unknown as ConfigService;
-  return new LibraryService(config);
+  const db = {} as unknown as Db;
+  return new LibraryService(config, db);
 }
 
 describe('LibraryService', () => {
@@ -55,9 +57,27 @@ describe('LibraryService', () => {
     );
 
     expect(jeux).toEqual([
-      { appId: 10, name: 'Counter-Strike' },
-      { appId: 730, name: 'Counter-Strike 2' },
-      { appId: 570, name: 'Dota 2' },
+      {
+        appId: 10,
+        name: 'Counter-Strike',
+        playtimeForever: 0,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
+      {
+        appId: 730,
+        name: 'Counter-Strike 2',
+        playtimeForever: 120,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
+      {
+        appId: 570,
+        name: 'Dota 2',
+        playtimeForever: 60,
+        playtimeLast2Weeks: 0,
+        lastPlayedAt: null,
+      },
     ]);
   });
 

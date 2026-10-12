@@ -10,6 +10,8 @@ import {
 import type { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService, type SteamProfile } from './auth.service.js';
+import { UsersService } from '../users/users.service.js';
+import { SyncService } from '../sync/sync.service.js';
 
 @Controller('auth')
 export class AuthController {
@@ -18,6 +20,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
+    private readonly usersService: UsersService,
+    private readonly syncService: SyncService,
   ) {}
 
   /**
@@ -50,6 +54,10 @@ export class AuthController {
       }
 
       const profile = await this.authService.fetchPlayerSummary(steamId);
+      // Persiste l'utilisateur (création ou mise à jour, jamais de suppression).
+      const userId = await this.usersService.upsertFromProfile(
+        profile ?? { steamId, displayName: '', avatarUrl: null },
+      );
 
       // Nouvel identifiant de session à l'ouverture de session : sans ça, un
       // identifiant placé par un tiers (fixation de session) survivrait à
@@ -60,12 +68,24 @@ export class AuthController {
       });
 
       req.session.steamId = steamId;
+      req.session.userId = userId;
       req.session.user = profile ?? {
         steamId,
         displayName: '',
         avatarUrl: '',
         profileUrl: '',
       };
+
+      // Import initial de la bibliothèque, une seule fois : la liste des jeux
+      // Steam est récupérée au premier login puis mise en cache en base
+      // (`sync_jobs`, `library_entries`, `games`). Le sync ne repart pas quand
+      // un import s'est déjà terminé (`done`) ; le front peut relancer à la
+      // main via `POST /api/sync`. Le traitement est en tâche de fond : on ne
+      // bloque pas la redirection.
+      const statut = await this.usersService.syncStatusOf(userId);
+      if (statut !== 'done') {
+        void this.syncService.enqueue(userId);
+      }
 
       res.redirect(`${frontendUrl}/?auth=success`);
     } catch (error) {

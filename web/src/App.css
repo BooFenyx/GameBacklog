@@ -561,3 +561,207 @@
     text-align: center;
   }
 }
+
+/* --- Bibliothèque enrichie (import en base) --- */
+
+.bibliotheque-vide {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  text-align: center;
+}
+
+.message-erreur {
+  margin: 0;
+  padding: 14px 18px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: 0 8px 8px 0;
+  font-size: 15px;
+}
+
+.sync-progression {
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--social-bg);
+
+  p {
+    margin: 0 0 10px;
+    font-size: 14px;
+    color: var(--text);
+  }
+}
+
+.sync-barre {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.sync-barre-remplie {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.liste-jeux {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.liste-jeux li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--social-bg);
+
+  & + & {
+    border-top: 1px solid var(--border);
+  }
+}
+
+.jeu-image {
+  flex: none;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.jeu-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jeu-nom {
+  color: var(--text-h);
+  font-size: 16px;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--accent);
+  }
+}
+
+.jeu-infos {
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* --- Fiche détail d'un jeu --- */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detail-image {
+  width: 100%;
+  max-width: 616px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.detail-tete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+
+  h1 {
+    margin: 0;
+    font-size: 34px;
+    letter-spacing: -0.5px;
+  }
+}
+
+.detail-description {
+  max-width: 72ch;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.detail-infos {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) 1fr;
+  gap: 8px 24px;
+  margin: 0;
+
+  dt {
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  dd {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text-h);
+  }
+}
+
+.detail-actions .btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.detail-succes h2 {
+  font-size: 22px;
+}
+
+.liste-succes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.liste-succes li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--social-bg);
+
+  img {
+    flex: none;
+    border-radius: 4px;
+  }
+}
+
+.liste-succes .succes-verrouille {
+  opacity: 0.55;
+}
+
+.succes-texte {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  em {
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  small {
+    font-size: 13px;
+    color: var(--text);
+  }
+}

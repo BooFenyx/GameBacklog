@@ -12,6 +12,7 @@ import RootLayout from './components/RootLayout'
 import Accueil from './pages/Accueil'
 import Bibliotheque from './pages/Bibliotheque'
 import Connexion from './pages/Connexion'
+import JeuDetail from './pages/JeuDetail'
 import NotFound from './pages/NotFound'
 import './App.css'
 
@@ -64,6 +65,14 @@ function App() {
               element={
                 <RouteProtegee>
                   <Bibliotheque />
+                </RouteProtegee>
+              }
+            />
+            <Route
+              path="/jeu/:appId"
+              element={
+                <RouteProtegee>
+                  <JeuDetail />
                 </RouteProtegee>
               }
             />
