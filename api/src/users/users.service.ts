@@ -55,6 +55,16 @@ export class UsersService {
     return row?.id;
   }
 
+  /** Statut de sync courant d'un utilisateur (`undefined` s'il est inconnu). */
+  async syncStatusOf(userId: number): Promise<SyncStatus | undefined> {
+    const [row] = await this.db
+      .select({ syncStatus: users.syncStatus })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return row?.syncStatus;
+  }
+
   async setStatus(
     userId: number,
     status: SyncStatus,

@@ -12,35 +12,49 @@ quoi que ce soit. Les décisions architecturales doivent rester cohérentes avec
 
 ## État du projet
 
-**Authentification Steam et bibliothèque fonctionnelles.** L'authentification passe par
-OpenID 2.0 (Steam), la session est gérée par `express-session` (cookie `httpOnly`,
-7 jours, `MemoryStore` en dev). La bibliothèque récupère les jeux possédés via la Steam
-Web API (`IPlayerService/GetOwnedGames`). Le front a 4 pages (Connexion, bibliothèque,
-accueil, 404) avec React Router et un provider de session.
+**Authentification Steam et import de bibliothèque fonctionnels.** L'authentification
+passe par OpenID 2.0 (Steam, callback validé en `id_res`), la session est gérée par
+`express-session` (cookie `httpOnly`, 7 jours, `MemoryStore` en dev, store PostgreSQL en
+prod). Au callback, l'utilisateur est upserté dans `users` puis un import est mis en file
+(`SyncService`) s'il n'est pas déjà `done`. La bibliothèque est **lue depuis la base**
+(`library_entries ⋈ games`), plus jamais depuis Steam au fil des requêtes.
 
-**Embeddings et base de données : infrastructure en place, pas encore branchée.** Le
-module `api/src/embedding/` génère des embeddings via l'API Gemini (`gemini-embedding-001`,
-1024 dimensions, retour `null` si la clé manque). Le module `api/src/db/` expose Drizzle
-(`pg` + pgvector) via un token global `DB` : schéma 5 tables dont `games.embedding
-vector(1024)`. Rien n'injecte encore `DB` ni `EmbeddingService` — aucun pipeline d'import
-ni persistance n'existe. Les migrations s'appliquent automatiquement au démarrage de
-l'API (verrou advisory).
+**Pipeline d'import en tâche de fond (`api/src/sync/`).** Trois étapes reprises au
+redémarrage : `library` (persistance des `library_entries` depuis `GetOwnedGames`),
+`details` (fiches `appdetails` manquantes), `embeddings` (texte
+`nom + description + genres + catégories` → Gemini `gemini-embedding-001`, 1024 dims,
+stocké dans `games.embedding`). Progression suivie par `GET /api/sync`, relance par
+`POST /api/sync`. Un job interrompu (`running`) est remis en file au boot.
 
-**Non implémenté :** recherche vectorielle, pipeline d'import/persistance des jeux,
-branchement des embeddings, mise en ligne (socle prêt, rien n'est encore déployé).
+**Succès à la demande.** `GET /api/games/:appId` renvoie la fiche complète (description,
+genres, catégories, support manette, temps de jeu) et charge les succès
+(`GetSchemaForGame` + `GetPlayerAchievements`) uniquement à l'ouverture de la fiche.
+
+**Front.** Pages Connexion, accueil, bibliothèque, détail d'un jeu (`/jeu/:appId`) et 404,
+avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
+les 2 s et s'affiche dès que l'étape `library` est passée.
+
+**Non implémenté :** recherche vectorielle (seule l'indexation des embeddings est faite),
+accueil calculé (à relancer / à découvrir / proches), filtres et tri de la bibliothèque,
+rate limiting par utilisateur, mise en ligne (socle prêt, rien n'est encore déployé).
 
 **Fichiers clés :**
-- `api/src/auth/` — authentification OpenID, session, guard
-- `api/src/library/` — récupération des jeux possédés
-- `api/src/embedding/` — service d'embedding Gemini (non branché)
+- `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
+- `api/src/sync/` — pipeline d'import (3 étapes, reprise, progression)
+- `api/src/library/` — `ownedGames` (Steam, à l'import) et `savedLibrary` (lecture base)
+- `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId`
+- `api/src/achievements/` — succès à la demande (`GetSchemaForGame` / `GetPlayerAchievements`)
+- `api/src/users/` — upsert utilisateur, `syncStatus`
+- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j)
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
-- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0003)
 - `render.yaml` — blueprint Render (API seule)
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
+- `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/api.ts` — helper `urlApi()` (base `VITE_API_URL`)
 - `web/vercel.json` — rewrite SPA pour Vercel
-- `web/src/pages/` — pages de l'application
+- `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
 - `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
 ## Structure — deux paquets indépendants, pas de racine npm
@@ -209,6 +223,15 @@ et l'authentification par cookie casse dans un des deux environnements.
 qu'il est silencieusement ignoré. C'est voulu : ajoute la propriété au DTO, ne la supprime
 pas du client.
 
+**Pas de cycle entre `AuthModule`, `SyncModule` et `LibraryModule`.** `AuthModule` importe
+`SyncModule` (enqueue au callback) et `SyncModule` importe `LibraryModule`. `LibraryModule`
+ne doit donc **pas** importer `AuthModule` : un cycle provoque au démarrage un
+`ReferenceError: Cannot access 'AuthModule' before initialization` (ESM, graphe évalué
+dans l'ordre des imports). Le `SessionGuard` n'a aucune dépendance et s'utilise par
+référence de classe (`@UseGuards(SessionGuard)`), comme dans `GamesModule` et `SyncModule` :
+nul besoin d'importer `AuthModule` pour l'obtenir. Corollaire : `SyncService` est injecté par
+`AuthController`, donc `SyncModule` doit l'`export`.
+
 ## Sécurité — à corriger avant mise en ligne
 
 **Dette de sécurité connue, à traiter avant la mise en ligne.** Points volontairement
@@ -221,35 +244,31 @@ laissés de côté :
   fréquence par utilisateur » (`fiche_projet.md`). `@nestjs/throttler` n'a pas été installé :
   il raisonne par IP, ce qui n'est pas la clé demandée et serait à remplacer dès que la
   session Steam existera. À implémenter par utilisateur, en s'appuyant sur la session.
-- **Pas de timeout sur les appels externes.** `verifySteamCallback`,
-  `fetchPlayerSummary` et l'appel Gemini de `EmbeddingService.embed` n'ont pas de
-  timeout : si le service distant ne répond pas, la requête reste suspendue. Un
-  `AbortSignal.timeout(5000)` ou similaire serait prudent.
-- **Pas de validation de `openid.mode`.** Le callback ne vérifie pas que le mode est
-  `id_res` (un `cancel` avec un `claimed_id` pourrait passer si la signature est valide).
+
+Résolus depuis : **timeouts** (`AbortSignal.timeout(5000)`) et **validation de
+`openid.mode === 'id_res'`** (voir Écarts 15 et 16).
 
 ## Écarts spec ↔ code
 
-Liste exhaustive des écarts entre `fiche_projet.md` (spec) et le code réel, classés par
-gravité. Chaque écart indique ce que demande la spec, ce que fait le code, et la
-correction nécessaire.
+Liste des écarts entre `fiche_projet.md` (spec) et le code réel, classés par gravité. Chaque
+écart indique ce que demande la spec et l'état réel (✅ Résolu, ⚠️ Partiel, ou ce qu'il
+reste à corriger).
 
-### Écarts critiques (cœur du produit absent)
+### Écarts critiques
 
-#### Écart 1 — Pipeline d'import de la bibliothèque inexistant
+#### Écart 1 — Pipeline d'import de la bibliothèque — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Connexion : authentification via Steam (OpenID), puis **import de la bibliothèque** avec suivi de progression. » (`fiche_projet.md:15`) — « L'import se fait en **tâche de fond** avec reprise : les entrées de bibliothèque d'abord, puis les fiches manquantes, puis les embeddings. » (`fiche_projet.md:39`) |
-| **Code réel** | `api/src/auth/auth.controller.ts:38-75` : après vérification OpenID, le profil est récupéré et la session ouverte, mais **aucun import n'est déclenché**. Le callback se contente de rediriger vers le front. `api/src/library/library.service.ts:35` : `ownedGames()` fait un appel direct à `GetOwnedGames` à chaque requête `GET /api/library`. **Aucune persistance** en base, aucun `LibraryEntry` créé. `web/src/pages/Accueil.tsx:62-65` : « L'import de ta bibliothèque Steam arrive à la prochaine étape ». |
-| **Correction** | Implémenter un `SyncService` qui (1) crée/met à jour l'enregistrement `users`, (2) persiste les `LibraryEntry` depuis `GetOwnedGames`, (3) récupère les fiches `appdetails` manquantes, (4) génère les embeddings, le tout en tâche de fond avec suivi de `syncStatus`. |
+| **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done`, trois étapes reprises (`onModuleInit` remet les jobs `running` en `pending`). `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). |
 
 #### Écart 2 — Recherche vectorielle absente
 
 | | Détail |
 |---|---|
 | **Spec** | « Recherche : saisie libre (« un jeu calme avec des énigmes, jouable à la manette ») et résultats classés. » (`fiche_projet.md:18`) — « embedding de la requête, puis SQL unique combinant **filtres stricts** (support manette, dans la bibliothèque de l'utilisateur) et **tri par similarité cosinus**. » (`fiche_projet.md:45`) — « liste de 10 jeux de la bibliothèque de l'utilisateur, avec le score de similarité et les critères respectés. » (`fiche_projet.md:46`) |
-| **Code réel** | Aucun contrôleur de recherche n'existe dans `api/src/`. Aucun service de recherche n'existe. `web/src/components/RootLayout.tsx:37-39` : `<span className="nav-avenir" title="Bientôt disponible">Recherche</span>` — la navigation est désactivée. `api/src/embedding/embedding.service.ts` : le service existe mais n'est injecté dans aucun autre module. |
+| **Code réel** | Aucun contrôleur de recherche n'existe dans `api/src/`. Aucun service de recherche n'existe. `web/src/components/RootLayout.tsx:37-39` : `<span className="nav-avenir" title="Bientôt disponible">Recherche</span>` — la navigation est désactivée. `api/src/embedding/embedding.service.ts` est désormais injecté par le `SyncService` (indexation), mais aucune requête n'embedde une saisie utilisateur. |
 | **Correction** | Créer un `SearchModule` avec un contrôleur `GET /api/search?q=...` qui embeds la requête, interroge pgvector avec `ORDER BY embedding <=> $1`, filtre par `controllerSupport` et `userId`, renvoie 10 résultats avec score. |
 
 #### Écart 3 — Page d'accueil non fonctionnelle
@@ -260,55 +279,49 @@ correction nécessaire.
 | **Code réel** | `web/src/pages/Accueil.tsx:4-20` : trois sections vides avec messages fixes — « Aucun jeu importé pour le moment. » / « Arrive avec la recherche par similarité. » Aucune donnée réelle n'est affichée. |
 | **Correction** | Implémenter trois requêtes SQL : (1) jeux avec `playtimeLast2Weeks > 0` mais `playtimeForever` faible (à relancer), (2) jeux avec `playtimeForever = 0` (à découvrir), (3) jeux dont l'embedding est proche des derniers joués (proximité vectorielle). |
 
-#### Écart 5 — Page de détail d'un jeu absente
+#### Écart 5 — Page de détail d'un jeu — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Détail d'un jeu : description, genres, support manette, temps de jeu, succès obtenus, lien pour lancer le jeu dans Steam. » (`fiche_projet.md:19`) |
-| **Code réel** | Aucune route `/jeu/:id` ou équivalent n'existe dans `web/src/App.tsx`. Aucun contrôleur de détail n'existe dans `api/src/`. Aucun appel à `GetSchemaForGame` ou `GetPlayerAchievements`. |
-| **Correction** | Créer `GET /api/games/:appId` qui retourne la fiche complète + succès de l'utilisateur, et une page front correspondante avec un lien `steam://run/<appId>`. |
+| **État** | ✅ Résolu — `api/src/games/games.controller.ts` expose `GET /api/games/:appId` (fiche + succès de l'utilisateur via `SessionGuard`), route `web/src/App.tsx` `/jeu/:appId` → `web/src/pages/JeuDetail.tsx` (description, genres, manette, temps de jeu, succès, lien `steam://run/<appId>`). |
 
-#### Écart 7 — Embeddings non branchés
+#### Écart 7 — Embeddings branchés — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Indexation (une fois par jeu, à l'import) : texte `nom + description + genres + catégories` → embedding stocké dans `Game.embedding` (pgvector). » (`fiche_projet.md:43`) |
-| **Code réel** | `api/src/embedding/embedding.service.ts` : le service `EmbeddingService` existe avec `embedGame()` et `buildText()`. `api/src/embedding/embedding.module.ts` : le module est déclaré et exporté. `api/src/app.module.ts:24` : `EmbeddingModule` est importé. **Mais** aucun autre module n'injecte `EmbeddingService`. Aucun pipeline ne l'appelle. La colonne `games.embedding` n'est jamais remplie. |
-| **Correction** | Injecter `EmbeddingService` et `DB` dans le `SyncService`, appeler `embedGame()` après récupération des fiches, persister dans `games.embedding`. |
+| **État** | ✅ Résolu — `SyncService` (étape `embeddings`) injecte `EmbeddingService` (`embedGame`) et écrit `games.embedding` + `games.embeddingModel`. Un `EmbeddingRateLimiter` (100 rpm / 1000 j, persisté dans `rate_limits`) protège le quota Gemini ; le job reprend plus tard en cas de `QuotaReachedError`. |
 
-#### Écart 8 — Fiches Steam (appdetails) jamais récupérées
+#### Écart 8 — Fiches Steam (appdetails) récupérées — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Game : … shortDescription, genres[], categories[], controllerSupport, releaseDate, headerImageUrl, embedding, embeddingModel, detailsFetchedAt — Source: Store `appdetails` » (`fiche_projet.md:26`) |
-| **Code réel** | Le schéma `games` a tous ces champs (`api/src/db/schema.ts:32-55`). Aucun service ne récupère les fiches depuis le Store `appdetails`. La table `games` n'est jamais alimentée. |
-| **Correction** | Créer un `GameService` qui appelle `https://store.steampowered.com/api/appdetails?appids=<id>` et upsert dans `games`. |
+| **État** | ✅ Résolu — `api/src/games/games.service.ts` : `fetchAppDetails(appId)` appelle `https://store.steampowered.com/api/appdetails?appids=<id>` (timeout, jamais d'exception), `mapAppDetails`/`mapControllerSupport`/`parseReleaseDate` normalisent la fiche, `upsertFromDetails`/`upsertBasic` alimentent `games` (étape `details` du `SyncService`). |
 
-### Écarts élevés (fonctionnalités importantes incomplètes)
+### Écarts élevés
 
-#### Écart 4 — Page bibliothèque incomplète
+#### Écart 4 — Page bibliothèque — ⚠️ Partiel
 
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec **temps de jeu, dernière utilisation, genres, filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **Code réel** | `web/src/pages/Bibliotheque.tsx:4-7` : le type `JeuBibliotheque` ne contient que `appId` et `name`. `api/src/library/library.service.ts:12-15` : `BibliothequeGame` ne contient que `appId` et `name`. Aucun filtre, aucun tri, aucun affichage de temps de jeu ou de genres. |
-| **Correction** | Enrichir la réponse API avec `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `controllerSupport`. Ajouter des paramètres de requête `?tri=&filtre_genre=&filtre_manette=` et les contrôles correspondants dans le front. |
+| **État** | ⚠️ Partiel — champs enrichis faits : `GET /api/library` renvoie `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `categories`, `controllerSupport`, `shortDescription`, `headerImageUrl`, `achievementsUnlocked` (`BibliothequeGamePersiste`), affichés dans `web/src/pages/Bibliotheque.tsx`. **Manquent** : filtres et tri (voir Écart 19). |
 
-#### Écart 6 — Succès (Achievement / UserAchievement) jamais chargés
+#### Écart 6 — Succès à la demande — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Achievement : id, gameId, apiName, displayName, description, iconUrl — Source: `GetSchemaForGame` » (`fiche_projet.md:28`) — « UserAchievement : userId, achievementId, unlockedAt — Source: `GetPlayerAchievements` » (`fiche_projet.md:29`) — « Les succès (`Achievement`, `UserAchievement`) sont chargés **à la demande**, à l'ouverture du détail d'un jeu » (`fiche_projet.md:38`) |
-| **Code réel** | Les tables `achievements` et `user_achievements` existent dans `api/src/db/schema.ts:81-114`. Aucun service, contrôleur ou module ne les utilise. Aucun appel aux APIs Steam `GetSchemaForGame` ou `GetPlayerAchievements`. |
-| **Correction** | Créer un `AchievementService` avec `getGameAchievements(appId)` et `getUserAchievements(steamId, appId)`, appelés à l'ouverture du détail. |
+| **État** | ✅ Résolu — `api/src/achievements/` : `getGameAchievements` (`GetSchemaForGame`, cache `achievements`) et `getUserAchievements` (`GetPlayerAchievements`, upsert `user_achievements` + compteur `library_entries.achievementsUnlocked`), appelés par `GamesService` au `GET /api/games/:appId`. `apiname` est normalisé en `apiName`. |
 
-#### Écart 9 — Utilisateur jamais persisté en base
+#### Écart 9 — Utilisateur persisté en base — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « User : id, steamId (unique), displayName, avatarUrl, lastSyncAt, syncStatus (pending / running / done / error), createdAt — Source: Steam OpenID + `GetPlayerSummaries` » (`fiche_projet.md:25`) |
-| **Code réel** | La table `users` existe avec tous les champs (`api/src/db/schema.ts:12-30`). `api/src/auth/auth.controller.ts:62-68` : stocke le profil en session mais **ne crée jamais d'enregistrement `users`**. Aucun `syncStatus` n'est jamais mis à jour. |
-| **Correction** | Dans le callback Steam, upsert l'utilisateur dans `users` (création ou mise à jour de `displayName`, `avatarUrl`, `lastSyncAt`). |
+| **État** | ✅ Résolu — le callback Steam (`api/src/auth/auth.controller.ts`) upsert l'utilisateur dans `users` (`displayName`, `avatarUrl`) via `UsersService`, puis met à jour `syncStatus` et `lastSyncAt` au fil du job (`SyncService`). `userId` est stocké en session pour les routes suivantes. |
 
 ### Écarts moyens (robustesse, sécurité, complétude)
 
@@ -336,21 +349,19 @@ correction nécessaire.
 | **Code réel** | `api/src/app.setup.ts:32` : `helmet({ contentSecurityPolicy: false })`. Commentaire : « La CSP est désactivée : elle bloque les scripts inline et le WebSocket du HMR de Vite. À configurer avant le déploiement. » |
 | **Correction** | Définir une CSP stricte pour la production qui autorise les sources nécessaires (Vercel, Render, Steam) sans bloquer le HMR en dev. |
 
-#### Écart 15 — Pas de timeout sur les appels externes
+#### Écart 15 — Timeouts sur les appels externes — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | Non mentionné. |
-| **Code réel** | `api/src/auth/auth.service.ts:83,113` : `verifySteamCallback` et `fetchPlayerSummary` n'ont pas de timeout. `api/src/embedding/embedding.service.ts:57` : `embed` n'a pas de timeout. `api/src/library/library.service.ts:50` : `ownedGames` n'a pas de timeout. |
-| **Correction** | Ajouter `AbortSignal.timeout(5000)` à chaque `fetch()`. |
+| **État** | ✅ Résolu — `AbortSignal.timeout(5000)` ajouté aux appels `verifySteamCallback` / `fetchPlayerSummary` (`api/src/auth/auth.service.ts`), `EmbeddingService.embed`, `LibraryService.ownedGames` et `GamesService.fetchAppDetails`. |
 
-#### Écart 17 — Lien pour lancer le jeu dans Steam
+#### Écart 17 — Lien pour lancer le jeu dans Steam — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Détail d'un jeu : … lien pour lancer le jeu dans Steam. » (`fiche_projet.md:19`) |
-| **Code réel** | Non implémenté (pas de page détail). **Note** : « Lancement automatique des jeux » est hors périmètre (`fiche_projet.md:64`), mais la spec demande un **lien** cliquable, pas un lancement automatique. |
-| **Correction** | Ajouter un lien `steam://run/<appId>` dans la page de détail. |
+| **État** | ✅ Résolu — `web/src/pages/JeuDetail.tsx` affiche un lien `steam://run/<appId>`. **Note** : « Lancement automatique des jeux » reste hors périmètre (`fiche_projet.md:64`), mais la spec demandait un **lien** cliquable, ce qui est fait. |
 
 ### Écarts faibles (incohérences mineures)
 
@@ -370,20 +381,19 @@ correction nécessaire.
 | **Code réel** | `api/src/app.setup.ts:65-71` : `ValidationPipe` est configuré globalement avec `whitelist: true, forbidNonWhitelisted: true, transform: true`. **Mais** aucun fichier `*dto.ts` n'existe dans le codebase. Aucune classe DTO n'est définie. |
 | **Correction** | Créer des DTO pour chaque route acceptant un corps ou des paramètres de requête (recherche, filtres de bibliothèque). |
 
-#### Écart 16 — Validation de `openid.mode` absente
+#### Écart 16 — Validation de `openid.mode` — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | Non mentionné. |
-| **Code réel** | `api/src/auth/auth.service.ts:64-96` : `verifySteamCallback` ne vérifie pas que `openid.mode` est `id_res`. Un `cancel` avec un `claimed_id` pourrait passer si la signature est valide. |
-| **Correction** | Vérifier que `query['openid.mode'] === 'id_res'` avant de procéder à la validation. |
+| **État** | ✅ Résolu — `verifySteamCallback` (`api/src/auth/auth.service.ts`) rejette les réponses dont `openid.mode` n'est pas `id_res` avant toute validation de signature. |
 
 #### Écart 18 — Message d'aide si profil privé
 
 | | Détail |
 |---|---|
 | **Spec** | « Message d'aide si le profil est privé. » (`fiche_projet.md:15`) |
-| **Code réel** | `api/src/library/library.service.ts:57-61` : lève `ServiceUnavailableException` avec message « profil privé ou clé invalide ». `web/src/pages/Bibliotheque.tsx:54-60` : affiche le message d'erreur. **Mais** pas de message d'aide spécifique (comment rendre le profil public). |
+| **Code réel** | L'échec survient désormais à l'import : `LibraryService.ownedGames` lève `ServiceUnavailableException` (« profil privé ou clé invalide »), le `SyncService` la capture et stocke le message dans `sync_jobs.error` ; le front l'affiche (`web/src/pages/Bibliotheque.tsx`). **Mais** pas de message d'aide spécifique (comment rendre le profil public). |
 | **Correction** | Ajouter un message d'aide explicite dans le front : « Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque. » |
 
 #### Écart 19 — Tri et filtres de la bibliothèque absents
@@ -404,15 +414,13 @@ correction nécessaire.
 
 ### Priorités d'implémentation
 
-Ordre recommandé pour combler les écarts :
+Ordre recommandé pour combler les écarts restants :
 
-1. **Sécurité** (Écarts 14-16) : timeout sur appels externes, validation `openid.mode`, rate limiting custom par `steamId`. Prérequis avant toute mise en ligne.
-2. **Pipeline d'import** (Écarts 1, 7, 8, 9) : `SyncService` + `GameService` avec reprise (`syncStatus`). C'est le prérequis de toutes les fonctionnalités suivantes.
-3. **Recherche vectorielle** (Écarts 2, 10, 11) : `SearchModule` avec pgvector, rate limiting, fallback dégradé.
-4. **Accueil calculé** (Écarts 3, 20) : troisrequêtes SQL (à relancer, à découvrir, proches).
-5. **Page détail + succès** (Écarts 5, 6, 17) : `GET /api/games/:appId` + `AchievementService` + lien Steam.
-6. **Bibliothèque enrichie** (Écarts 4, 19) : champs supplémentaires, filtres, tri.
-7. **Divers** (Écarts 12, 13, 18) : mettre à jour `fiche_projet.md` (hébergement), créer les DTO, message d'aide profil privé.
+1. **Recherche vectorielle** (Écarts 2, 10, 11) : `SearchModule` avec pgvector, rate limiting par `steamId`, fallback dégradé. Gros morceau restant.
+2. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
+3. **Bibliothèque enrichie** (Écarts 4, 19) : filtres et tri.
+4. **Sécurité et robustesse** (Écarts 14, 18) : CSP de production, message d'aide profil privé. Prérequis avant mise en ligne.
+5. **Divers** (Écarts 12, 13) : mettre à jour `fiche_projet.md` (hébergement), créer les DTO.
 
 ## Base de données
 
@@ -427,7 +435,7 @@ classique — la spécification exige une recherche par similarité vectorielle 
 `Game.embedding`.
 
 Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
-`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000 générée). `npm run db:migrate`
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0003). `npm run db:migrate`
 applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
 manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
 démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée
@@ -451,6 +459,10 @@ Sans elle, `fetchPlayerSummary` renvoie `null` et `ownedGames` lève un 503.
 `EMBEDDING_MODEL` et `EMBEDDING_DIMENSIONS` sont optionnels (défauts :
 `gemini-embedding-001` / `1024`). Changer les dimensions exige une migration de
 `games.embedding`.
+
+`EMBEDDING_RATE_LIMIT_PER_MINUTE` et `EMBEDDING_RATE_LIMIT_PER_DAY` sont optionnels
+(défauts : `100` / `1000`) : ils plafonnent les appels Gemini, le job reprenant plus tard
+au-delà du quota.
 
 ## Cible de déploiement
 

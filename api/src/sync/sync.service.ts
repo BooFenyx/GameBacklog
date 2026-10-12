@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -42,7 +43,7 @@ type SyncJobRow = {
 };
 
 @Injectable()
-export class SyncService {
+export class SyncService implements OnModuleInit {
   private readonly logger = new Logger(SyncService.name);
   /** Verrou en mémoire : un seul job traité à la fois dans ce process. */
   private running = false;
@@ -57,6 +58,26 @@ export class SyncService {
     private readonly embedding: EmbeddingService,
     private readonly users: UsersService,
   ) {}
+
+  /**
+   * Reprise au démarrage : un job interrompu par un redémarrage est resté en
+   * `running` dans la base. On le remet en file (`pending`) puis on relance la
+   * boucle : les étapes déjà terminées sont sautées (upserts idempotents).
+   */
+  async onModuleInit(): Promise<void> {
+    const result = await this.db.$client.query(
+      `UPDATE sync_jobs
+       SET status = $1, started_at = NULL
+       WHERE status = $2`,
+      ['pending', 'running'],
+    );
+    if ((result.rowCount ?? 0) > 0) {
+      this.logger.log(
+        `${result.rowCount} job(s) interrompu(s) remis en file au démarrage`,
+      );
+    }
+    void this.drain();
+  }
 
   /**
    * Crée/réactive le job de l'utilisateur (une ligne par utilisateur, upsert)

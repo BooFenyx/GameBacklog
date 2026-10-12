@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
-import { games } from '../db/schema.js';
+import { games, libraryEntries } from '../db/schema.js';
 import type { EmbeddingInput } from '../embedding/embedding.service.js';
 
 const STEAM_STORE_APPDETAILS = 'https://store.steampowered.com/api/appdetails';
@@ -115,6 +115,23 @@ function mapAppDetails(appId: number, data: NonNullable<AppdetailsData['data']>)
   };
 }
 
+/** Concaténation d'une fiche `games` et de sa ligne `library_entries`. */
+export interface UserGameDetail {
+  id: number;
+  appId: number;
+  name: string;
+  shortDescription: string | null;
+  genres: string[];
+  categories: string[];
+  controllerSupport: 'none' | 'partial' | 'full';
+  releaseDate: Date | null;
+  headerImageUrl: string | null;
+  playtimeForever: number;
+  playtimeLast2Weeks: number;
+  lastPlayedAt: Date | null;
+  achievementsUnlocked: number;
+}
+
 @Injectable()
 export class GamesService {
   private readonly logger = new Logger(GamesService.name);
@@ -211,5 +228,38 @@ export class GamesService {
       genres: row.genres,
       categories: row.categories,
     };
+  }
+
+  /**
+   * Fiche d'un jeu de la bibliothèque de l'utilisateur (jointure
+   * `library_entries ⋈ games`). Renvoie `null` si le jeu n'est pas possédé.
+   */
+  async userGameDetail(
+    appId: number,
+    userId: number,
+  ): Promise<UserGameDetail | null> {
+    const [row] = await this.db
+      .select({
+        id: games.id,
+        appId: games.appId,
+        name: games.name,
+        shortDescription: games.shortDescription,
+        genres: games.genres,
+        categories: games.categories,
+        controllerSupport: games.controllerSupport,
+        releaseDate: games.releaseDate,
+        headerImageUrl: games.headerImageUrl,
+        playtimeForever: libraryEntries.playtimeForever,
+        playtimeLast2Weeks: libraryEntries.playtimeLast2Weeks,
+        lastPlayedAt: libraryEntries.lastPlayedAt,
+        achievementsUnlocked: libraryEntries.achievementsUnlocked,
+      })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(
+        and(eq(games.appId, appId), eq(libraryEntries.userId, userId)),
+      )
+      .limit(1);
+    return row ?? null;
   }
 }

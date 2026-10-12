@@ -60,8 +60,8 @@ export default function Accueil() {
       </div>
 
       <p className="accueil-import">
-        L’import de ta bibliothèque Steam arrive à la prochaine étape : les
-        sections ci-dessus se rempliront automatiquement.
+        Ta bibliothèque Steam est importée automatiquement à la connexion et
+        mise en cache en base : suis l’avancement sur la page Bibliothèque.
       </p>
 
       <aside className="session">

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "achievements_game_api_name_idx" ON "achievements" USING btree ("game_id","api_name");

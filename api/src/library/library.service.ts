@@ -4,9 +4,15 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { eq } from 'drizzle-orm';
+import { Inject } from '@nestjs/common';
+import { DB, type Db } from '../db/db.module.js';
+import { games, libraryEntries } from '../db/schema.js';
 
 /** Base de la Steam Web API (authentifiée par `STEAM_API_KEY`). */
 const STEAM_API_BASE = 'https://api.steampowered.com';
+/** Abandon d'un appel externe après 5 s pour ne pas laisser la requête suspendue. */
+const EXTERNAL_CALL_TIMEOUT_MS = 5000;
 
 /** Jeu renvoyé au front pour la page bibliothèque. */
 export interface BibliothequeGame {
@@ -17,6 +23,16 @@ export interface BibliothequeGame {
   /** Temps de jeu sur les deux dernières semaines, en minutes. */
   playtimeLast2Weeks: number;
   lastPlayedAt: Date | null;
+}
+
+/** Jeu persisté en base (`library_entries ⋈ games`), enrichi pour la page. */
+export interface BibliothequeGamePersiste extends BibliothequeGame {
+  genres: string[];
+  categories: string[];
+  controllerSupport: 'none' | 'partial' | 'full';
+  shortDescription: string | null;
+  headerImageUrl: string | null;
+  achievementsUnlocked: number;
 }
 
 /** Forme de la réponse de `IPlayerService/GetOwnedGames`. */
@@ -37,7 +53,38 @@ interface GetOwnedGamesResponse {
 export class LibraryService {
   private readonly logger = new Logger(LibraryService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(DB) private readonly db: Db,
+  ) {}
+
+  /**
+   * Bibliothèque persistée de l'utilisateur (`library_entries ⋈ games`) : les
+   * jeux ne sont récupérés depuis Steam qu'une seule fois, à l'import (voir
+   * `SyncService`). Cette lecture sert la page Bibliothèque sans recontacter
+   * Steam, et fonctionne donc même sans `STEAM_API_KEY`.
+   */
+  async savedLibrary(userId: number): Promise<BibliothequeGamePersiste[]> {
+    const rows = await this.db
+      .select({
+        appId: games.appId,
+        name: games.name,
+        playtimeForever: libraryEntries.playtimeForever,
+        playtimeLast2Weeks: libraryEntries.playtimeLast2Weeks,
+        lastPlayedAt: libraryEntries.lastPlayedAt,
+        genres: games.genres,
+        categories: games.categories,
+        controllerSupport: games.controllerSupport,
+        shortDescription: games.shortDescription,
+        headerImageUrl: games.headerImageUrl,
+        achievementsUnlocked: libraryEntries.achievementsUnlocked,
+      })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(eq(libraryEntries.userId, userId))
+      .orderBy(games.name);
+    return rows as BibliothequeGamePersiste[];
+  }
 
   /**
    * Récupère les jeux possédés d'un joueur (`GetOwnedGames`) et les renvoie
@@ -58,7 +105,9 @@ export class LibraryService {
 
     let response: Response;
     try {
-      response = await fetch(url);
+      response = await fetch(url, {
+        signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
+      });
     } catch (error) {
       this.logger.error('Steam injoignable', error as Error);
       throw new ServiceUnavailableException('Steam est injoignable');

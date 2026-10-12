@@ -9,6 +9,8 @@ const GEMINI_EMBEDDING_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
 const DEFAULT_MODEL = 'gemini-embedding-001';
 const DEFAULT_DIMENSIONS = 1024;
+/** Abandon d'un appel externe après 5 s pour ne pas laisser la requête suspendue. */
+const EXTERNAL_CALL_TIMEOUT_MS = 5000;
 
 export interface EmbeddingInput {
   name: string;
@@ -83,6 +85,7 @@ export class EmbeddingService {
             content: { parts: [{ text }] },
             outputDimensionality: dimensions,
           }),
+          signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
         },
       );
 

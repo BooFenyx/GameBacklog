@@ -1,12 +1,14 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
+import type { Db } from '../db/db.module.js';
 import { LibraryService } from './library.service.js';
 
 function makeService(env: Record<string, string> = {}): LibraryService {
   const config = {
     get: (key: string) => env[key],
   } as unknown as ConfigService;
-  return new LibraryService(config);
+  const db = {} as unknown as Db;
+  return new LibraryService(config, db);
 }
 
 describe('LibraryService', () => {

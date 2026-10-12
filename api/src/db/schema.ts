@@ -92,6 +92,10 @@ export const achievements = pgTable(
   },
   (table) => ({
     gameIdIdx: index('achievements_game_id_idx').on(table.gameId),
+    apiIdx: uniqueIndex('achievements_game_api_name_idx').on(
+      table.gameId,
+      table.apiName,
+    ),
   }),
 );
 

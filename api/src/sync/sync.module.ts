@@ -10,5 +10,6 @@ import { SyncService } from './sync.service.js';
   imports: [LibraryModule, GamesModule, EmbeddingModule, UsersModule],
   controllers: [SyncController],
   providers: [SyncService],
+  exports: [SyncService],
 })
 export class SyncModule {}
