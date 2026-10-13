@@ -25,12 +25,26 @@ export class AuthController {
   ) {}
 
   /**
+   * Origine publique du front, sans slash final. Sert de `realm` OpenID, de
+   * base de `return_to` et de cible des redirections post-login.
+   *
+   * Elle ne peut pas être déduite de `req.get('host')` : en production le front
+   * (Vercel) proxifie `/api` vers l'API (Render), donc l'hôte vu par le
+   * contrôleur est celui de l'API et non celui du navigateur.
+   */
+  private frontendUrl(): string {
+    return (
+      this.config.get<string>('FRONTEND_URL') || 'http://localhost:5173'
+    ).replace(/\/+$/, '');
+  }
+
+  /**
    * `GET /api/auth/steam` — redirige le navigateur vers Steam pour
    * l'authentification OpenID.
    */
   @Get('steam')
-  steamLogin(@Req() req: Request, @Res() res: Response): void {
-    const realm = `${req.protocol}://${req.get('host')}`;
+  steamLogin(@Res() res: Response): void {
+    const realm = this.frontendUrl();
     const returnTo = `${realm}/api/auth/steam/return`;
     res.redirect(this.authService.buildSteamLoginUrl(returnTo, realm));
   }
@@ -41,8 +55,7 @@ export class AuthController {
    */
   @Get('steam/return')
   async steamReturn(@Req() req: Request, @Res() res: Response): Promise<void> {
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+    const frontendUrl = this.frontendUrl();
 
     try {
       const steamId = await this.authService.verifySteamCallback(

@@ -34,6 +34,10 @@ genres, catégories, support manette, temps de jeu) et charge les succès
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
 les 2 s et s'affiche dès que l'étape `library` est passée.
 
+**Sécurité.** CSP de production en place : stricte côté API (`app.setup.ts`, `default-src
+'none'`, prod uniquement) et via les en-têtes Vercel côté front (CSP SPA + `nosniff` +
+`Referrer-Policy`). Pas encore de rate limiting (reporté, voir Écart 10).
+
 **Non implémenté :** recherche vectorielle (seule l'indexation des embeddings est faite),
 accueil calculé (à relancer / à découvrir / proches), filtres et tri de la bibliothèque,
 rate limiting par utilisateur, mise en ligne (socle prêt, rien n'est encore déployé).
@@ -49,11 +53,11 @@ rate limiting par utilisateur, mise en ligne (socle prêt, rien n'est encore dé
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
 - `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0003)
 - `render.yaml` — blueprint Render (API seule)
-- `api/src/app.setup.ts` — câblage (session, CORS, helmet, ValidationPipe)
+- `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/api.ts` — helper `urlApi()` (base `VITE_API_URL`)
-- `web/vercel.json` — rewrite SPA pour Vercel
+- `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
 - `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
@@ -207,16 +211,19 @@ n'applique `resolve()` que sur la forme scalaire, et l'ordre d'un tableau se lit
 (premier chemin existant l'emporte).
 
 **Le câblage de l'application est dans `app.setup.ts`, pas dans `main.ts`.** `configureApp`
-pose cookie-parser, helmet, `ValidationPipe`, le préfixe `/api`, CORS et `trust proxy`. Elle
+pose cookie-parser, helmet (CSP stricte en production, désactivée en dev/test), `ValidationPipe`,
+le préfixe `/api`, CORS et `trust proxy`. Elle
 est appelée par `main.ts` **et** par `test/app.e2e-spec.ts` : c'est délibéré, pour que le
 test e2e exerce le vrai câblage. Un test qui instancierait l'application sans passer par
 `configureApp` ne couvrirait rien de ce qui précède.
 
 **CORS et proxy Vite sont tous deux présents, et c'est nécessaire.** `web/vite.config.ts`
 proxifie `/api` vers `:3000`, ce qui rend les deux origines identiques en dev et permet un
-cookie `sameSite=Lax` sur `http://localhost`. Le `enableCors` de `app.setup.ts` sert au
-déploiement, où Render sert `web` et `api` sur des origines distinctes. Retire l'un des deux
-et l'authentification par cookie casse dans un des deux environnements.
+cookie `sameSite=Lax` sur `http://localhost`. En production, `web/vercel.json` fait de même
+par un rewrite externe `/api` → Render, donc le navigateur reste same-origin. Le `enableCors`
+de `app.setup.ts` (restreint à `FRONTEND_URL`) couvre l'accès direct à l'API. Retire le
+rewrite ou le proxy de dev et l'authentification par cookie casse dans un des deux
+environnements.
 
 **Le `ValidationPipe` est global et strict.** `whitelist` +
 `forbidNonWhitelisted` signifient qu'un champ non déclaré dans un DTO provoque un 400, pas
@@ -232,21 +239,18 @@ référence de classe (`@UseGuards(SessionGuard)`), comme dans `GamesModule` et 
 nul besoin d'importer `AuthModule` pour l'obtenir. Corollaire : `SyncService` est injecté par
 `AuthController`, donc `SyncModule` doit l'`export`.
 
-## Sécurité — à corriger avant mise en ligne
+## Sécurité — état des points ouverts
 
-**Dette de sécurité connue, à traiter avant la mise en ligne.** Points volontairement
-laissés de côté :
+**Points volontairement laissés de côté :**
 
-- **CSP désactivée.** `helmet` est branché mais avec `contentSecurityPolicy: false`, car une
-  CSP stricte bloque les scripts inline et le WebSocket du HMR de Vite. Le vrai CSP reste à
-  écrire pour la production.
 - **Aucun rate limiting.** La spécification exige que l'entrée de recherche soit « limitée en
   fréquence par utilisateur » (`fiche_projet.md`). `@nestjs/throttler` n'a pas été installé :
-  il raisonne par IP, ce qui n'est pas la clé demandée et serait à remplacer dès que la
-  session Steam existera. À implémenter par utilisateur, en s'appuyant sur la session.
+  il raisonne par IP, ce qui n'est pas la clé demandée. **Décision : reporté**, le site n'étant
+  pas encore exposé aux robots/crawlers ; à implémenter par utilisateur (clé de session) quand
+  la recherche arrivera (voir Écart 10).
 
-Résolus depuis : **timeouts** (`AbortSignal.timeout(5000)`) et **validation de
-`openid.mode === 'id_res'`** (voir Écarts 15 et 16).
+Résolus depuis : **timeouts** (`AbortSignal.timeout(5000)`), **validation de
+`openid.mode === 'id_res'`** (voir Écarts 15 et 16) et **CSP de production** (voir Écart 14).
 
 ## Écarts spec ↔ code
 
@@ -331,7 +335,7 @@ reste à corriger).
 |---|---|
 | **Spec** | « Entrée : phrase libre, longueur limitée (ex. 300 caractères), **limitée en fréquence par utilisateur**. » (`fiche_projet.md:44`) |
 | **Code réel** | Aucun rate limiting n'existe. `@nestjs/throttler` n'est pas installé. La recherche n'existant pas, la limitation n'est pas encore applicable. |
-| **Correction** | Implémenter un guard de rate limiting par `steamId` (pas par IP) sur la route de recherche, une fois celle-ci créée. |
+| **Correction** | **Reporté** tant que le site n'est pas exposé aux robots/crawlers. Implémenter un guard de rate limiting par `steamId` (clé de session, pas par IP) sur la route de recherche, une fois celle-ci créée. |
 
 #### Écart 11 — Repli si échec de la recherche absent
 
@@ -341,13 +345,12 @@ reste à corriger).
 | **Code réel** | Non implémenté (la recherche n'existe pas). |
 | **Correction** | Dans le service de recherche, encapsuler l'appel à Gemini dans un try/catch avec timeout. Sur échec, basculer sur une recherche SQL `LIKE` + filtres, et retourner un flag `degraded: true` au front. |
 
-#### Écart 14 — CSP désactivée
+#### Écart 14 — CSP désactivée — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | Non mentionné explicitement dans la spec. |
-| **Code réel** | `api/src/app.setup.ts:32` : `helmet({ contentSecurityPolicy: false })`. Commentaire : « La CSP est désactivée : elle bloque les scripts inline et le WebSocket du HMR de Vite. À configurer avant le déploiement. » |
-| **Correction** | Définir une CSP stricte pour la production qui autorise les sources nécessaires (Vercel, Render, Steam) sans bloquer le HMR en dev. |
+| **État** | ✅ Résolu — CSP stricte activée **en production** sur l'API (`api/src/app.setup.ts` : `default-src 'none'`, `base-uri`, `frame-ancestors`, `form-action`, désactivée en dev/test) et sur le front via les en-têtes Vercel (`web/vercel.json` : CSP SPA, `X-Content-Type-Options: nosniff`, `Referrer-Policy`). `style-src` autorise l'inline (une style inline dans `Bibliotheque.tsx`) et `img-src` les hôtes d'images Steam (`*.steamstatic.com`, `*.akamaihd.net`, `*.steamcontent.com`, `*.steampowered.com`) — à confirmer en preview. |
 
 #### Écart 15 — Timeouts sur les appels externes — ✅ Résolu
 
@@ -419,7 +422,7 @@ Ordre recommandé pour combler les écarts restants :
 1. **Recherche vectorielle** (Écarts 2, 10, 11) : `SearchModule` avec pgvector, rate limiting par `steamId`, fallback dégradé. Gros morceau restant.
 2. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
 3. **Bibliothèque enrichie** (Écarts 4, 19) : filtres et tri.
-4. **Sécurité et robustesse** (Écarts 14, 18) : CSP de production, message d'aide profil privé. Prérequis avant mise en ligne.
+4. **Sécurité et robustesse** (Écart 18) : message d'aide si profil privé. Prérequis avant mise en ligne.
 5. **Divers** (Écarts 12, 13) : mettre à jour `fiche_projet.md` (hébergement), créer les DTO.
 
 ## Base de données
@@ -470,21 +473,33 @@ Hébergement retenu — **départ de la fiche**, qui prévoyait Render pour le f
 **Vercel** (`web`) + **Render** (`api`) + **Neon** (PostgreSQL).
 
 - `render.yaml` (racine) : blueprint de l'API — `New → Blueprint` sur Render le
-  crée avec les bonnes commandes. Les variables `sync: false` (`DATABASE_URL`,
-  `STEAM_API_KEY`, `EMBEDDING_API_KEY`, `FRONTEND_URL`) sont demandées **une
-  seule fois** à la création, `SESSION_SECRET` est générée. Auto-deploy à chaque
-  push, plan gratuit.
-- `web/vercel.json` : rewrite SPA. Import du dépôt sur Vercel avec
-  Root Directory = `web`, et variable d'environnement **`VITE_API_URL`** = URL de
-  l'API Render (au build). Sans elle, les appels `/api` du front restent relatifs
-  et cassent en prod (`web/src/api.ts` lit cette variable).
+  crée avec les bonnes commandes. Build `npm ci --include=dev && npm run build` :
+  le `--include=dev` est **indispensable**, car `NODE_ENV=production` ferait
+  omettre les devDependencies requises par `nest build` (`@nestjs/cli`,
+  `typescript`). `NODE_VERSION=22` fixe le plancher `>=22.12.0`. Les variables
+  `sync: false` (`DATABASE_URL`, `STEAM_API_KEY`, `EMBEDDING_API_KEY`,
+  `FRONTEND_URL`) sont demandées **une seule fois** à la création,
+  `SESSION_SECRET` est générée. Auto-deploy à chaque push, plan gratuit.
+- `web/vercel.json` : **rewrite externe** `/api/:path*` → URL de l'API Render,
+  catch-all SPA, et en-têtes de sécurité (CSP, `nosniff`, `Referrer-Policy`).
+  Import du dépôt sur Vercel avec Root Directory = `web`. **Ne pas définir
+  `VITE_API_URL`** : les appels `/api` du front restent relatifs et passent par
+  le rewrite, ce qui rend le navigateur **same-origin** (cookie first-party).
+- `FRONTEND_URL` (Render) = origine Vercel en `https`, **sans slash final** :
+  elle sert de `realm` OpenID et de base de `return_to`
+  (`api/src/auth/auth.controller.ts`). Ordre : déployer l'API d'abord, reporter
+  son URL dans `web/vercel.json`, déployer le front, puis renseigner l'URL Vercel
+  dans `FRONTEND_URL` et redéployer l'API.
+- Neon : utiliser la chaîne **directe** (non-pooler) + `sslmode=require` ; le
+  pooler transactionnel est incompatible avec le `pg_advisory_lock` de session
+  pris par `DbModule` au démarrage (voir « Base de données »).
 - Migrations appliquées au démarrage de l'API (voir « Base de données ») :
   **pousser suffit, aucune commande après l'ajout d'une fonctionnalité.**
-- Cookie de session : `sameSite=none` + `secure` en production, car
-  `*.vercel.app` et `*.onrender.com` sont deux **sites** différents (`lax`
-  supprimerait le cookie des requêtes cross-site). En dev, `lax` est conservé
-  (localhost, même site malgré les ports). Câblage dans `app.setup.ts` :
-  ne pas y toucher sans re-vérifier le flux Steam.
+- Cookie de session : `sameSite=lax` + `secure` en production, `lax` seul en
+  dev. Le front proxifie `/api`, donc le navigateur ne voit qu'un seul domaine
+  public (same-site) et le cookie reste first-party — compatible Safari,
+  contrairement à `none`. Câblage dans `app.setup.ts` : ne pas y toucher sans
+  re-vérifier le flux Steam.
 - Sessions : store PostgreSQL (`connect-pg-simple`, table `session` créée au
   premier usage) quand `NODE_ENV=production`, `MemoryStore` sinon — c'est ce qui
   évite de déconnecter tout le monde à chaque redéploiement.

@@ -9,6 +9,11 @@ async function bootstrap() {
   // `ConfigModule.forRoot` a chargé le `.env` racine pendant `create()`, donc
   // `FRONTEND_URL` est disponible ici. `||` et non `??` : une variable présente
   // mais vide (`FRONTEND_URL=`) donnerait `''` comme origine CORS.
+  //
+  // Ces replis ne concernent que le développement : en production, `validateEnv`
+  // (câblé dans `ConfigModule`) a déjà fait échouer le démarrage si
+  // `FRONTEND_URL` ou `SESSION_SECRET` manquent. Le secret de dev ci-dessous
+  // n'est donc jamais utilisé en production.
   configureApp(
     app,
     process.env.FRONTEND_URL || 'http://localhost:5173',

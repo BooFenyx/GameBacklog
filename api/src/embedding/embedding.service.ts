@@ -71,8 +71,12 @@ export class EmbeddingService {
     }
 
     const model = this.config.get<string>('EMBEDDING_MODEL') ?? DEFAULT_MODEL;
-    const dimensions =
-      this.config.get<number>('EMBEDDING_DIMENSIONS') ?? DEFAULT_DIMENSIONS;
+    // `ConfigService` renvoie les variables d'environnement sous forme de
+    // chaînes : sans `Number()`, `outputDimensionality` partirait en `"1024"`.
+    const rawDimensions = this.config.get<string>('EMBEDDING_DIMENSIONS');
+    const dimensions = rawDimensions
+      ? Number(rawDimensions)
+      : DEFAULT_DIMENSIONS;
 
     try {
       const response = await fetch(

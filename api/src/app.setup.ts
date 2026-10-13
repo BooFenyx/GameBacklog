@@ -1,5 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
@@ -27,20 +28,43 @@ export function configureApp(
 
   app.use(cookieParser());
 
-  // La CSP est désactivée : elle bloque les scripts inline et le WebSocket du
-  // HMR de Vite. À configurer avant le déploiement (cf. AGENTS.md).
-  app.use(helmet({ contentSecurityPolicy: false }));
+  // CSP stricte en production : l'API ne sert que du JSON, aucune ressource
+  // exécutable n'a besoin d'être autorisée. En développement elle reste
+  // désactivée : le front (Vite sur :5173) possède sa propre politique et la
+  // CSP n'a pas à gêner un éventuel rendu direct des réponses de l'API.
+  app.use(
+    helmet({
+      contentSecurityPolicy: production
+        ? {
+            directives: {
+              defaultSrc: ["'none'"],
+              baseUri: ["'none'"],
+              frameAncestors: ["'none'"],
+              formAction: ["'none'"],
+            },
+          }
+        : false,
+    }),
+  );
+
+  // Aucune réponse de l'API n'est cachable : elles sont toutes liées à la
+  // session. On le déclare explicitement car, en production, `/api` passe par
+  // un rewrite externe Vercel qui met en cache les réponses de l'origine quand
+  // celle-ci renvoie des en-têtes de cache.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
 
   const PgStore = connectPgSimple(session);
 
   // Session de connexion. `MemoryStore` convient au développement ; en
   // production le store est PostgreSQL, sinon chaque redéploiement Render
-  // déconnecterait tout le monde. `sameSite: 'none'` en production car le
-  // front (Vercel, `*.vercel.app`) et l'API (Render, `*.onrender.com`) sont
-  // deux **sites** différents : `lax` supprimerait le cookie des requêtes
-  // cross-site. `lax` suffit en dev (localhost, même site malgré les ports)
-  // et survit à la redirection OpenID de Steam. `secure` en production pour
-  // traverser le proxy HTTPS de Render (requis aussi par `none`).
+  // déconnecterait tout le monde. `sameSite: 'lax'` dans les deux cas : en
+  // production le front (Vercel) proxifie `/api` vers l'API (Render), donc le
+  // navigateur est toujours **same-site** (un seul domaine public) et le cookie
+  // reste first-party — compatible Safari, contrairement à `none`. `secure` en
+  // production pour traverser le proxy HTTPS de Render.
   app.use(
     session({
       secret: sessionSecret,
@@ -55,7 +79,7 @@ export function configureApp(
           : undefined,
       cookie: {
         httpOnly: true,
-        sameSite: production ? 'none' : 'lax',
+        sameSite: 'lax',
         secure: production,
         maxAge: 1000 * 60 * 60 * 24 * 7,
       },
@@ -72,7 +96,9 @@ export function configureApp(
 
   app.setGlobalPrefix('api');
 
-  // Nécessaire en plus du proxy Vite, car sur Render `web` et `api` sont sur
-  // deux origines distinctes et doivent exposer leurs cookies.
+  // En production, le front proxifie `/api` : les requêtes navigateur sont
+  // same-origin et n'ont pas besoin de CORS. On le laisse néanmoins, restreint
+  // à l'origine du front, pour couvrir un accès direct à l'API et le proxy de
+  // développement (`web/vite.config.ts`).
   app.enableCors({ origin: frontendUrl, credentials: true });
 }
