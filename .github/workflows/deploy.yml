@@ -1,9 +1,12 @@
 name: Déploiement production (CLI Vercel)
 
 # Déclenchement à chaque push sur la branche de production.
-# Le déploiement passe par la CLI Vercel et un token : aucune vérification
-# d'auteur de commit n'est faite, contrairement à l'intégration Git native
-# (désactivée via "git": { "deploymentEnabled": false } dans web/vercel.json).
+# Le déploiement passe par la CLI Vercel et un token. La CLI (>= v44) applique
+# tout de même le contrôle de l'auteur du commit : l'auteur de HEAD doit
+# correspondre au compte Vercel propriétaire du projet. On réécrit donc l'auteur
+# dans le runner avant de déployer (voir l'étape dédiée plus bas). L'intégration
+# Git native reste désactivée via "git": { "deploymentEnabled": false } dans
+# web/vercel.json.
 on:
   push:
     branches: [main]
@@ -22,12 +25,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Vérifier la présence des secrets
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_DEPLOYER_EMAIL: ${{ secrets.VERCEL_DEPLOYER_EMAIL }}
+        run: |
+          [ -n "$VERCEL_TOKEN" ] || { echo "::error::Secret VERCEL_TOKEN manquant ou vide"; exit 1; }
+          [ -n "$VERCEL_ORG_ID" ] || { echo "::error::Secret VERCEL_ORG_ID manquant ou vide"; exit 1; }
+          [ -n "$VERCEL_PROJECT_ID" ] || { echo "::error::Secret VERCEL_PROJECT_ID manquant ou vide"; exit 1; }
+          [ -n "$VERCEL_DEPLOYER_EMAIL" ] || { echo "::error::Secret VERCEL_DEPLOYER_EMAIL manquant ou vide"; exit 1; }
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Installer la CLI Vercel
         run: npm install --global vercel@latest
+
+      # La CLI Vercel (>= v44) vérifie que l'auteur de HEAD a accès au projet
+      # Vercel, même en déploiement par token. On réécrit l'auteur uniquement
+      # dans le runner : l'amend n'est jamais poussé, l'historique GitHub et le
+      # graphe de contributions des auteurs restent intacts.
+      - name: Aligner l'auteur du commit sur le compte Vercel
+        env:
+          VERCEL_DEPLOYER_EMAIL: ${{ secrets.VERCEL_DEPLOYER_EMAIL }}
+        run: |
+          git config user.name "deployer"
+          git config user.email "$VERCEL_DEPLOYER_EMAIL"
+          git commit --amend --no-edit --reset-author
 
       - name: Récupérer les réglages du projet
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
