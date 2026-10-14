@@ -59,7 +59,7 @@ prêts, rien n'est encore réellement déployé).
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
 - `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
-- `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token) sur push `main`
+- `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token, alignement de l'auteur du commit) sur push `main`
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
 - `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
@@ -226,6 +226,18 @@ par un rewrite externe `/api` → Render, donc le navigateur reste same-origin. 
 de `app.setup.ts` (restreint à `FRONTEND_URL`) couvre l'accès direct à l'API. Retire le
 rewrite ou le proxy de dev et l'authentification par cookie casse dans un des deux
 environnements.
+
+**La CLI Vercel contrôle l'auteur du commit même avec un token.** Depuis
+`vercel@44+`, `vercel deploy` (même `--prebuilt`, même avec `--token`) envoie
+l'auteur de `HEAD` et Vercel exige qu'il ait accès au projet. Sur le plan Hobby,
+l'auteur doit être le **propriétaire** du compte. Un échec « Git author … must
+have access to the team » ou « commit author email is not a valid email » n'est
+donc pas un bug de configuration, et **déconnecter l'intégration Git ne suffit
+pas**. Le `deploy.yml` réécrit l'auteur dans le runner
+(`git commit --amend --reset-author` vers `VERCEL_DEPLOYER_EMAIL`) ; cet email
+doit être **vérifié sur GitHub** et lié au compte Vercel (Login Connections), pas
+seulement l'email Vercel. Un email `noreply` mal formé (identifiant converti en
+notation scientifique) est un piège connu et échoue.
 
 **Le `ValidationPipe` est global et strict.** `whitelist` +
 `forbidNonWhitelisted` signifient qu'un champ non déclaré dans un DTO provoque un 400, pas
@@ -490,12 +502,17 @@ Hébergement retenu — **départ de la fiche**, qui prévoyait Render pour le f
 - Déploiement du front : **GitHub Actions** (`.github/workflows/deploy.yml`),
   déclenché par un push sur `main` (donc à chaque merge de PR). Le workflow
   utilise la CLI Vercel avec un token (`VERCEL_TOKEN`, `VERCEL_ORG_ID`,
-  `VERCEL_PROJECT_ID` en secrets GitHub) : il construit l'artefact
-  (`vercel build`) puis le déploie (`vercel deploy --prebuilt --prod`). Le
-  déploiement par token ne contrôle **pas** l'auteur du commit, contrairement à
-  l'intégration Git native de Vercel (réservée au propriétaire du compte Hobby) :
-  `git.deploymentEnabled: false` dans `web/vercel.json` la désactive, et tout
-  contributeur peut déployer en mergant une PR.
+  `VERCEL_PROJECT_ID`, `VERCEL_DEPLOYER_EMAIL` en secrets GitHub) : il construit
+  l'artefact (`vercel build`) puis le déploie (`vercel deploy --prebuilt --prod`).
+  **La CLI (>= v44) contrôle l'auteur du commit même en déploiement par token** :
+  Vercel exige que l'auteur de `HEAD` soit le propriétaire du compte Hobby. Le
+  workflow réécrit donc l'auteur dans le runner avant de déployer
+  (`git config user.email` puis `git commit --amend --reset-author` vers
+  `VERCEL_DEPLOYER_EMAIL`, une adresse vérifiée sur GitHub et liée au compte
+  Vercel) — l'amend n'est jamais poussé, l'historique GitHub reste intact.
+  `git.deploymentEnabled: false` dans `web/vercel.json` désactive en plus
+  l'intégration Git native : tout contributeur peut donc déployer en mergant une
+  PR.
 - `FRONTEND_URL` (Render) = origine Vercel en `https`, **sans slash final** :
   elle sert de `realm` OpenID et de base de `return_to`
   (`api/src/auth/auth.controller.ts`). Ordre : déployer l'API d'abord, reporter
