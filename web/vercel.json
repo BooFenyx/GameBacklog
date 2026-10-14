@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://gamebacklog-api.onrender.com/api/:path*"
+      "destination": "https://fst-2026-groupe-08.onrender.com/api/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
