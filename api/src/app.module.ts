@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module.js';
 import { GamesModule } from './games/games.module.js';
 import { SyncModule } from './sync/sync.module.js';
 import { DbModule } from './db/db.module.js';
+import { validateEnv } from './config/env.validation.js';
 
 @Module({
   imports: [
@@ -20,6 +21,10 @@ import { DbModule } from './db/db.module.js';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../.env',
+      // Échoue au démarrage si une variable requise manque en production (voir
+      // `validateEnv`) : un `SESSION_SECRET` absent rendrait les sessions
+      // forgeables. Sans effet en développement et dans les tests.
+      validate: validateEnv,
     }),
     DbModule,
     AuthModule,

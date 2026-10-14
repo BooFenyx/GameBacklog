@@ -19,12 +19,19 @@ services:
     name: gamebacklog-api
     plan: free
     rootDir: api
-    buildCommand: npm ci && npm run build
+    # `--include=dev` est indispensable : NODE_ENV=production fait omettre les
+    # devDependencies par `npm ci`, or `nest build` a besoin de `@nestjs/cli` et
+    # `typescript` (tous deux en devDependencies).
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /api
     envVars:
       - key: NODE_ENV
         value: production
+      # Render ne lit pas forcément `engines.node` : on fixe la version requise
+      # par le projet (>=22.12.0) de manière explicite.
+      - key: NODE_VERSION
+        value: '22'
       - key: DATABASE_URL
         sync: false
       - key: STEAM_API_KEY

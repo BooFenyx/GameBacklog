@@ -4,7 +4,10 @@ coverage/
 .vitest/
 
 # Secrets
-.env
+.env*
+
+# Lien local du projet Vercel (orgId / projectId)
+.vercel/
 
 # Fichiers générés par TypeScript
 *.tsbuildinfo
