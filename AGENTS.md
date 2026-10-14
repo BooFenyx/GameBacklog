@@ -40,7 +40,8 @@ les 2 s et s'affiche dès que l'étape `library` est passée.
 
 **Non implémenté :** recherche vectorielle (seule l'indexation des embeddings est faite),
 accueil calculé (à relancer / à découvrir / proches), filtres et tri de la bibliothèque,
-rate limiting par utilisateur, mise en ligne (socle prêt, rien n'est encore déployé).
+rate limiting par utilisateur, mise en ligne (socle et déploiement continu front
+prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
@@ -56,8 +57,9 @@ rate limiting par utilisateur, mise en ligne (socle prêt, rien n'est encore dé
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
-- `web/src/api.ts` — helper `urlApi()` (base `VITE_API_URL`)
-- `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel
+- `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
+- `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
+- `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token) sur push `main`
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
 - `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
@@ -350,7 +352,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | Non mentionné explicitement dans la spec. |
-| **État** | ✅ Résolu — CSP stricte activée **en production** sur l'API (`api/src/app.setup.ts` : `default-src 'none'`, `base-uri`, `frame-ancestors`, `form-action`, désactivée en dev/test) et sur le front via les en-têtes Vercel (`web/vercel.json` : CSP SPA, `X-Content-Type-Options: nosniff`, `Referrer-Policy`). `style-src` autorise l'inline (une style inline dans `Bibliotheque.tsx`) et `img-src` les hôtes d'images Steam (`*.steamstatic.com`, `*.akamaihd.net`, `*.steamcontent.com`, `*.steampowered.com`) — à confirmer en preview. |
+| **État** | ✅ Résolu — CSP stricte activée **en production** sur l'API (`api/src/app.setup.ts` : `default-src 'none'`, `base-uri`, `frame-ancestors`, `form-action`, désactivée en dev/test) et sur le front via les en-têtes Vercel (`web/vercel.json` : CSP SPA, `X-Content-Type-Options: nosniff`, `Referrer-Policy`). `style-src` autorise l'inline (une style inline dans `Bibliotheque.tsx`) et `img-src` les hôtes d'images Steam (`*.steamstatic.com`, `*.akamaihd.net`, `*.steamcontent.com`, `*.steampowered.com`) — à confirmer une fois le site déployé. |
 
 #### Écart 15 — Timeouts sur les appels externes — ✅ Résolu
 
@@ -485,6 +487,15 @@ Hébergement retenu — **départ de la fiche**, qui prévoyait Render pour le f
   Import du dépôt sur Vercel avec Root Directory = `web`. **Ne pas définir
   `VITE_API_URL`** : les appels `/api` du front restent relatifs et passent par
   le rewrite, ce qui rend le navigateur **same-origin** (cookie first-party).
+- Déploiement du front : **GitHub Actions** (`.github/workflows/deploy.yml`),
+  déclenché par un push sur `main` (donc à chaque merge de PR). Le workflow
+  utilise la CLI Vercel avec un token (`VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID` en secrets GitHub) : il construit l'artefact
+  (`vercel build`) puis le déploie (`vercel deploy --prebuilt --prod`). Le
+  déploiement par token ne contrôle **pas** l'auteur du commit, contrairement à
+  l'intégration Git native de Vercel (réservée au propriétaire du compte Hobby) :
+  `git.deploymentEnabled: false` dans `web/vercel.json` la désactive, et tout
+  contributeur peut déployer en mergant une PR.
 - `FRONTEND_URL` (Render) = origine Vercel en `https`, **sans slash final** :
   elle sert de `realm` OpenID et de base de `return_to`
   (`api/src/auth/auth.controller.ts`). Ordre : déployer l'API d'abord, reporter
@@ -504,5 +515,7 @@ Hébergement retenu — **départ de la fiche**, qui prévoyait Render pour le f
   premier usage) quand `NODE_ENV=production`, `MemoryStore` sinon — c'est ce qui
   évite de déconnecter tout le monde à chaque redéploiement.
 
-Aucune CI, aucune GitHub Action et aucun Dockerfile — le fichier compose sert
-uniquement au développement local. Rien n'est encore réellement déployé.
+Le fichier compose sert uniquement au développement local ; le seul pipeline
+d'intégration est le workflow GitHub Actions de déploiement du front
+(`.github/workflows/deploy.yml`). Aucun Dockerfile. Rien n'est encore réellement
+déployé.

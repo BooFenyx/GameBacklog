@@ -1,11 +1,10 @@
 /**
  * Base des appels à l'API.
  *
- * En développement, `VITE_API_URL` est absente : les chemins restent relatifs
- * et le proxy Vite (`/api` → `:3000`) prend le relais, avec une seule origine.
- * En production, le front (Vercel) et l'API (Render) sont sur deux origines
- * distinctes : `VITE_API_URL` contient alors l'URL de l'API, injectée à la
- * construction par la variable d'environnement du projet Vercel.
+ * `VITE_API_URL` n'est pas définie : les chemins restent relatifs. En
+ * développement le proxy Vite (`/api` → `:3000`) prend le relais, et en
+ * production le rewrite Vercel (`/api` → Render, voir `web/vercel.json`) garde
+ * le navigateur sur une seule origine, ce qui préserve le cookie de session.
  */
 const base = import.meta.env.VITE_API_URL ?? ''
 
