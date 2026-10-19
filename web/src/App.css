@@ -735,6 +735,151 @@
   }
 }
 
+@media (max-width: 767px) {
+  .contenu {
+    padding: 20px 16px 40px;
+  }
+}
+
+@media (max-width: 767px) {
+  .topbar {
+    gap: 10px 14px;
+    padding: 12px 16px;
+  }
+  .nav {
+    gap: 10px 12px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .nav a,
+  .nav-avenir {
+    font-size: 15px;
+  }
+  .compte {
+    margin-left: auto;
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 767px) {
+  .liste-jeux {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  .liste-jeux {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+  }
+}
+
+@media (max-width: 767px) {
+  .liste-jeux li {
+    gap: 8px;
+    padding: 10px;
+  }
+  .jeu-image {
+    border-radius: 6px;
+  }
+  .jeu-nom {
+    font-size: 15px;
+    -webkit-line-clamp: 2;
+  }
+  .jeu-infos {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+}
+
+@media (max-width: 767px) {
+  .bibliotheque-tete {
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px 10px;
+  }
+  .bibliotheque-tete h1 {
+    font-size: 28px;
+  }
+  .bibliotheque-compte {
+    font-size: 14px;
+  }
+  .bibliotheque-barre {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .bibliotheque-recherche {
+    flex: 1 1 100%;
+  }
+  .bibliotheque-tri {
+    align-self: flex-start;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .jeu {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .jeu-dernier {
+    grid-column: 2 / -1;
+    text-align: left;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 767px) {
+  .detail {
+    gap: 14px;
+  }
+  .detail-image {
+    max-width: 100%;
+    border-radius: 10px;
+  }
+  .detail-tete h1 {
+    font-size: 26px;
+  }
+  .detail-infos {
+    grid-template-columns: 1fr;
+    gap: 4px 0;
+  }
+  .detail-infos dt {
+    margin-top: 6px;
+  }
+  .detail-infos dd {
+    margin-bottom: 2px;
+  }
+  .liste-succes li {
+    gap: 10px;
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 767px) {
+  .btn {
+    padding: 8px 14px;
+    font-size: 15px;
+  }
+  .btn-grand {
+    font-size: 16px;
+    padding: 11px 18px;
+  }
+}
+
+@media (max-width: 767px) {
+  .sync-progression {
+    padding: 12px 14px;
+  }
+  .sync-progression p {
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+}
+
 /* --- Bibliothèque enrichie (import en base) --- */
 
 .bibliotheque-vide {
