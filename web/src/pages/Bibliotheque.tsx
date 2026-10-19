@@ -177,36 +177,37 @@ export default function Bibliotheque() {
 
       <ul className="liste-jeux">
         {liste.map((jeu) => (
-          <li key={jeu.appId}>
+          <li key={jeu.appId} className="jeu-carte">
+            <Link
+              to={`/jeu/${jeu.appId}`}
+              className="jeu-lien"
+              aria-label={`Ouvrir la fiche de ${jeu.name}`}
+            ></Link>
             {jeu.headerImageUrl && (
               <img
                 className="jeu-image"
                 src={jeu.headerImageUrl}
                 alt=""
-                width="120"
-                height="45"
                 loading="lazy"
               />
             )}
             <div className="jeu-corps">
-              <Link className="jeu-nom" to={`/jeu/${jeu.appId}`}>
-                {jeu.name}
-              </Link>
+              <span className="jeu-nom">{jeu.name}</span>
               <span className="jeu-infos">
                 {jeu.playtimeForever > 0 && formaterDuree(jeu.playtimeForever)}
                 {jeu.playtimeLast2Weeks > 0 &&
-                  ` · ${formaterDuree(jeu.playtimeLast2Weeks)} en 2 sem`}
+                  ` • ${formaterDuree(jeu.playtimeLast2Weeks)} en 2 sem`}
                 {jeu.lastPlayedAt &&
-                  ` · joué le ${formaterDate(jeu.lastPlayedAt)}`}
+                  ` • joué le ${formaterDate(jeu.lastPlayedAt)}`}
                 {jeu.genres.length > 0 && (
                   <span className="jeu-genres">
-                    {' · '}
+                    {' • '}
                     {jeu.genres.join(', ')}
                   </span>
                 )}
                 {jeu.controllerSupport !== 'none' && (
                   <span className="jeu-manette">
-                    {' · '}
+                    {' • '}
                     {jeu.controllerSupport === 'full'
                       ? 'manette complète'
                       : 'manette partielle'}
