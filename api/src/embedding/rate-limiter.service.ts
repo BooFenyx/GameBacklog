@@ -55,6 +55,9 @@ export function slowDown(ms: number): Promise<void> {
  * `acquire()` est appelé avant chaque requête Gemini : il attend que la fenêtre
  * minute libère une place, puis renvoie `'quota-journalier'` si le quota du
  * jour est épuisé (l'import s'arrête alors gracieusement, rien n'est supprimé).
+ * `maxWaitMs` borne l'attente : au-delà, `acquire()` renvoie `'busy'` sans
+ * consommer de créneau. La recherche s'en sert pour basculer en repli plutôt
+ * que de bloquer la requête HTTP pendant une minute.
  */
 @Injectable()
 export class RateLimitService {
@@ -68,10 +71,7 @@ export class RateLimitService {
     @Inject(DB) private readonly db: Db,
     private readonly config: ConfigService,
   ) {
-    this.maxPerMinute = this.readLimit(
-      'EMBEDDING_RATE_LIMIT_PER_MINUTE',
-      100,
-    );
+    this.maxPerMinute = this.readLimit('EMBEDDING_RATE_LIMIT_PER_MINUTE', 100);
     this.maxPerDay = this.readLimit('EMBEDDING_RATE_LIMIT_PER_DAY', 1000);
     this.minuteWindow = new MinuteWindow(this.maxPerMinute);
   }
@@ -82,15 +82,21 @@ export class RateLimitService {
     return Number.isFinite(parsed) ? Math.max(1, parsed) : defaultValue;
   }
 
-  async acquire(): Promise<'ok' | 'quota-journalier'> {
-    const now = Date.now();
-
+  async acquire(
+    maxWaitMs?: number,
+  ): Promise<'ok' | 'quota-journalier' | 'busy'> {
     // Fenêtre par minute (mémoire) : on attend le temps exact de libération
-    // avant de consommer un créneau, sans pause fixe de 60 s.
+    // avant de consommer un créneau, sans pause fixe de 60 s. La recherche
+    // borne cette attente : au-delà, elle préfère un repli immédiat.
     const wait = this.minuteWindow.waitMillis();
     if (wait > 0) {
+      if (maxWaitMs !== undefined && wait > maxWaitMs) {
+        return 'busy';
+      }
       await slowDown(wait);
     }
+
+    const now = Date.now();
 
     // Compteur quotidien (persisté, partagé) : réinitialisé après 24 h.
     const day = await this.readDayCounter();

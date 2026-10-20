@@ -1,9 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  QuotaReachedError,
-  RateLimitService,
-} from './rate-limiter.service.js';
+import { QuotaReachedError, RateLimitService } from './rate-limiter.service.js';
 
 const GEMINI_EMBEDDING_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
@@ -17,6 +14,14 @@ export interface EmbeddingInput {
   shortDescription?: string;
   genres?: string[];
   categories?: string[];
+}
+
+export interface EmbedOptions {
+  /**
+   * Attente maximale dans la fenêtre de quota par minute. Au-delà, `embed`
+   * renvoie `null` immédiatement au lieu de suspendre la requête.
+   */
+  maxWaitMs?: number;
 }
 
 interface GeminiEmbeddingResponse {
@@ -55,7 +60,10 @@ export class EmbeddingService {
     return parts.join('. ');
   }
 
-  async embed(text: string): Promise<number[] | null> {
+  async embed(
+    text: string,
+    options: EmbedOptions = {},
+  ): Promise<number[] | null> {
     const apiKey = this.config.get<string>('EMBEDDING_API_KEY');
     if (!apiKey) {
       this.logger.warn('EMBEDDING_API_KEY absente : embedding non généré');
@@ -64,8 +72,16 @@ export class EmbeddingService {
 
     // Réserve une place dans les quotas (minute + jour). Si le quota quotidien
     // est épuisé, on lève une exception dédiée : l'import s'arrête proprement
-    // et reprendra plus tard (aucune suppression).
-    const slot = await this.rateLimit.acquire();
+    // et reprendra plus tard (aucune suppression). `'busy'` signifie que la
+    // fenêtre minute est saturée au-delà de l'attente autorisée : on renonce
+    // sans consommer de créneau.
+    const slot = await this.rateLimit.acquire(options.maxWaitMs);
+    if (slot === 'busy') {
+      this.logger.debug(
+        "Fenêtre d'embedding saturée : appel abandonné sans attente",
+      );
+      return null;
+    }
     if (slot === 'quota-journalier') {
       throw new QuotaReachedError();
     }
@@ -121,8 +137,11 @@ export class EmbeddingService {
     }
   }
 
-  async embedGame(input: EmbeddingInput): Promise<number[] | null> {
+  async embedGame(
+    input: EmbeddingInput,
+    options: EmbedOptions = {},
+  ): Promise<number[] | null> {
     const text = this.buildText(input);
-    return this.embed(text);
+    return this.embed(text, options);
   }
 }

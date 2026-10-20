@@ -1,12 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MinuteWindow } from '../embedding/rate-limiter.service.js';
+import { SEARCH_CLOCK } from './search-clock.js';
 
 /** Modes soumis à une limite de fréquence distincte. */
 export type SearchRateLimitKind = 'name' | 'semantic';
-
-/** Horloge injectable, pour tester les fenêtres glissantes sans attente réelle. */
-export const SEARCH_CLOCK = Symbol('SEARCH_CLOCK');
 
 export interface SearchRateLimitDecision {
   allowed: boolean;

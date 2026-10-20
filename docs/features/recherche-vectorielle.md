@@ -411,20 +411,22 @@ Chaque commit est cohérent, buildable et testé.
 | 1 | `docs: réviser la fiche recherche (modes, série, pagination)` | Ce document. |
 | 2 | `feat(api): DTO, pagination et limites de fréquence` | DTO + `SearchRateLimitService` + specs. Pas encore branché. |
 | 3 | `feat(api): recherche par nom` | `search.service.ts` (mode nom) + specs. |
-| 4 | `feat(api): recherche vectorielle, priorité de série et repli` | Embedding, SQL pgvector, série, cache, `maxWaitMs`, repli + specs. |
-| 5 | `feat(api): endpoint GET /api/search` | Contrôleur, module, câblage `app.module.ts`, e2e. |
-| 6 | `feat(web): barre de recherche globale et page de résultats` | Barre, aperçu, modes, page, route, nav, styles. |
-| 7 | `docs: mettre à jour AGENTS.md (recherche)` | Sections « État du projet »/« Fichiers clés », écarts 2/10/11/13 — **validation préalable du développeur requise**. |
+| 4 | `feat(api): recherche vectorielle, priorité de série, repli et endpoint` | Embedding, SQL pgvector, série, cache, `maxWaitMs`, repli, contrôleur, module, câblage `app.module.ts`, e2e. |
+| 5 | `feat(web): barre de recherche globale et page de résultats` | Barre, aperçu, modes, page, route, nav, styles. |
+| 6 | `docs: mettre à jour AGENTS.md (recherche)` | Sections « État du projet »/« Fichiers clés », écarts 2/10/11/13 — **validation préalable du développeur requise**. |
+
+Les anciens commits 4 (service sémantique) et 5 (endpoint) sont fusionnés :
+l'endpoint et le service sont livrés ensemble pour rester testables de bout en
+bout.
 
 ## 10. Tâches détaillées
 
 1. [commit 1] Mettre à jour cette fiche.
 2. [commit 2] DTO + `SearchRateLimitService` + tests + `.env.example`.
 3. [commit 3] `SearchService` : mode nom + pagination + tests.
-4. [commit 4] Mode sémantique : embedding, `maxWaitMs`, cache, série, repli + tests.
-5. [commit 5] Contrôleur + module + câblage + e2e.
-6. [commit 6] Barre globale + page de résultats + styles.
-7. [commit 7] Mise à jour d'`AGENTS.md` (après validation).
+4. [commit 4] Mode sémantique + contrôleur + module + câblage + e2e.
+5. [commit 5] Barre globale + page de résultats + styles.
+6. [commit 6] Mise à jour d'`AGENTS.md` (après validation).
 
 ## 11. Impacts & configuration
 
