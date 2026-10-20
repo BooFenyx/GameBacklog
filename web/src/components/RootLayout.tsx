@@ -1,5 +1,12 @@
-import { Link, NavLink, Outlet, useSearchParams } from 'react-router-dom'
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useSearchParams,
+} from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import BarreRecherche from './BarreRecherche'
 
 /**
  * Coquille commune à toutes les routes : barre de navigation, état de la
@@ -12,6 +19,7 @@ import { useAuth } from '../auth/AuthContext'
  */
 export default function RootLayout() {
   const { user, loading, login, logout } = useAuth()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const authResult = searchParams.get('auth')
@@ -34,10 +42,15 @@ export default function RootLayout() {
         <nav className="nav">
           <NavLink to="/accueil">Accueil</NavLink>
           <NavLink to="/bibliotheque">Bibliothèque</NavLink>
-          <span className="nav-avenir" title="Bientôt disponible">
-            Recherche
-          </span>
         </nav>
+
+        {user && (
+          <BarreRecherche
+            key={
+              location.pathname === '/recherche' ? location.search : 'barre'
+            }
+          />
+        )}
 
         <div className="compte">
           {loading ? (

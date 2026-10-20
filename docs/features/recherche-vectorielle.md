@@ -101,16 +101,17 @@ La barre vit dans `RootLayout`, entre la navigation et le bloc compte. Elle est
 visible quand la session est ouverte. Elle fonctionne sur toutes les pages,
 notamment Bibliothèque, indépendamment des futurs filtres de bibliothèque.
 
-À droite du champ, un bouton affiche le mode courant et ouvre un petit menu :
-
-- **Nom de jeu** (mode par défaut) ;
-- **Description textuelle**.
+À droite du champ, un bouton-icône affiche le mode courant : une étiquette pour
+**Nom de jeu** (mode par défaut), un presse-papiers pour **Description
+textuelle**. Un clic bascule le mode et l'icône, et affiche 2 secondes une
+petite annonce sous la barre (« Recherche par nom » / « Recherche par
+description »).
 
 Le mode est **toujours choisi explicitement** : aucune détection automatique.
 
 | Mode | Pendant la frappe | À la validation (`Entrée`) |
 |---|---|---|
-| Nom de jeu | Aperçu de 5 résultats, SQL seul, **aucun Gemini** | Ouvre `/recherche?q=...&mode=name` |
+| Nom de jeu | Aperçu de 7 résultats, SQL seul, **aucun Gemini** | Ouvre `/recherche?q=...&mode=name` |
 | Description textuelle | Aucun appel réseau | Ouvre `/recherche?q=...&mode=semantic` |
 
 L'aperçu est une liste déroulante sous la barre (navigation clavier, `Échap` ou
@@ -147,7 +148,7 @@ GET /api/search?q=<phrase>&mode=<name|semantic>&manette=<full|partial>&limit=<1.
 - `manette` : optionnel.
   - `full` → `controller_support = 'full'`.
   - `partial` → `controller_support IN ('partial', 'full')`.
-- `limit` : optionnel, défaut 20, maximum 50. L'aperçu envoie 5.
+- `limit` : optionnel, défaut 20, maximum 50. L'aperçu envoie 7.
 - `offset` : optionnel, défaut 0.
 - Authentification : `SessionGuard` (401 sans session).
 
@@ -168,7 +169,7 @@ GET /api/search?q=<phrase>&mode=<name|semantic>&manette=<full|partial>&limit=<1.
       "lastPlayedAt": "2024-01-02T03:04:05.000Z",
       "score": 0.8123,
       "source": "series",
-      "criteria": ["Dans ta bibliothèque", "Se rapproche de Portal"]
+      "criteria": ["Se rapproche de Portal"]
     }
   ],
   "offset": 0,
@@ -367,8 +368,9 @@ timeout, 429/quota, `'busy'`). On réutilise la recherche par nom :
 
 ## 7. Front
 
-- **`web/src/components/BarreRecherche.tsx`** : champ, bouton de mode, menu,
-  aperçu (mode nom uniquement), navigation clavier, `AbortController`.
+- **`web/src/components/BarreRecherche.tsx`** : champ, bouton-icône de mode
+  (étiquette / presse-papiers), annonce de bascule 2 s, aperçu 7 résultats
+  (mode nom uniquement), navigation clavier, `AbortController`.
 - **`web/src/components/CarteResultatRecherche.tsx`** : présentation d'un
   résultat, réutilisable sur la page.
 - **`web/src/pages/Recherche.tsx`** : lecture de l'URL, chargement, pagination
@@ -378,8 +380,8 @@ timeout, 429/quota, `'busy'`). On réutilise la recherche par nom :
 - **`web/src/App.tsx`** : route protégée `/recherche`.
 - **`web/src/components/RootLayout.tsx`** : intégration de la barre, suppression
   du `<span className="nav-avenir">Recherche</span>`.
-- **`web/src/App.css`** : styles de la barre, du menu, de l'aperçu, des cartes,
-  du bouton « Afficher plus » et du responsive.
+- **`web/src/App.css`** : styles de la barre, du bouton de mode, de l'annonce,
+  de l'aperçu, des cartes, du bouton « Afficher plus » et du responsive.
 
 Style scaffold Vite : pas de point-virgule, guillemets simples, pas de virgule
 finale.
