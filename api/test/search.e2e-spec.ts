@@ -252,7 +252,7 @@ describe('Recherche (e2e)', () => {
     );
     expect(premiers[0]).toMatchObject({
       source: 'series',
-      criteria: ['Dans ta bibliothèque', 'Se rapproche de Portal'],
+      criteria: ['Se rapproche de Portal'],
     });
     expect(premiers[0].score).toBeGreaterThan(0.99);
   });

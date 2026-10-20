@@ -116,7 +116,7 @@ describe('SearchService — recherche par nom', () => {
           lastPlayedAt: new Date('2024-01-02T03:04:05.000Z'),
           score: null,
           source: 'name',
-          criteria: ['Dans ta bibliothèque'],
+          criteria: [],
         },
       ],
       offset: 0,
@@ -215,7 +215,6 @@ describe('SearchService — recherche par nom', () => {
     const [sql] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("g.controller_support IN ('partial', 'full')");
     expect(reponse.results[0]?.criteria).toEqual([
-      'Dans ta bibliothèque',
       'Manette partielle ou complète',
     ]);
   });
@@ -257,7 +256,7 @@ describe('SearchService — recherche sémantique', () => {
     expect(reponse.results[0]).toMatchObject({
       score: 0.9123,
       source: 'series',
-      criteria: ['Dans ta bibliothèque', 'Se rapproche de Portal'],
+      criteria: ['Se rapproche de Portal'],
     });
     expect(reponse.degraded).toBe(false);
   });

@@ -315,7 +315,7 @@ export class SearchService {
   }
 
   private criteriaFor(dto: SearchQueryDto): string[] {
-    const criteria = ['Dans ta bibliothèque'];
+    const criteria: string[] = [];
     if (dto.manette === 'full') {
       criteria.push('Manette complète');
     } else if (dto.manette === 'partial') {
