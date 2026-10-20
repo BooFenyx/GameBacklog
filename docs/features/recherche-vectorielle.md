@@ -1,8 +1,9 @@
 # Feature — Recherche vectorielle
 
 > Fiche de conception **et** plan d'implémentation. La spécification produit de
-> référence reste `fiche_projet.md` (voir §1). Ce document décrit le contrat
-> d'API, la conception technique, les tests et le découpage en commits.
+> référence reste `fiche_projet.md` (voir §1). Ce document décrit l'expérience
+> utilisateur, le contrat d'API, la conception technique, les tests et le
+> découpage en commits.
 
 ## 1. Contexte & objectif
 
@@ -20,25 +21,31 @@ Cette feature comble les écarts identifiés dans `AGENTS.md` :
 | 11 | Repli si échec de la recherche absent |
 | 13 | Aucun DTO, alors que le `ValidationPipe` global est strict |
 
-Objectif : `GET /api/search?q=...` renvoie jusqu'à 10 jeux de la bibliothèque de
-l'utilisateur, classés par similarité avec la requête, avec score et critères.
+Objectif : une **barre de recherche unique**, disponible sur toutes les pages,
+avec deux modes explicites — recherche par **nom de jeu** et recherche
+**sémantique** — et une page de résultats paginée.
 
 ## 2. Périmètre
 
 **Dans le périmètre**
 
-- Embedding de la requête via le service Gemini existant.
-- Recherche pgvector filtrée sur la bibliothèque de l'utilisateur, tri cosinus,
-  `LIMIT 10`.
+- Barre de recherche globale dans l'en-tête, y compris sur la page Bibliothèque.
+- Deux modes choisis par l'utilisateur : `Nom de jeu` et `Description textuelle`.
+- Prévisualisation **uniquement** en mode nom, sans appel Gemini.
+- Recherche sémantique à la validation, avec embedding Gemini et tri pgvector.
+- Priorité simple aux jeux dont le nom se rapproche d'un jeu cité dans la requête.
+- Pagination « Afficher plus de résultats » sur la page de résultats.
 - Filtre strict optionnel sur le support manette.
-- Limitation de fréquence par utilisateur.
-- Repli dégradé (recherche textuelle + filtres) avec message informatif.
-- Page front `/recherche` et activation du lien de navigation.
+- Limitation de fréquence par utilisateur, distincte pour les deux modes.
+- Repli dégradé (recherche par nom) avec message informatif.
+- Page `/recherche` facilement remaniable, non présente dans la navigation.
 
 **Hors périmètre**
 
 - Génération de texte / reranking par un LLM (cf. `fiche_projet.md:67`).
-- Recherche hors de la bibliothèque de l'utilisateur (catalogue Steam complet).
+- Recherche hors de la bibliothèque de l'utilisateur.
+- Table de franchises ou normalisation avancée des titres.
+- Filtres et tri de la bibliothèque (Écart 19) : chantier séparé.
 - Recherche par similarité de l'accueil (Écarts 3/20) : chantier séparé.
 
 ## 3. État actuel (revue de code)
@@ -48,8 +55,7 @@ l'utilisateur, classés par similarité avec la requête, avec score et critère
 - **Embedding** : `EmbeddingService.embed(text): Promise<number[] | null>`
   (`api/src/embedding/embedding.service.ts:58`). Renvoie `null` si la clé est
   absente, si Gemini répond en erreur ou renvoie un vecteur vide ; lève
-  `QuotaReachedError` sur HTTP 429 ou quota journalier épuisé. Le timeout
-  externe est déjà de 5 s (`embedding.service.ts:13`).
+  `QuotaReachedError` sur HTTP 429 ou quota journalier épuisé.
 - **Quota partagé** : `RateLimitService` (100/min, 1000/jour, persisté dans
   `rate_limits`) — `api/src/embedding/rate-limiter.service.ts`. La recherche
   consomme le **même** quota Gemini que l'import d'embeddings.
@@ -65,104 +71,157 @@ l'utilisateur, classés par similarité avec la requête, avec score et critère
 
 ### À créer
 
-- Aucun `SearchModule` / `SearchService` / `SearchController` n'existe
-  (grep `search|recherche|cosine|<=>` → 0 occurrence).
+- Aucun `SearchModule` / `SearchService` / `SearchController` n'existe.
 - Aucun DTO dans le dépôt. Le `ValidationPipe` global
   (`api/src/app.setup.ts:89-95`) combine `whitelist` et
-  `forbidNonWhitelisted` : **tout query param non déclaré provoque un 400**. Un
-  DTO pour `q` est donc obligatoire.
+  `forbidNonWhitelisted` : **tout query param non déclaré provoque un 400**.
 - Pas de rate limiting par utilisateur (`@nestjs/throttler` non installé, et
   raisonne par IP : non retenu).
 - Pas de repli dégradé.
 - Front : le lien « Recherche » est désactivé
-  (`web/src/components/RootLayout.tsx:37-39`) ; aucune route ni page.
+  (`web/src/components/RootLayout.tsx:37-39`) ; aucune barre ni page.
 
 ### Pièges à respecter
 
 - **ESM côté `api/`** : imports relatifs avec extension `.js`.
 - **Pas d'extension ni de point-virgule côté `web/`** (style scaffold Vite).
 - **Sérialisation du vecteur** : passer `JSON.stringify(vector)` avec un cast
-  `$1::vector` en SQL brut, plutôt que de compter sur l'ORM pour convertir un
-  `number[]` en `vector` (comportement peu fiable avec `node-postgres`).
+  `$1::vector` en SQL brut, plutôt que de compter sur l'ORM.
 - **Quota partagé** : une recherche peut échouer (429) pendant un import
   d'embeddings en cours ; c'est précisément le cas que couvre le repli.
 - **Aucun index ANN requis** : pour des bibliothèques de quelques centaines de
-  jeux, le tri séquentiel `ORDER BY embedding <=> $1 LIMIT 10` suffit. Un index
-  HNSW pourra être ajouté plus tard si le volume l'exige (hors périmètre ici).
-- **Pas de script `test` côté `web/`** : tout test front impliquerait d'ajouter
-  le script à `web/package.json` (aucun test front prévu dans cette feature).
+  jeux, le tri séquentiel `ORDER BY embedding <=> $1` suffit.
+- **Pas de script `test` côté `web/`** : aucun test front prévu ici.
 
-## 4. Contrat d'API
+## 4. Expérience utilisateur
+
+### La barre de recherche
+
+La barre vit dans `RootLayout`, entre la navigation et le bloc compte. Elle est
+visible quand la session est ouverte. Elle fonctionne sur toutes les pages,
+notamment Bibliothèque, indépendamment des futurs filtres de bibliothèque.
+
+À droite du champ, un bouton affiche le mode courant et ouvre un petit menu :
+
+- **Nom de jeu** (mode par défaut) ;
+- **Description textuelle**.
+
+Le mode est **toujours choisi explicitement** : aucune détection automatique.
+
+| Mode | Pendant la frappe | À la validation (`Entrée`) |
+|---|---|---|
+| Nom de jeu | Aperçu de 5 résultats, SQL seul, **aucun Gemini** | Ouvre `/recherche?q=...&mode=name` |
+| Description textuelle | Aucun appel réseau | Ouvre `/recherche?q=...&mode=semantic` |
+
+L'aperçu est une liste déroulante sous la barre (navigation clavier, `Échap` ou
+clic extérieur pour fermer, clic → fiche du jeu). En mode description, il n'y a
+**aucun aperçu** : la recherche coûte un appel Gemini et doit rester une action
+volontaire.
+
+### La page de résultats
+
+`/recherche` est une route protégée, absente de la navigation : on y arrive par
+la barre. Elle lit `q`, `mode` et `manette` dans l'URL. Sa structure est
+volontairement simple pour être remaniée sans toucher à la logique :
+
+- en-tête « Résultats pour « … » » + mode + filtre manette ;
+- liste de cartes (`CarteResultatRecherche`) : image, nom, description, genres,
+  temps de jeu, score, badge de provenance, critères ;
+- bouton **« Afficher plus de résultats »** tant que `hasMore` est vrai ;
+- états : chargement initial, chargement complémentaire, vide, erreur, dégradé,
+  limite de fréquence atteinte (429).
+
+Un changement de requête, de mode ou de filtre réinitialise la liste et annule
+la requête précédente (`AbortController`).
+
+## 5. Contrat d'API
 
 ### Requête
 
 ```
-GET /api/search?q=<phrase>&manette=<full|partial>
+GET /api/search?q=<phrase>&mode=<name|semantic>&manette=<full|partial>&limit=<1..50>&offset=<>=0>
 ```
 
-- `q` : requis, chaîne, 1 à 300 caractères (`fiche_projet.md:44`).
-- `manette` : optionnel, `full` ou `partial`.
+- `q` : requis, trimé, 1 à 300 caractères. Les espaces seuls sont refusés.
+- `mode` : requis, `name` ou `semantic`.
+- `manette` : optionnel.
   - `full` → `controller_support = 'full'`.
-  - `partial` → `controller_support IN ('partial', 'full')` (au moins partiel).
+  - `partial` → `controller_support IN ('partial', 'full')`.
+- `limit` : optionnel, défaut 20, maximum 50. L'aperçu envoie 5.
+- `offset` : optionnel, défaut 0.
 - Authentification : `SessionGuard` (401 sans session).
 
 ### Réponse `200`
 
 ```jsonc
 {
+  "mode": "semantic",
   "results": [
     {
-      "appId": 292030,
-      "name": "The Witcher 3: Wild Hunt",
+      "appId": 400,
+      "name": "Portal",
       "shortDescription": "…",
       "headerImageUrl": "https://…",
-      "genres": ["RPG", "Aventure"],
+      "genres": ["Puzzle"],
       "controllerSupport": "full",
-      "playtimeForever": 3720,
+      "playtimeForever": 320,
       "lastPlayedAt": "2024-01-02T03:04:05.000Z",
       "score": 0.8123,
-      "criteria": ["Dans ta bibliothèque", "Manette complète"]
+      "source": "series",
+      "criteria": ["Dans ta bibliothèque", "Se rapproche de Portal"]
     }
   ],
+  "offset": 0,
+  "limit": 20,
+  "hasMore": false,
   "degraded": false
 }
 ```
 
-- `score` : `1 - distance cosinus`, dans `[0, 1]`. `null` en repli dégradé (pas
-  de comparaison vectorielle).
-- `criteria` : libellés lisibles des filtres respectés.
+- `score` : `1 - distance cosinus`, valeur réelle (peut être négative). `null`
+  en mode nom et en repli dégradé.
+- `source` : `name`, `semantic` ou `series`.
+- `criteria` : libellés lisibles des filtres et rapprochements respectés.
+- `hasMore` : calculé en demandant `limit + 1` lignes puis en tronquant. Aucun
+  `COUNT` supplémentaire.
+
+### Ordre des résultats
+
+- `name` : égalité exacte, puis préfixe, puis présence dans le nom ; à égalité,
+  nom le plus court puis alphabétique.
+- `semantic` : jeux de la série citée d'abord, puis score cosinus décroissant.
+- L'ordre est stable entre les pages (`OFFSET`).
 
 ### Réponse en repli
 
-Même forme, `degraded: true`, `score: null`, et un champ `message` explicatif :
-
 ```jsonc
 {
-  "results": [ /* résultats textuels */ ],
+  "mode": "semantic",
+  "results": [ /* résultats par nom, paginés */ ],
+  "offset": 0,
+  "limit": 20,
+  "hasMore": false,
   "degraded": true,
   "message": "Recherche sémantique indisponible : résultats par nom."
 }
 ```
 
+Le repli cherche par le **jeu cité** s'il y en a un (`Portal` dans « un jeu
+comme Portal »), sinon par la requête entière. Il ne filtre pas sur
+`embedding IS NOT NULL`.
+
 ### Codes d'erreur
 
 | Code | Cas |
 |---|---|
-| `400` | `q` absent/vide/trop long, ou paramètre non déclaré (DTO strict) |
+| `400` | `q` absent/vide/trop long, `mode` invalide, `limit`/`offset` invalides, paramètre non déclaré |
 | `401` | Aucune session Steam |
-| `429` | Limite de fréquence par utilisateur dépassée (fenêtre glissante) |
+| `429` | Limite de fréquence par utilisateur dépassée ; en-tête `Retry-After` |
 | `200` | Succès, y compris en repli dégradé |
 
-> La réponse est **toujours un objet englobant** (`{ results, degraded }`), et
-> non un tableau nu : cela permet de transporter l'état dégradé et évite le cas
-> d'un corps vide (cf. la leçon de `GET /api/auth/me`,
-> `api/src/auth/auth.controller.ts:117-121`).
+## 6. Conception technique
 
-## 5. Conception technique
-
-### 5.1 Module NestJS
-
-Nouveau dossier `api/src/search/` :
+### 6.1 Module NestJS
 
 ```
 api/src/search/
@@ -171,91 +230,41 @@ api/src/search/
 ├── search.controller.ts
 ├── search.service.ts
 ├── search-rate-limit.service.ts
-└── search.service.spec.ts
+├── query-embedding-cache.service.ts
+└── *.spec.ts
 ```
 
-- `SearchModule` importe `EmbeddingModule` (qui exporte déjà `EmbeddingService`).
-  `DB` est global (`@Global()` sur `DbModule`), aucune import à faire.
-- `SearchController` : `@Controller('search')` + `@UseGuards(SessionGuard)`,
-  méthode `@Get()` recevant `@Query() dto: SearchQueryDto`.
+- `SearchModule` importe `EmbeddingModule` (qui exporte `EmbeddingService`).
+  `DB` est global (`@Global()` sur `DbModule`).
+- `SearchController` : `@Controller('search')` + `@UseGuards(SessionGuard)`.
 - `SearchModule` est ajouté aux `imports` de `api/src/app.module.ts`.
 - Pas de cycle : `SearchModule` n'a besoin ni d'`AuthModule` ni de `SyncModule`.
 
-### 5.2 DTO
+### 6.2 DTO et pagination
 
-`api/src/search/dto/search-query.dto.ts` :
+`SearchQueryDto` : `q` trimé (1–300), `mode` (`name|semantic`), `manette`
+optionnel, `limit` (1–50, défaut 20), `offset` (≥ 0, défaut 0). `@Type(() => Number)`
+convertit les query params, qui arrivent en chaînes.
 
-```ts
-import { IsIn, IsOptional, IsString, Length } from 'class-validator';
+### 6.3 Limitation de fréquence par utilisateur (Écart 10)
 
-export class SearchQueryDto {
-  @IsString()
-  @Length(1, 300)
-  q!: string;
+`SearchRateLimitService`, en mémoire, fenêtre glissante de 60 s par `steamId` :
 
-  @IsOptional()
-  @IsIn(['full', 'partial'])
-  manette?: 'full' | 'partial';
-}
-```
+- mode `semantic` : `SEARCH_RATE_LIMIT_PER_MINUTE` (défaut 20) ;
+- mode `name` : `SEARCH_NAME_RATE_LIMIT_PER_MINUTE` (défaut 120), sinon la
+  frappe serait bloquée par l'aperçu.
 
-`class-validator` et `class-transformer` sont déjà des dépendances
-(`api/package.json:32-33`).
-
-### 5.3 Rate limiting par utilisateur (Écart 10)
-
-`SearchRateLimitService` en mémoire, calé sur le motif `MinuteWindow`
-(`api/src/embedding/rate-limiter.service.ts:20`), mais **clé = `steamId`** :
-
-- `Map<steamId, number[]>` de timestamps, fenêtre glissante de 60 s.
-- Seuil : `SEARCH_RATE_LIMIT_PER_MINUTE` (défaut proposé : 20).
-- `consume(steamId)` renvoie `false` si la limite est atteinte ; le contrôleur
-  lève alors une `HttpException` 429.
-- Tests unitaires sans horloge réelle (`now` injectable, comme `MinuteWindow`).
+`tryConsume(steamId, kind)` renvoie `{ allowed: true }` ou
+`{ allowed: false, retryAfterMs }`. Le contrôleur lève une 429 avec
+`Retry-After`. Les clés inactives sont purgées périodiquement.
 
 **Limites assumées** : état par instance et perdu au redémarrage. Acceptable
 tant que l'API tourne sur une seule instance (plan gratuit Render). À migrer
-vers un compteur persisté (table `rate_limits`) si l'API est répliquée.
+vers un compteur persisté si l'API est répliquée.
 
-### 5.4 Requête vectorielle
+### 6.4 Recherche par nom
 
-Dans `SearchService.search(userId, dto)`, après validation :
-
-1. **Embedding de la requête** : `this.embedding.embed(dto.q)`.
-   - Si `null` → repli dégradé.
-   - Si `QuotaReachedError` → repli dégradé.
-2. **SQL** (brut, `db.$client.query`), vecteur sérialisé en JSON et casté :
-
-```sql
-SELECT
-  g.app_id,
-  g.name,
-  g.short_description,
-  g.header_image_url,
-  g.genres,
-  g.controller_support,
-  le.playtime_forever,
-  le.last_played_at,
-  1 - (g.embedding <=> $1::vector) AS score
-FROM library_entries le
-JOIN games g ON g.id = le.game_id
-WHERE le.user_id = $2
-  AND g.embedding IS NOT NULL
-  -- filtre manette optionnel :
-  --   AND g.controller_support = 'full'
-  --   AND g.controller_support IN ('partial', 'full')
-ORDER BY g.embedding <=> $1::vector
-LIMIT 10;
-```
-
-- Paramètres : `[JSON.stringify(embedding), userId]`.
-- `<=>` = distance cosinus pgvector ; `score = 1 - distance`.
-- Les jeux sans embedding sont exclus (pas encore indexés).
-
-### 5.5 Repli dégradé (Écart 11)
-
-Déclenché quand l'embedding de la requête est indisponible (clé absente, erreur
-réseau, timeout 5 s, 429/quota). Requête SQL classique :
+SQL brut, littéral (pas de jokers `LIKE`), filtré sur la bibliothèque :
 
 ```sql
 SELECT g.app_id, g.name, g.short_description, g.header_image_url, g.genres,
@@ -263,85 +272,173 @@ SELECT g.app_id, g.name, g.short_description, g.header_image_url, g.genres,
 FROM library_entries le
 JOIN games g ON g.id = le.game_id
 WHERE le.user_id = $1
-  AND g.name ILIKE '%' || $2 || '%'
+  AND strpos(lower(g.name), lower($2)) > 0
   [AND g.controller_support …]
-ORDER BY le.playtime_forever DESC
-LIMIT 10;
+ORDER BY
+  CASE
+    WHEN lower(g.name) = lower($2) THEN 0
+    WHEN strpos(lower(g.name), lower($2)) = 1 THEN 1
+    ELSE 2
+  END,
+  length(g.name),
+  g.name
+LIMIT $3 OFFSET $4;
 ```
 
-- `degraded: true`, `score: null`, `message` explicite.
-- La recherche textuelle ne filtre pas sur `embedding IS NOT NULL` (utile si
-  l'indexation n'est pas terminée).
+`strpos` évite le piège des jokers `%` et `_` saisis par l'utilisateur. Le
+service demande `limit + 1` lignes pour calculer `hasMore`.
 
-## 6. Front
+### 6.5 Recherche sémantique
 
-- **Nouvelle page** `web/src/pages/Recherche.tsx` : formulaire de saisie (champ
-  `q`, contrôle manette), état de chargement, liste de résultats (image, nom,
-  genres, temps de jeu, score, `criteria`), bandeau `message` si
-  `degraded`.
-- **Route** `/recherche` protégée par `RouteProtegee` dans `web/src/App.tsx`.
-- **Navigation** : remplacer le `<span className="nav-avenir">Recherche</span>`
-  par un `<NavLink to="/recherche">Recherche</NavLink>`
-  (`web/src/components/RootLayout.tsx:37-39`).
-- **Appel** : `fetch(urlApi('/api/search?...'), { credentials: 'include' })`,
-  style sans point-virgule. Gérer 401 (redirection) et 429 (message).
-- **Styles** dans `web/src/App.css` (pas de config Prettier, style Vite).
+1. **Embedding de la requête** : `this.embedding.embed(dto.q, { maxWaitMs })`.
+   - `null` → repli dégradé.
+   - `QuotaReachedError` → repli dégradé.
+   - `'busy'` (quota minute saturé) → repli dégradé.
+2. **Jeu cité** : chercher dans la bibliothèque le plus long nom de jeu contenu
+   dans la requête, insensible à la casse. Si `« jeu du style de The Witness »`
+   contient `The Witness`, c'est la référence.
+3. **SQL vectoriel** :
 
-## 7. Tests
+```sql
+SELECT
+  g.app_id, g.name, g.short_description, g.header_image_url, g.genres,
+  g.controller_support, le.playtime_forever, le.last_played_at,
+  1 - (g.embedding <=> $1::vector) AS score,
+  CASE
+    WHEN $3::text IS NOT NULL AND strpos(lower(g.name), lower($3)) > 0
+    THEN 1 ELSE 0
+  END AS series_match
+FROM library_entries le
+JOIN games g ON g.id = le.game_id
+WHERE le.user_id = $2
+  AND g.embedding IS NOT NULL
+  [AND g.controller_support …]
+  [AND 1 - (g.embedding <=> $1::vector) >= $seuil]
+ORDER BY series_match DESC, g.embedding <=> $1::vector, g.app_id
+LIMIT $4 OFFSET $5;
+```
 
-- **Unitaire** `api/src/search/search.service.spec.ts` (DB et `EmbeddingService`
-  mockés) :
-  - tri vectoriel : bonne requête SQL, mapping `score`/`criteria` ;
-  - filtre manette (`full` vs `partial`) ;
-  - repli si `embed` renvoie `null` ;
-  - repli si `embed` lève `QuotaReachedError`.
-- **Unitaire** `SearchRateLimitService` : autorise sous le seuil, bloque au-delà,
-  libère après expiration de la fenêtre.
-- **e2e** `api/test/search.e2e-spec.ts` : session ouverte via le callback OpenID,
-  seed d'un jeu avec un vecteur factice de 1024 dimensions, `GET /api/search`,
-  vérification du 401 sans session et du 400 avec `q` manquant.
-- **Commandes de vérification** (voir `AGENTS.md`) :
+- Paramètres : `[JSON.stringify(embedding), userId, referenceTitle, limit + 1, offset]`.
+- `<=>` = distance cosinus pgvector ; `score = 1 - distance`.
+- Les jeux sans embedding sont exclus (pas encore indexés).
+- `source = series_match ? 'series' : 'semantic'`.
+
+### 6.6 Priorité de série — version simple
+
+Pas de table de franchises, pas de normalisation de titre. On réutilise le nom
+du jeu cité :
+
+- `Portal` cité → les jeux dont le nom contient `Portal` (`Portal`, `Portal 2`,
+  `Portal Stories…`) passent devant, badgés `series`.
+- `The Witness` cité → `The Witness` passe devant (dans la mesure du possible).
+- `Borderlands 2` cité ne remonte pas nécessairement `Borderlands 1/3/4` :
+  compromis assumé pour ne pas complexifier.
+
+Le score reste affiché pour les résultats `series`.
+
+### 6.7 Latence et quota Gemini
+
+`RateLimitService.acquire(maxWaitMs?)` accepte une attente maximale :
+
+- import d'embeddings : comportement inchangé (attente jusqu'à libération) ;
+- recherche : `SEARCH_EMBEDDING_MAX_WAIT_MS` (défaut 1500). Si l'attente
+  nécessaire dépasse ce seuil, `acquire` renvoie `'busy'` **sans consommer de
+  créneau** ; la recherche bascule immédiatement en repli dégradé.
+
+`EmbeddingService.embed(text, { maxWaitMs })` propage l'option et renvoie
+`null` sur `'busy'`.
+
+### 6.8 Cache des embeddings de requête
+
+Cache mémoire partagé entre utilisateurs : clé = requête normalisée (minuscules,
+espaces compactés), TTL 1 h, taille bornée (500 entrées), déduplication des
+appels concurrents. Il réduit les appels Gemini sur les recherches répétées.
+État par instance, perdu au redémarrage : suffisant pour ce périmètre.
+
+### 6.9 Repli dégradé (Écart 11)
+
+Déclenché quand l'embedding est indisponible (clé absente, erreur réseau,
+timeout, 429/quota, `'busy'`). On réutilise la recherche par nom :
+
+- sur le titre du jeu cité s'il existe ;
+- sinon sur la requête entière.
+
+`degraded: true`, `score: null`, `message` explicite, résultats paginés.
+
+## 7. Front
+
+- **`web/src/components/BarreRecherche.tsx`** : champ, bouton de mode, menu,
+  aperçu (mode nom uniquement), navigation clavier, `AbortController`.
+- **`web/src/components/CarteResultatRecherche.tsx`** : présentation d'un
+  résultat, réutilisable sur la page.
+- **`web/src/pages/Recherche.tsx`** : lecture de l'URL, chargement, pagination
+  « Afficher plus », états, filtre manette.
+- **`web/src/search.ts`** : types (`ModeRecherche`, `ResultatRecherche`,
+  `ReponseRecherche`) et fonction d'appel.
+- **`web/src/App.tsx`** : route protégée `/recherche`.
+- **`web/src/components/RootLayout.tsx`** : intégration de la barre, suppression
+  du `<span className="nav-avenir">Recherche</span>`.
+- **`web/src/App.css`** : styles de la barre, du menu, de l'aperçu, des cartes,
+  du bouton « Afficher plus » et du responsive.
+
+Style scaffold Vite : pas de point-virgule, guillemets simples, pas de virgule
+finale.
+
+## 8. Tests
+
+- **DTO** : trim, vide refusé, 300 caractères max, `mode` invalide, `manette`
+  invalide, conversion et bornes de `limit`/`offset`.
+- **Rate limiting** : autorise sous le seuil, bloque au-delà, `retryAfterMs`,
+  libération après la fenêtre, indépendance par utilisateur et par mode.
+- **Recherche par nom** : SQL, classement exact/préfixe/contenu, filtre manette,
+  pagination, `hasMore`.
+- **Recherche sémantique** : SQL vectoriel, score, priorité de série, filtre
+  manette, seuil, pagination, repli sur `null`/`QuotaReachedError`/`'busy'`.
+- **Cache** : deuxième appel identique sans nouvel embedding, TTL, borne.
+- **e2e** (`api/test/search.e2e-spec.ts`) : 401 sans session, 400 avec `q`
+  manquant, mode `name` sans appel Gemini, mode `semantic` avec embedding
+  factice, pagination, 429.
+- **Commandes** :
   - `api/` : `npm run lint && npm test && npm run test:e2e`
   - `web/` : `npm run lint && npm run build`
 
-## 8. Découpage en commits
+## 9. Découpage en commits
 
-L'objectif est d'éviter un unique commit volumineux : chaque commit est
-**cohérent, buildable et testé** (lint + tests verts avant de committer).
+Chaque commit est cohérent, buildable et testé.
 
 | # | Message de commit (français) | Contenu |
 |---|---|---|
-| 1 | `docs: fiche de feature pour la recherche vectorielle` | Ce document uniquement. |
-| 2 | `feat(api): DTO validé et limiteur de fréquence par utilisateur` | `dto/search-query.dto.ts`, `search-rate-limit.service.ts` + specs. Pas encore branché. |
-| 3 | `feat(api): service de recherche vectorielle pgvector` | `search.service.ts` (chemin vectoriel) + unit specs. |
-| 4 | `feat(api): repli dégradé de la recherche` | Branche de repli texte + flag `degraded` + tests. |
-| 5 | `feat(api): endpoint GET /api/search` | `search.controller.ts`, `search.module.ts`, câblage `app.module.ts`, e2e. |
-| 6 | `feat(web): page de recherche et lien de navigation` | `Recherche.tsx`, route `App.tsx`, nav `RootLayout.tsx`, styles. |
-| 7 | `docs: mettre à jour AGENTS.md (recherche vectorielle)` | Sections « État du projet »/« Fichiers clés » et écarts 2/10/11/13 — **validation préalable du développeur requise** (`AGENTS.md`). |
+| 1 | `docs: réviser la fiche recherche (modes, série, pagination)` | Ce document. |
+| 2 | `feat(api): DTO, pagination et limites de fréquence` | DTO + `SearchRateLimitService` + specs. Pas encore branché. |
+| 3 | `feat(api): recherche par nom` | `search.service.ts` (mode nom) + specs. |
+| 4 | `feat(api): recherche vectorielle, priorité de série et repli` | Embedding, SQL pgvector, série, cache, `maxWaitMs`, repli + specs. |
+| 5 | `feat(api): endpoint GET /api/search` | Contrôleur, module, câblage `app.module.ts`, e2e. |
+| 6 | `feat(web): barre de recherche globale et page de résultats` | Barre, aperçu, modes, page, route, nav, styles. |
+| 7 | `docs: mettre à jour AGENTS.md (recherche)` | Sections « État du projet »/« Fichiers clés », écarts 2/10/11/13 — **validation préalable du développeur requise**. |
 
-> Les commits 2 à 4 peuvent être regroupés si la revue le souhaite, mais l'ordre
-> garantit qu'aucun commit intermédiaire ne casse le build.
+## 10. Tâches détaillées
 
-## 9. Tâches détaillées
-
-1. [commit 1] Rédiger ce document.
-2. [commit 2] DTO + `SearchRateLimitService` + tests.
-3. [commit 3] `SearchService` : embedding de requête + SQL vectoriel + tests.
-4. [commit 4] Repli dégradé + tests.
+1. [commit 1] Mettre à jour cette fiche.
+2. [commit 2] DTO + `SearchRateLimitService` + tests + `.env.example`.
+3. [commit 3] `SearchService` : mode nom + pagination + tests.
+4. [commit 4] Mode sémantique : embedding, `maxWaitMs`, cache, série, repli + tests.
 5. [commit 5] Contrôleur + module + câblage + e2e.
-6. [commit 6] Page front + route + navigation + styles.
+6. [commit 6] Barre globale + page de résultats + styles.
 7. [commit 7] Mise à jour d'`AGENTS.md` (après validation).
 
-## 10. Impacts & configuration
+## 11. Impacts & configuration
 
-- **Base de données** : aucune migration (colonne `games.embedding` existante).
-- **Variables d'environnement** : ajouter `SEARCH_RATE_LIMIT_PER_MINUTE=20`
-  (optionnel, défaut en code) à `.env.example`.
-- **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé ; aucune
-  nouvelle clé.
+- **Base de données** : aucune migration (`games.embedding` existe).
+- **Variables d'environnement** (toutes optionnelles, défauts en code) :
+  - `SEARCH_RATE_LIMIT_PER_MINUTE=20`
+  - `SEARCH_NAME_RATE_LIMIT_PER_MINUTE=120`
+  - `SEARCH_PAGE_SIZE=20`
+  - `SEARCH_MIN_SCORE=` (vide = désactivé)
+  - `SEARCH_EMBEDDING_MAX_WAIT_MS=1500`
+- **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé.
 - **API** : nouvelle route `GET /api/search`, sous le préfixe global `/api`.
 
-## 11. Références
+## 12. Références
 
 - Spécification : `fiche_projet.md:18,42-48`.
 - Écarts : `AGENTS.md` (Écarts 2, 10, 11, 13).
@@ -349,5 +446,4 @@ L'objectif est d'éviter un unique commit volumineux : chaque commit est
 - Quota : `api/src/embedding/rate-limiter.service.ts`.
 - Schéma : `api/src/db/schema.ts:32-55`.
 - Session : `api/src/auth/session.guard.ts`.
-- SQL brut existant : `api/src/embedding/rate-limiter.service.ts:120`.
 - Front : `web/src/App.tsx`, `web/src/components/RootLayout.tsx`.
