@@ -34,14 +34,24 @@ genres, catégories, support manette, temps de jeu) et charge les succès
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
 les 2 s et s'affiche dès que l'étape `library` est passée.
 
+**Recherche vectorielle.** `GET /api/search` (`api/src/search/`) accepte `mode=name`
+(SQL `ILIKE` + priorité de série) ou `mode=semantic` (embedding de la requête via Gemini,
+tri pgvector `<=>`), avec filtres stricts (bibliothèque de l'utilisateur, `manette`) et
+pagination (`limit`/`offset`, `hasMore`). Limitation par `steamId` (20/min sémantique,
+120/min nom, 429 + `Retry-After`), cache d'embeddings de requête (TTL 1 h, 500 entrées)
+et repli dégradé (`degraded`) si Gemini échoue ou dépasse ~1,5 s. Front : barre globale
+dans `RootLayout` (modes nom/description, aperçu 7 résultats en mode nom, **aucun Gemini
+à la frappe**, bouton-icône intégré) et page protégée `/recherche` (filtre manette,
+« Afficher plus », états dégradé/quota/erreur).
+
 **Sécurité.** CSP de production en place : stricte côté API (`app.setup.ts`, `default-src
 'none'`, prod uniquement) et via les en-têtes Vercel côté front (CSP SPA + `nosniff` +
-`Referrer-Policy`). Pas encore de rate limiting (reporté, voir Écart 10).
+`Referrer-Policy`). Rate limiting en place sur `GET /api/search` par `steamId` (voir
+Écart 10) ; les autres routes ne sont pas limitées.
 
-**Non implémenté :** recherche vectorielle (seule l'indexation des embeddings est faite),
-accueil calculé (à relancer / à découvrir / proches), filtres et tri de la bibliothèque,
-rate limiting par utilisateur, mise en ligne (socle et déploiement continu front
-prêts, rien n'est encore réellement déployé).
+**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), filtres et tri
+de la bibliothèque, mise en ligne (socle et déploiement continu front prêts, rien n'est
+encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
@@ -51,6 +61,7 @@ prêts, rien n'est encore réellement déployé).
 - `api/src/achievements/` — succès à la demande (`GetSchemaForGame` / `GetPlayerAchievements`)
 - `api/src/users/` — upsert utilisateur, `syncStatus`
 - `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j)
+- `api/src/search/` — `GET /api/search` (nom/sémantique/série), limite par `steamId`, cache d'embeddings de requête, DTO
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
 - `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0003)
 - `render.yaml` — blueprint Render (API seule)
@@ -58,6 +69,11 @@ prêts, rien n'est encore réellement déployé).
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
+- `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
+- `web/src/components/BarreRecherche.tsx` — barre globale (modes, aperçu, bouton-icône de mode)
+- `web/src/components/CarteResultatRecherche.tsx` — carte d'un résultat de recherche
+- `web/src/pages/Recherche.tsx` — page `/recherche` (filtre manette, pagination, états)
+- `docs/features/recherche-vectorielle.md` — fiche de la fonctionnalité recherche
 - `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
 - `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token, alignement de l'auteur du commit) sur push `main`
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
@@ -257,14 +273,15 @@ nul besoin d'importer `AuthModule` pour l'obtenir. Corollaire : `SyncService` es
 
 **Points volontairement laissés de côté :**
 
-- **Aucun rate limiting.** La spécification exige que l'entrée de recherche soit « limitée en
-  fréquence par utilisateur » (`fiche_projet.md`). `@nestjs/throttler` n'a pas été installé :
-  il raisonne par IP, ce qui n'est pas la clé demandée. **Décision : reporté**, le site n'étant
-  pas encore exposé aux robots/crawlers ; à implémenter par utilisateur (clé de session) quand
-  la recherche arrivera (voir Écart 10).
+- **Rate limiting limité à la recherche.** La spécification exige que l'entrée de recherche
+  soit « limitée en fréquence par utilisateur » (`fiche_projet.md`) : c'est fait par
+  `steamId` sur `GET /api/search` (voir Écart 10). Les autres routes (bibliothèque, détail
+  d'un jeu, sync) ne sont toujours pas limitées ; `@nestjs/throttler` n'a pas été installé
+  car il raisonne par IP, ce qui n'est pas la clé demandée.
 
 Résolus depuis : **timeouts** (`AbortSignal.timeout(5000)`), **validation de
-`openid.mode === 'id_res'`** (voir Écarts 15 et 16) et **CSP de production** (voir Écart 14).
+`openid.mode === 'id_res'`** (voir Écarts 15 et 16), **CSP de production** (voir Écart 14)
+et **rate limiting de la recherche** (voir Écart 10).
 
 ## Écarts spec ↔ code
 
@@ -281,13 +298,12 @@ reste à corriger).
 | **Spec** | « Connexion : authentification via Steam (OpenID), puis **import de la bibliothèque** avec suivi de progression. » (`fiche_projet.md:15`) — « L'import se fait en **tâche de fond** avec reprise : les entrées de bibliothèque d'abord, puis les fiches manquantes, puis les embeddings. » (`fiche_projet.md:39`) |
 | **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done`, trois étapes reprises (`onModuleInit` remet les jobs `running` en `pending`). `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). |
 
-#### Écart 2 — Recherche vectorielle absente
+#### Écart 2 — Recherche vectorielle
 
 | | Détail |
 |---|---|
 | **Spec** | « Recherche : saisie libre (« un jeu calme avec des énigmes, jouable à la manette ») et résultats classés. » (`fiche_projet.md:18`) — « embedding de la requête, puis SQL unique combinant **filtres stricts** (support manette, dans la bibliothèque de l'utilisateur) et **tri par similarité cosinus**. » (`fiche_projet.md:45`) — « liste de 10 jeux de la bibliothèque de l'utilisateur, avec le score de similarité et les critères respectés. » (`fiche_projet.md:46`) |
-| **Code réel** | Aucun contrôleur de recherche n'existe dans `api/src/`. Aucun service de recherche n'existe. `web/src/components/RootLayout.tsx:37-39` : `<span className="nav-avenir" title="Bientôt disponible">Recherche</span>` — la navigation est désactivée. `api/src/embedding/embedding.service.ts` est désormais injecté par le `SyncService` (indexation), mais aucune requête n'embedde une saisie utilisateur. |
-| **Correction** | Créer un `SearchModule` avec un contrôleur `GET /api/search?q=...` qui embeds la requête, interroge pgvector avec `ORDER BY embedding <=> $1`, filtre par `controllerSupport` et `userId`, renvoie 10 résultats avec score. |
+| **État** | ✅ Résolu — `api/src/search/` : `GET /api/search` (`search.controller.ts`) avec `SessionGuard`, `SearchQueryDto` (`mode=name\|semantic`, `manette`, `limit`, `offset`), `SearchService` (nom via `ILIKE` + priorité de série, sémantique via embedding Gemini et tri pgvector `<=>`, filtres stricts bibliothèque/manette, pagination `hasMore`), `SearchRateLimitService` par `steamId` et cache d'embeddings de requête. Front : `web/src/components/BarreRecherche.tsx` (modes nom/description, aperçu 7 résultats en mode nom, aucun Gemini à la frappe) et `web/src/pages/Recherche.tsx` (route protégée `/recherche`, filtre manette, « Afficher plus », états dégradé/quota/erreur). `<span className="nav-avenir">` retiré de `RootLayout.tsx`. |
 
 #### Écart 3 — Page d'accueil non fonctionnelle
 
@@ -343,21 +359,19 @@ reste à corriger).
 
 ### Écarts moyens (robustesse, sécurité, complétude)
 
-#### Écart 10 — Rate limiting sur la recherche absent
+#### Écart 10 — Rate limiting sur la recherche — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Entrée : phrase libre, longueur limitée (ex. 300 caractères), **limitée en fréquence par utilisateur**. » (`fiche_projet.md:44`) |
-| **Code réel** | Aucun rate limiting n'existe. `@nestjs/throttler` n'est pas installé. La recherche n'existant pas, la limitation n'est pas encore applicable. |
-| **Correction** | **Reporté** tant que le site n'est pas exposé aux robots/crawlers. Implémenter un guard de rate limiting par `steamId` (clé de session, pas par IP) sur la route de recherche, une fois celle-ci créée. |
+| **État** | ✅ Résolu — `SearchRateLimitService` (`api/src/search/search-rate-limit.service.ts`) limite `GET /api/search` par `steamId` (clé de session, pas par IP) : 20/min en sémantique, 120/min en nom, compteur en mémoire. Dépassement → `429` + `Retry-After`. `@nestjs/throttler` n'a pas été installé (il raisonne par IP). |
 
-#### Écart 11 — Repli si échec de la recherche absent
+#### Écart 11 — Repli si échec de la recherche — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Repli si échec (erreur, quota 429, latence excessive) : recherche classique par filtres (genre, manette, temps de jeu) et recherche textuelle sur le nom, avec un message d'information à l'utilisateur. » (`fiche_projet.md:47`) |
-| **Code réel** | Non implémenté (la recherche n'existe pas). |
-| **Correction** | Dans le service de recherche, encapsuler l'appel à Gemini dans un try/catch avec timeout. Sur échec, basculer sur une recherche SQL `LIKE` + filtres, et retourner un flag `degraded: true` au front. |
+| **État** | ✅ Résolu — `SearchService` retombe sur la recherche par nom (`LIKE`/`ILIKE` + filtres manette/bibliothèque) si l'embedding Gemini échoue, dépasse `SEARCH_EMBEDDING_MAX_WAIT_MS` (~1,5 s) ou est refusé par le rate limiter (`'busy'`), et renvoie `degraded: true` avec un `message` ; le front affiche l'état dégradé. |
 
 #### Écart 14 — CSP désactivée — ✅ Résolu
 
@@ -390,13 +404,12 @@ reste à corriger).
 | **Code réel** | `render.yaml:1-4` : « Le front est hébergé sur Vercel (voir web/vercel.json) ; ce fichier ne décrit que l'API. » `web/vercel.json` existe. La décision Vercel + Render + Neon est implémentée et documentée dans la section « Cible de déploiement » de ce fichier. |
 | **Correction** | Mettre à jour `fiche_projet.md:58` pour refléter la décision Vercel + Render + Neon. La spec est obsolète sur ce point. |
 
-#### Écart 13 — DTO validés : pipe en place mais aucun DTO concret
+#### Écart 13 — DTO validés — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « API : NestJS + TypeScript (DTO validés) » (`fiche_projet.md:54`) |
-| **Code réel** | `api/src/app.setup.ts:65-71` : `ValidationPipe` est configuré globalement avec `whitelist: true, forbidNonWhitelisted: true, transform: true`. **Mais** aucun fichier `*dto.ts` n'existe dans le codebase. Aucune classe DTO n'est définie. |
-| **Correction** | Créer des DTO pour chaque route acceptant un corps ou des paramètres de requête (recherche, filtres de bibliothèque). |
+| **État** | ✅ Résolu — `ValidationPipe` global (`api/src/app.setup.ts` : `whitelist: true, forbidNonWhitelisted: true, transform: true`) est effectivement exercé par `SearchQueryDto` (`api/src/search/search-query.dto.ts`), le seul point d'entrée acceptant des paramètres de requête. Corollaire : toute nouvelle route à paramètres (ex. filtres de bibliothèque, Écart 19) doit livrer son DTO. |
 
 #### Écart 16 — Validation de `openid.mode` — ✅ Résolu
 
@@ -433,11 +446,10 @@ reste à corriger).
 
 Ordre recommandé pour combler les écarts restants :
 
-1. **Recherche vectorielle** (Écarts 2, 10, 11) : `SearchModule` avec pgvector, rate limiting par `steamId`, fallback dégradé. Gros morceau restant.
-2. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
-3. **Bibliothèque enrichie** (Écarts 4, 19) : filtres et tri.
-4. **Sécurité et robustesse** (Écart 18) : message d'aide si profil privé. Prérequis avant mise en ligne.
-5. **Divers** (Écarts 12, 13) : mettre à jour `fiche_projet.md` (hébergement), créer les DTO.
+1. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
+2. **Bibliothèque enrichie** (Écarts 4, 19) : filtres et tri.
+3. **Sécurité et robustesse** (Écart 18) : message d'aide si profil privé. Prérequis avant mise en ligne.
+4. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
 
 ## Base de données
 

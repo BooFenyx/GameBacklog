@@ -14,6 +14,7 @@ import Bibliotheque from './pages/Bibliotheque'
 import Connexion from './pages/Connexion'
 import JeuDetail from './pages/JeuDetail'
 import NotFound from './pages/NotFound'
+import Recherche from './pages/Recherche'
 import './App.css'
 
 function Chargement() {
@@ -73,6 +74,14 @@ function App() {
               element={
                 <RouteProtegee>
                   <JeuDetail />
+                </RouteProtegee>
+              }
+            />
+            <Route
+              path="/recherche"
+              element={
+                <RouteProtegee>
+                  <Recherche />
                 </RouteProtegee>
               }
             />

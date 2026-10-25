@@ -8,6 +8,7 @@ import { EmbeddingModule } from './embedding/embedding.module.js';
 import { UsersModule } from './users/users.module.js';
 import { GamesModule } from './games/games.module.js';
 import { SyncModule } from './sync/sync.module.js';
+import { SearchModule } from './search/search.module.js';
 import { DbModule } from './db/db.module.js';
 import { validateEnv } from './config/env.validation.js';
 
@@ -33,6 +34,7 @@ import { validateEnv } from './config/env.validation.js';
     UsersModule,
     GamesModule,
     SyncModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],

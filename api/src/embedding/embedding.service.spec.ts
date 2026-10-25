@@ -123,7 +123,7 @@ describe('EmbeddingService', () => {
       expect(result).toEqual([0.1, 0.2, 0.3]);
     });
 
-    it("devrait lever QuotaReachedError si Gemini répond 429", async () => {
+    it('devrait lever QuotaReachedError si Gemini répond 429', async () => {
       mockConfigService.get.mockImplementation((key: string) => {
         if (key === 'EMBEDDING_API_KEY') return 'test-key';
         return undefined;
@@ -138,7 +138,7 @@ describe('EmbeddingService', () => {
       await expect(service.embed('test')).rejects.toThrow(QuotaReachedError);
     });
 
-    it("devrait lever QuotaReachedError si le quota journalier est épuisé", async () => {
+    it('devrait lever QuotaReachedError si le quota journalier est épuisé', async () => {
       mockConfigService.get.mockImplementation((key: string) => {
         if (key === 'EMBEDDING_API_KEY') return 'test-key';
         return undefined;
@@ -146,6 +146,19 @@ describe('EmbeddingService', () => {
       mockRateLimitService.acquire.mockResolvedValueOnce('quota-journalier');
 
       await expect(service.embed('test')).rejects.toThrow(QuotaReachedError);
+    });
+
+    it('devrait retourner null quand la fenêtre est saturée (busy)', async () => {
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'EMBEDDING_API_KEY') return 'test-key';
+        return undefined;
+      });
+      mockRateLimitService.acquire.mockResolvedValueOnce('busy');
+
+      const result = await service.embed('test', { maxWaitMs: 1500 });
+
+      expect(result).toBeNull();
+      expect(mockRateLimitService.acquire).toHaveBeenCalledWith(1500);
     });
 
     it("devrait retourner null si l'embedding est vide", async () => {

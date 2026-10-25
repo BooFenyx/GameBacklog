@@ -93,6 +93,20 @@ describe('RateLimitService', () => {
     );
   });
 
+  it("renvoie busy sans toucher à la base quand l'attente dépasse maxWaitMs", async () => {
+    pool.query.mockResolvedValue(row(1, new Date()));
+
+    for (let i = 0; i < 10; i += 1) {
+      await expect(service.acquire()).resolves.toBe('ok');
+    }
+    const appelsBase = pool.query.mock.calls.length;
+
+    // La fenêtre minute est pleine : une attente nulle renvoie immédiatement
+    // `busy`, sans consommer de créneau ni interroger la base.
+    await expect(service.acquire(0)).resolves.toBe('busy');
+    expect(pool.query).toHaveBeenCalledTimes(appelsBase);
+  });
+
   it('réinitialise la fenêtre journalière après 24 heures', async () => {
     const ilYaPlusDe24h = new Date(Date.now() - 25 * 60 * 60 * 1000);
     pool.query.mockResolvedValue(row(2, ilYaPlusDe24h));
