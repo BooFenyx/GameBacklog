@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { construireConditions } from '../catalog/filters.js';
+import {
+  agregerFacettes,
+  type FacetRow,
+  type FacettesBibliotheque,
+} from '../catalog/facets.js';
 import { modesDepuisCategories, type ModeJeu } from '../catalog/modes.js';
 import { DB, type Db } from '../db/db.module.js';
 import type { TriBibliotheque } from './dto/library-query.dto.js';
@@ -167,6 +172,30 @@ export class LibraryService {
       offset: query.offset,
       hasMore,
     };
+  }
+
+  /**
+   * Compteurs des filtres de la bibliothèque (genres, modes, manette, état,
+   * durée). Une seule lecture, agrégée en mémoire : pas de requête par facette.
+   */
+  async facets(userId: number): Promise<FacettesBibliotheque> {
+    const result = await this.db.$client.query(
+      `
+        SELECT
+          g.genre_ids AS "genreIds",
+          g.genres,
+          g.category_ids AS "categoryIds",
+          g.controller_support AS "controllerSupport",
+          le.playtime_forever AS "playtimeForever",
+          le.playtime_last_2_weeks AS "playtimeLast2Weeks"
+        FROM library_entries le
+        JOIN games g ON g.id = le.game_id
+        WHERE le.user_id = $1
+      `,
+      [userId],
+    );
+
+    return agregerFacettes(result.rows as FacetRow[]);
   }
 
   /** Clause `ORDER BY` d'une page de bibliothèque (valeurs contrôlées). */

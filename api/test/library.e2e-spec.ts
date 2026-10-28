@@ -278,4 +278,34 @@ describe('Bibliothèque (e2e)', () => {
     await agent.get('/api/library?modes=inconnu').expect(400);
     await agent.get('/api/library?tri=inconnu').expect(400);
   });
+
+  it('renvoie les facettes de la bibliothèque', async () => {
+    const agent = request.agent(app.getHttpServer());
+    await agent
+      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
+      .redirects(0)
+      .expect(302);
+
+    const res = await agent.get('/api/library/facets').expect(200);
+
+    expect(res.body.total).toBeGreaterThanOrEqual(2);
+    expect(res.body.genres).toEqual(
+      expect.arrayContaining([
+        { id: 1, label: 'Action', count: 1 },
+        { id: 25, label: 'Aventure', count: 1 },
+      ]),
+    );
+    expect(res.body.modes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'solo', count: 1 }),
+        expect.objectContaining({ value: 'coop', count: 1 }),
+      ]),
+    );
+    expect(res.body.etats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'jamais', count: 0 }),
+        expect.objectContaining({ value: 'recent', count: 1 }),
+      ]),
+    );
+  });
 });
