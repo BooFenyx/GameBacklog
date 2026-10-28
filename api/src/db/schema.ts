@@ -38,6 +38,16 @@ export const games = pgTable(
     shortDescription: text('short_description'),
     genres: text('genres').array().notNull().default([]),
     categories: text('categories').array().notNull().default([]),
+    /**
+     * Identifiants de la taxonomie Steam, alignés index par index sur
+     * `genres` et `categories`. Ils servent aux filtres (stables même si Steam
+     * reformule un libellé) ; les libellés restent utilisés pour l'affichage et
+     * le texte des embeddings.
+     */
+    genreIds: integer('genre_ids').array().notNull().default([]),
+    categoryIds: integer('category_ids').array().notNull().default([]),
+    /** Version du mapping de fiche appliquée (voir `FILTERS_VERSION`). */
+    filtersVersion: integer('filters_version').notNull().default(0),
     controllerSupport: text('controller_support', {
       enum: ['none', 'partial', 'full'],
     })
@@ -51,6 +61,11 @@ export const games = pgTable(
   },
   (table) => ({
     appIdIdx: uniqueIndex('games_app_id_idx').on(table.appId),
+    genreIdsIdx: index('games_genre_ids_gin').using('gin', table.genreIds),
+    categoryIdsIdx: index('games_category_ids_gin').using(
+      'gin',
+      table.categoryIds,
+    ),
   }),
 );
 
@@ -75,6 +90,14 @@ export const libraryEntries = pgTable(
       table.gameId,
     ),
     userIdIdx: index('library_entries_user_id_idx').on(table.userId),
+    userPlaytimeIdx: index('library_entries_user_playtime_idx').on(
+      table.userId,
+      table.playtimeForever.desc(),
+    ),
+    userLastPlayedIdx: index('library_entries_user_last_played_idx').on(
+      table.userId,
+      table.lastPlayedAt.desc(),
+    ),
   }),
 );
 

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { vi } from 'vitest';
 import { DB, type Db } from '../db/db.module.js';
 import {
+  FILTERS_VERSION,
   GamesService,
   mapControllerSupport,
   parseReleaseDate,
@@ -41,8 +42,14 @@ function fakeDb(returnedId = 7) {
 const DATA_FULL = {
   name: 'Portal 2',
   short_description: '<b>Résolvez</b> des énigmes.',
-  genres: [{ description: 'Puzzle' }],
-  categories: [{ description: 'Single-player' }, { description: 'Full controller support' }],
+  genres: [
+    { id: '1', description: 'Action' },
+    { id: '25', description: 'Aventure' },
+  ],
+  categories: [
+    { id: 2, description: 'Solo' },
+    { id: 28, description: 'Compat. contrôleurs complète' },
+  ],
   controller_support: 'full',
   release_date: { date: '26 oct. 2023' },
   header_image: 'https://cdn/header.jpg',
@@ -71,9 +78,15 @@ describe('parseReleaseDate', () => {
 
 describe('mapControllerSupport', () => {
   it('donne la priorité au champ dédié', () => {
-    expect(mapControllerSupport({ controller_support: 'full' } as never)).toBe('full');
-    expect(mapControllerSupport({ controller_support: 'partial' } as never)).toBe('partial');
-    expect(mapControllerSupport({ controller_support: 'none' } as never)).toBe('none');
+    expect(mapControllerSupport({ controller_support: 'full' } as never)).toBe(
+      'full',
+    );
+    expect(
+      mapControllerSupport({ controller_support: 'partial' } as never),
+    ).toBe('partial');
+    expect(mapControllerSupport({ controller_support: 'none' } as never)).toBe(
+      'none',
+    );
   });
 
   it('se replie sur les catégories', () => {
@@ -88,7 +101,9 @@ describe('mapControllerSupport', () => {
       } as never),
     ).toBe('partial');
     expect(
-      mapControllerSupport({ categories: [{ description: 'Single-player' }] } as never),
+      mapControllerSupport({
+        categories: [{ description: 'Single-player' }],
+      } as never),
     ).toBe('none');
   });
 });
@@ -114,8 +129,10 @@ describe('GamesService', () => {
       appId: 620,
       name: 'Portal 2',
       shortDescription: 'Résolvez des énigmes.',
-      genres: ['Puzzle'],
-      categories: ['Single-player', 'Full controller support'],
+      genres: ['Action', 'Aventure'],
+      genreIds: [1, 25],
+      categories: ['Solo', 'Compat. contrôleurs complète'],
+      categoryIds: [2, 28],
       controllerSupport: 'full',
       releaseDate: new Date('2023-10-26'),
       headerImageUrl: 'https://cdn/header.jpg',
@@ -125,11 +142,79 @@ describe('GamesService', () => {
       expect.objectContaining({
         appId: 620,
         name: 'Portal 2',
+        genreIds: [1, 25],
+        categoryIds: [2, 28],
+        filtersVersion: FILTERS_VERSION,
         controllerSupport: 'full',
         detailsFetchedAt: expect.any(Date),
       }),
     );
     expect(returning).toHaveBeenCalled();
+  });
+
+  it('fetchAppDetails convertit les ids Steam (chaînes ou nombres)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ 620: { success: true, data: DATA_FULL } }),
+    });
+
+    const details = await service.fetchAppDetails(620);
+
+    expect(details?.genreIds).toEqual([1, 25]);
+    expect(details?.genres).toEqual(['Action', 'Aventure']);
+    expect(details?.categoryIds).toEqual([2, 28]);
+    expect(details?.categories).toEqual([
+      'Solo',
+      'Compat. contrôleurs complète',
+    ]);
+  });
+
+  it('fetchAppDetails ignore les ids invalides et dédoublonne par id', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        621: {
+          success: true,
+          data: {
+            name: 'Test',
+            genres: [
+              { id: '1', description: 'Action' },
+              { id: '1', description: 'Action (doublon)' },
+              { id: 'abc', description: 'Invalide' },
+              { id: '0', description: 'Zéro' },
+              { id: '25', description: 'Aventure' },
+            ],
+            categories: [
+              { id: 2, description: 'Solo' },
+              { id: 2, description: 'Solo (doublon)' },
+            ],
+          },
+        },
+      }),
+    });
+
+    const details = await service.fetchAppDetails(621);
+
+    expect(details?.genreIds).toEqual([1, 25]);
+    expect(details?.genres).toEqual(['Action', 'Aventure']);
+    expect(details?.categoryIds).toEqual([2]);
+    expect(details?.categories).toEqual(['Solo']);
+  });
+
+  it('fetchAppDetails renvoie des tableaux vides quand Steam ne fournit rien', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        622: { success: true, data: { name: 'Sans taxonomie' } },
+      }),
+    });
+
+    const details = await service.fetchAppDetails(622);
+
+    expect(details?.genreIds).toEqual([]);
+    expect(details?.genres).toEqual([]);
+    expect(details?.categoryIds).toEqual([]);
+    expect(details?.categories).toEqual([]);
   });
 
   it('fetchAppDetails : null si la fiche est absente ou en échec', async () => {
@@ -159,7 +244,8 @@ describe('GamesService', () => {
       appId: 620,
       name: 'Portal 2',
       shortDescription: 'Résolvez des énigmes.',
-      genres: ['Puzzle'],
+      genres: ['Action', 'Aventure'],
+      genreIds: [1, 25],
       controllerSupport: 'full',
       releaseDate: expect.any(Date),
       headerImageUrl: 'https://cdn/header.jpg',
@@ -169,7 +255,12 @@ describe('GamesService', () => {
   it('embeddingInputFor : null si aucune matière descriptive', async () => {
     const { whereChain, limit } = faireDbFake();
     limit.mockResolvedValue([
-      { name: 'PixelJunk' as string, shortDescription: null as string | null, genres: [] as string[], categories: [] as string[] },
+      {
+        name: 'PixelJunk' as string,
+        shortDescription: null as string | null,
+        genres: [] as string[],
+        categories: [] as string[],
+      },
     ]);
     const input = await service.embeddingInputFor(999);
     expect(input).toBeNull();
@@ -179,7 +270,12 @@ describe('GamesService', () => {
   it('embeddingInputFor : texte d’entrée depuis la fiche', async () => {
     const { limit } = faireDbFake();
     limit.mockResolvedValue([
-      { name: 'Portal 2' as string, shortDescription: 'Des énigmes.' as string | null, genres: ['Puzzle'] as string[], categories: ['Co-op'] as string[] },
+      {
+        name: 'Portal 2' as string,
+        shortDescription: 'Des énigmes.' as string | null,
+        genres: ['Puzzle'] as string[],
+        categories: ['Co-op'] as string[],
+      },
     ]);
     const input = await service.embeddingInputFor(620);
     expect(input).toMatchObject({
