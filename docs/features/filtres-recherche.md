@@ -209,12 +209,23 @@ CREATE INDEX library_entries_user_last_played_idx
 | `web/src/filters.ts` | Types, libellés, lecture/écriture URL, compteur |
 | `web/src/library.ts` | Client `/api/library` et `/api/library/facets` |
 | `web/src/format.ts` | `formaterDuree`, `formaterDate`, `formaterDepuis` |
-| `web/src/components/filtres/BarreFiltres.tsx` | Recherche, tri, bouton Filtres, puces actives |
-| `web/src/components/filtres/PanneauFiltres.tsx` | `<dialog>` accessible (genres, modes, manette, état, durée) |
+| `web/src/components/filtres/SidebarFiltres.tsx` | Colonne de filtres desktop : sections repliables, manette, compteurs |
+| `web/src/components/filtres/BarreFiltres.tsx` | Recherche, tri, puces actives, bouton Filtres mobile |
+| `web/src/components/filtres/PanneauFiltres.tsx` | `<dialog>` accessible pour mobile et recherche |
 | `web/src/components/filtres/PuceFiltre.tsx` | Puce d'un filtre actif |
 
 ### 7.3 Comportement
 
+- La bibliothèque utilise une **colonne de filtres** sur desktop (genres, modes,
+  temps de jeu, manette) ; sur mobile, elle devient le panneau `<dialog>`.
+- Les sections sont **repliables** ; la manette est un interrupteur en bas de la
+  colonne, pas une section.
+- Le bouton `‹` ferme la colonne : elle glisse vers la gauche et un onglet
+  vertical « Filtres » apparaît au bord gauche après l’animation. Un clic sur
+  l’onglet la rouvre ; la grille gagne une colonne quand la colonne est fermée.
+- Les libellés des modes sont : `Solo`, `Multi en ligne`, `Multi Local`, `Coop`,
+  `PvP`, `CrossPlay`. Les valeurs d’URL restent `solo`, `multi`, `local`, `coop`,
+  `pvp`, `crossplay`.
 - La bibliothèque conserve son markup de cartes actuel (la refonte est en PR 2).
 - `Afficher plus` ajoute la page suivante (offset = nombre d'éléments affichés).
 - Un import en cours désactive « Synchroniser » ; à la fin, la liste et les

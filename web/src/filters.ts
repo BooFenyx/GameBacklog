@@ -35,11 +35,11 @@ export const FILTRES_VIDES: Filtres = {
 
 export const MODES: { value: ModeJeu; label: string }[] = [
   { value: 'solo', label: 'Solo' },
-  { value: 'multi', label: 'Multi' },
+  { value: 'multi', label: 'Multi en ligne' },
+  { value: 'local', label: 'Multi Local' },
   { value: 'coop', label: 'Coop' },
   { value: 'pvp', label: 'PvP' },
-  { value: 'local', label: 'Local' },
-  { value: 'crossplay', label: 'Crossplay' },
+  { value: 'crossplay', label: 'CrossPlay' },
 ]
 
 export const ETATS: { value: EtatJeu; label: string }[] = [

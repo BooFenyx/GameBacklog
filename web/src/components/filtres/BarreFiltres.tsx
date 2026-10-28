@@ -26,6 +26,10 @@ type Props = {
   /** Texte d'aide du champ (la bibliothèque filtre, la recherche cherche). */
   placeholderRecherche?: string
   libelleRecherche?: string
+  /** La bibliothèque a déjà sa colonne de filtres : bouton visible sur mobile seulement. */
+  filtresEnSidebar?: boolean
+  /** Masque « Tout effacer » quand la colonne latérale le propose déjà. */
+  afficherToutEffacer?: boolean
   onChanger: (filtres: Filtres, remplacer?: boolean) => void
   onEffacer: () => void
 }
@@ -45,6 +49,8 @@ export default function BarreFiltres({
   maxLength = 100,
   placeholderRecherche = 'Rechercher un jeu…',
   libelleRecherche = 'Rechercher dans ta bibliothèque',
+  filtresEnSidebar = false,
+  afficherToutEffacer = true,
   onChanger,
   onEffacer,
 }: Props) {
@@ -115,7 +121,11 @@ export default function BarreFiltres({
 
         <button
           type="button"
-          className="btn biblio-bouton-filtres"
+          className={
+            filtresEnSidebar
+              ? 'btn biblio-bouton-filtres biblio-bouton-filtres--mobile'
+              : 'btn biblio-bouton-filtres'
+          }
           aria-expanded={panneauOuvert}
           onClick={() => setPanneauOuvert(true)}
         >
@@ -127,7 +137,7 @@ export default function BarreFiltres({
           )}
         </button>
 
-        {(!filtresVides(filtres) || filtres.q) && (
+        {afficherToutEffacer && (!filtresVides(filtres) || filtres.q) && (
           <button type="button" className="btn" onClick={onEffacer}>
             Tout effacer
           </button>
@@ -176,7 +186,7 @@ export default function BarreFiltres({
           ))}
           {filtres.manette === 'full' && (
             <PuceFiltre
-              label="Manette complète"
+              label="Manette"
               onRetirer={() => onChanger({ ...filtres, manette: null })}
             />
           )}

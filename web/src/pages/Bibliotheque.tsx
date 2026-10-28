@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import BarreFiltres from '../components/filtres/BarreFiltres'
+import SidebarFiltres from '../components/filtres/SidebarFiltres'
 import {
   cleFiltres,
+  compterFiltresActifs,
   ecrireFiltres,
   lireFiltres,
   type Filtres,
@@ -88,7 +90,13 @@ export default function Bibliotheque() {
   const [job, setJob] = useState<JobSync | null>(null)
   const [version, setVersion] = useState(0)
   const [relance, setRelance] = useState(0)
+  const [filtresOuverts, setFiltresOuverts] = useState(true)
+  const [ongletVisible, setOngletVisible] = useState(false)
   const plusController = useRef<AbortController | null>(null)
+  const layoutRef = useRef<HTMLDivElement>(null)
+  const ongletRef = useRef<HTMLButtonElement>(null)
+  const timerOnglet = useRef<number | null>(null)
+  const filtresRef = useRef(filtres)
 
   // La clé identifie un couple (filtres, version d'import) : une réponse
   // arrivée pour une autre clé est ignorée à l'affichage, ce qui évite de
@@ -123,9 +131,13 @@ export default function Bibliotheque() {
 
   // Liste : une requête par changement de filtres ou après un import.
   useEffect(() => {
+    filtresRef.current = filtres
+  }, [filtres])
+
+  useEffect(() => {
     const controller = new AbortController()
 
-    void chargerBibliotheque(filtres, 0, controller.signal)
+    void chargerBibliotheque(filtresRef.current, 0, controller.signal)
       .then((reponse) => {
         if (controller.signal.aborted) return
         setDonnees({ cle: cleListe, page: reponse })
@@ -136,7 +148,7 @@ export default function Bibliotheque() {
       })
 
     return () => controller.abort()
-  }, [filtres, cleListe])
+  }, [cleListe])
 
   // Suivi de l'import : on sonde tant qu'un job tourne, puis on rafraîchit la
   // page et les facettes une seule fois quand il se termine.
@@ -176,6 +188,48 @@ export default function Bibliotheque() {
 
   useEffect(() => {
     return () => plusController.current?.abort()
+  }, [])
+
+  const placerOnglet = useCallback(() => {
+    const top = layoutRef.current?.getBoundingClientRect().top ?? 0
+    if (ongletRef.current) {
+      ongletRef.current.style.top = `${Math.max(0, top)}px`
+    }
+  }, [])
+
+  useEffect(() => {
+    placerOnglet()
+    window.addEventListener('resize', placerOnglet)
+    window.addEventListener('scroll', placerOnglet, { passive: true })
+    return () => {
+      window.removeEventListener('resize', placerOnglet)
+      window.removeEventListener('scroll', placerOnglet)
+      if (timerOnglet.current !== null) {
+        window.clearTimeout(timerOnglet.current)
+      }
+    }
+  }, [placerOnglet])
+
+  const fermerFiltres = useCallback(() => {
+    setFiltresOuverts(false)
+    setOngletVisible(false)
+    if (timerOnglet.current !== null) {
+      window.clearTimeout(timerOnglet.current)
+    }
+    timerOnglet.current = window.setTimeout(() => {
+      placerOnglet()
+      setOngletVisible(true)
+      timerOnglet.current = null
+    }, 320)
+  }, [placerOnglet])
+
+  const ouvrirFiltres = useCallback(() => {
+    if (timerOnglet.current !== null) {
+      window.clearTimeout(timerOnglet.current)
+      timerOnglet.current = null
+    }
+    setOngletVisible(false)
+    setFiltresOuverts(true)
   }, [])
 
   const changerFiltres = useCallback(
@@ -248,6 +302,7 @@ export default function Bibliotheque() {
     filtres.etat !== null ||
     filtres.duree.length > 0 ||
     filtres.q.length > 0
+  const nombreFiltres = compterFiltresActifs(filtres)
 
   return (
     <section className="bibliotheque">
@@ -270,104 +325,149 @@ export default function Bibliotheque() {
         </button>
       </div>
 
-      <BarreFiltres
-        filtres={filtres}
-        facettes={facettes}
-        total={total}
-        chargement={chargement}
-        placeholderRecherche="Filtrer par nom…"
-        libelleRecherche="Filtrer la bibliothèque par nom"
-        onChanger={changerFiltres}
-        onEffacer={effacerFiltres}
-      />
+      <div
+        ref={layoutRef}
+        className={`biblio-layout${filtresOuverts ? '' : ' filtres-fermes'}`}
+      >
+        <SidebarFiltres
+          filtres={filtres}
+          facettes={facettes}
+          onChanger={changerFiltres}
+          onEffacer={effacerFiltres}
+          onFermer={fermerFiltres}
+        />
 
-      {enCours && (
-        <div className="sync-progression" role="status">
-          <p>
-            {libelleEtape[job.step]}
-            {job.totalGames > 0 &&
-              ` — ${job.processedGames}/${job.totalGames}`}
-          </p>
-          <div className="sync-barre">
-            <div
-              className="sync-barre-remplie"
-              style={{ width: `${pourcentage}%` }}
-            />
-          </div>
-        </div>
-      )}
+        <div className="biblio-resultats">
+          <BarreFiltres
+            filtres={filtres}
+            facettes={facettes}
+            total={total}
+            chargement={chargement}
+            placeholderRecherche="Filtrer par nom…"
+            libelleRecherche="Filtrer la bibliothèque par nom"
+            filtresEnSidebar
+            afficherCompte={false}
+            afficherToutEffacer={false}
+            onChanger={changerFiltres}
+            onEffacer={effacerFiltres}
+          />
 
-      {(erreurCourante || erreur) && (
-        <p className="message-erreur">{erreurCourante ?? erreur}</p>
-      )}
-
-      {chargement && (
-        <p className="chargement">Chargement de la bibliothèque…</p>
-      )}
-
-      {!chargement && page && total === 0 && (
-        <div className="bibliotheque-vide">
-          {aDesFiltres ? (
-            <>
-              <p>Aucun jeu ne correspond à ces filtres.</p>
-              <button type="button" className="btn" onClick={effacerFiltres}>
-                Effacer les filtres
-              </button>
-            </>
-          ) : (
-            <p>
-              Aucun jeu importé. Clique sur « Synchroniser » pour lancer
-              l’import de ta bibliothèque Steam.
-            </p>
-          )}
-        </div>
-      )}
-
-      {page && page.items.length > 0 && (
-        <>
-          <ul className="liste-jeux">
-            {page.items.map((jeu) => (
-              <li key={jeu.appId} className="jeu-carte">
-                <Link
-                  to={`/jeu/${jeu.appId}`}
-                  className="jeu-lien"
-                  aria-label={`Ouvrir la fiche de ${jeu.name}`}
+          {enCours && (
+            <div className="sync-progression" role="status">
+              <p>
+                {libelleEtape[job.step]}
+                {job.totalGames > 0 &&
+                  ` — ${job.processedGames}/${job.totalGames}`}
+              </p>
+              <div className="sync-barre">
+                <div
+                  className="sync-barre-remplie"
+                  style={{ width: `${pourcentage}%` }}
                 />
-                {jeu.headerImageUrl && (
-                  <img
-                    className="jeu-image"
-                    src={jeu.headerImageUrl}
-                    alt=""
-                    width="460"
-                    height="215"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                )}
-                <div className="jeu-corps">
-                  <span className="jeu-nom">{jeu.name}</span>
-                  <span className="jeu-infos">{infosJeu(jeu)}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          {page.hasMore && (
-            <div className="biblio-plus">
-              <button
-                type="button"
-                className="btn"
-                disabled={chargementPlus}
-                onClick={() => void afficherPlus()}
-              >
-                {chargementPlus
-                  ? 'Chargement…'
-                  : `Afficher plus (${Math.max(0, page.total - page.items.length)} restants)`}
-              </button>
+              </div>
             </div>
           )}
-        </>
-      )}
+
+          {(erreurCourante || erreur) && (
+            <p className="message-erreur">{erreurCourante ?? erreur}</p>
+          )}
+
+          {chargement && (
+            <p className="chargement">Chargement de la bibliothèque…</p>
+          )}
+
+          {page && (
+            <p className="biblio-resultats-compte" aria-live="polite">
+              {total} résultat{total > 1 ? 's' : ''}
+            </p>
+          )}
+
+          {!chargement && page && total === 0 && (
+            <div className="bibliotheque-vide">
+              {aDesFiltres ? (
+                <>
+                  <p>Aucun jeu ne correspond à ces filtres.</p>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={effacerFiltres}
+                  >
+                    Effacer les filtres
+                  </button>
+                </>
+              ) : (
+                <p>
+                  Aucun jeu importé. Clique sur « Synchroniser » pour lancer
+                  l’import de ta bibliothèque Steam.
+                </p>
+              )}
+            </div>
+          )}
+
+          {page && page.items.length > 0 && (
+            <>
+              <ul className="liste-jeux">
+                {page.items.map((jeu) => (
+                  <li key={jeu.appId} className="jeu-carte">
+                    <Link
+                      to={`/jeu/${jeu.appId}`}
+                      className="jeu-lien"
+                      aria-label={`Ouvrir la fiche de ${jeu.name}`}
+                    />
+                    {jeu.headerImageUrl && (
+                      <img
+                        className="jeu-image"
+                        src={jeu.headerImageUrl}
+                        alt=""
+                        width="460"
+                        height="215"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                    <div className="jeu-corps">
+                      <span className="jeu-nom">{jeu.name}</span>
+                      <span className="jeu-infos">{infosJeu(jeu)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              {page.hasMore && (
+                <div className="biblio-plus">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={chargementPlus}
+                    onClick={() => void afficherPlus()}
+                  >
+                    {chargementPlus
+                      ? 'Chargement…'
+                      : `Afficher plus (${Math.max(0, page.total - page.items.length)} restants)`}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <button
+        ref={ongletRef}
+        type="button"
+        className="onglet-filtres"
+        hidden={!ongletVisible}
+        onClick={ouvrirFiltres}
+        aria-label="Afficher les filtres"
+      >
+        <span className="onglet-filtres-chevron" aria-hidden="true">
+          ›
+        </span>
+        <span className="onglet-filtres-texte">Filtres</span>
+        {nombreFiltres > 0 && (
+          <span className="onglet-filtres-badge">{nombreFiltres}</span>
+        )}
+      </button>
     </section>
   )
 }

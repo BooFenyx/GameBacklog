@@ -70,7 +70,9 @@ genres, catégories, support manette, temps de jeu) et charge les succès
 **Front.** Pages Connexion, accueil, bibliothèque, détail d'un jeu (`/jeu/:appId`) et 404,
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
 les 2 s ; elle est filtrée, triée et paginée via l'URL (`/bibliotheque?genres=25&modes=coop&tri=temps`)
-et s'affiche dès que l'étape `library` est passée.
+et s'affiche dès que l'étape `library` est passée. Sur desktop, une **colonne de filtres**
+repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
+vertical permet de la rouvrir.
 
 **Filtres et facettes.** `GET /api/library` (`api/src/library/`) accepte `q`, `genres`,
 `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`, et renvoie une enveloppe
@@ -79,7 +81,11 @@ des genres, modes, manettes, états et durées. Les filtres sont appliqués en S
 **ids Steam** stockés dans `games.genre_ids` / `games.category_ids` (les libellés restent
 utilisés pour l'affichage et les embeddings). Les mêmes filtres s'appliquent aux deux modes
 de `GET /api/search`. Front : `web/src/filters.ts` (URL), `web/src/library.ts` (client),
-`web/src/components/filtres/` (barre d'outils, panneau `<dialog>`, puces actives).
+`web/src/components/filtres/SidebarFiltres.tsx` (colonne desktop repliable : genres, modes,
+temps de jeu, manette en bas), `BarreFiltres` (barre de résultats, puces actives, bouton
+mobile) et `PanneauFiltres` (`<dialog>` pour mobile et recherche). Les sections sont
+repliables ; la manette est un interrupteur hors section. Libellés des modes : `Solo`,
+`Multi en ligne`, `Multi Local`, `Coop`, `PvP`, `CrossPlay` (valeurs d'URL inchangées).
 
 **Recherche vectorielle.** `GET /api/search` (`api/src/search/`) accepte `mode=name`
 (SQL `ILIKE` + priorité de série) ou `mode=semantic` (embedding de la requête via Gemini,
@@ -121,7 +127,7 @@ déploiement continu front prêts, rien n'est encore réellement déployé).
 - `web/src/filters.ts` — types, libellés et sérialisation URL des filtres
 - `web/src/library.ts` — client `/api/library` et `/api/library/facets`
 - `web/src/format.ts` — formats partagés (durée, date, date relative)
-- `web/src/components/filtres/` — barre d'outils, panneau `<dialog>`, puces actives
+- `web/src/components/filtres/` — colonne latérale (`SidebarFiltres`), barre de résultats (`BarreFiltres`), panneau `<dialog>` (`PanneauFiltres`), puces actives
 - `web/src/components/BarreRecherche.tsx` — barre globale (modes, aperçu, bouton-icône de mode)
 - `web/src/components/CarteResultatRecherche.tsx` — carte d'un résultat de recherche
 - `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync)
@@ -395,7 +401,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec **temps de jeu, dernière utilisation, genres, filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs. Le front (`web/src/pages/Bibliotheque.tsx`) affiche la barre d'outils, les filtres actifs, le tri, la pagination et les états vides/erreur. La refonte visuelle des cartes est prévue en PR2. |
+| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs. Le front (`web/src/pages/Bibliotheque.tsx`) affiche une colonne de filtres repliable sur desktop, la barre de résultats, les filtres actifs, le tri, la pagination et les états vides/erreur. La colonne se ferme en glissant à gauche ; un onglet vertical la rouvre et la grille gagne une colonne. Sur mobile, le panneau `<dialog>` est utilisé. La refonte visuelle des cartes est prévue en PR2. |
 
 #### Écart 6 — Succès à la demande — ✅ Résolu
 

@@ -162,7 +162,7 @@ export default function PanneauFiltres({
                 })
               }
             >
-              Complète
+              Manette
               <span className="filtres-compte">
                 {facettes?.manettes.find(
                   (facette) => facette.value === 'full',
@@ -174,6 +174,7 @@ export default function PanneauFiltres({
 
         <fieldset className="filtres-groupe">
           <legend>Temps de jeu</legend>
+          <p className="filtre-sous-titre">État</p>
           <div className="filtres-options">
             {ETATS.map((etat) => (
               <button
@@ -192,6 +193,7 @@ export default function PanneauFiltres({
               </button>
             ))}
           </div>
+          <p className="filtre-sous-titre">Durée</p>
           <div className="filtres-options filtres-options-duree">
             {DUREES.map((duree) => (
               <button
