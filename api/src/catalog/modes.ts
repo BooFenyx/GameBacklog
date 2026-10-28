@@ -10,9 +10,9 @@ export type ModeJeu = 'solo' | 'multi' | 'coop' | 'pvp' | 'local' | 'crossplay';
 export const MODE_VALUES: ModeJeu[] = [
   'solo',
   'multi',
+  'local',
   'coop',
   'pvp',
-  'local',
   'crossplay',
 ];
 
@@ -22,15 +22,19 @@ export const MODES: Record<
 > = {
   solo: { label: 'Solo', labelLong: 'Solo', ids: [2] },
   multi: {
-    label: 'Multi',
-    labelLong: 'Multijoueur',
+    label: 'Multi en ligne',
+    labelLong: 'Multijoueur en ligne',
     ids: [1, 9, 27, 36, 37, 38, 39, 48, 49],
+  },
+  local: {
+    label: 'Multi Local',
+    labelLong: 'Multijoueur local',
+    ids: [24, 37, 39, 48],
   },
   coop: { label: 'Coop', labelLong: 'Coopération', ids: [9, 38, 39, 48] },
   pvp: { label: 'PvP', labelLong: 'Joueur contre joueur', ids: [49, 36, 37] },
-  local: { label: 'Local', labelLong: 'Écran partagé', ids: [24, 37, 39, 48] },
   crossplay: {
-    label: 'Crossplay',
+    label: 'CrossPlay',
     labelLong: 'Multijoueur multiplateforme',
     ids: [27],
   },
