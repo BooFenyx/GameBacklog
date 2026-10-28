@@ -1,13 +1,14 @@
 import {
+  Inject,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { eq } from 'drizzle-orm';
-import { Inject } from '@nestjs/common';
+import { construireConditions } from '../catalog/filters.js';
+import { modesDepuisCategories, type ModeJeu } from '../catalog/modes.js';
 import { DB, type Db } from '../db/db.module.js';
-import { games, libraryEntries } from '../db/schema.js';
+import type { TriBibliotheque } from './dto/library-query.dto.js';
 
 /** Base de la Steam Web API (authentifiée par `STEAM_API_KEY`). */
 const STEAM_API_BASE = 'https://api.steampowered.com';
@@ -28,11 +29,48 @@ export interface BibliothequeGame {
 /** Jeu persisté en base (`library_entries ⋈ games`), enrichi pour la page. */
 export interface BibliothequeGamePersiste extends BibliothequeGame {
   genres: string[];
-  categories: string[];
+  /** Modes dérivés des catégories Steam (solo, multi, coop…). */
+  modes: ModeJeu[];
   controllerSupport: 'none' | 'partial' | 'full';
-  shortDescription: string | null;
   headerImageUrl: string | null;
   achievementsUnlocked: number;
+}
+
+/** Filtres, tri et pagination de `GET /api/library`. */
+export interface BibliothequeQuery {
+  q?: string;
+  genres?: number[];
+  modes?: ModeJeu[];
+  manette?: 'full' | 'partial';
+  etat?: 'jamais' | 'joue' | 'recent';
+  duree?: ('0-2' | '2-10' | '10-50' | '50plus')[];
+  tri: TriBibliotheque;
+  limit: number;
+  offset: number;
+}
+
+/** Page renvoyée au front : les filtres sont appliqués côté SQL. */
+export interface BibliothequePage {
+  items: BibliothequeGamePersiste[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+/** Ligne brute de la requête paginée. */
+interface BibliothequeRow {
+  appId: number;
+  name: string;
+  headerImageUrl: string | null;
+  genres: string[] | null;
+  categoryIds: number[] | null;
+  controllerSupport: 'none' | 'partial' | 'full';
+  playtimeForever: number;
+  playtimeLast2Weeks: number;
+  lastPlayedAt: Date | null;
+  achievementsUnlocked: number;
+  total: string | number;
 }
 
 /** Forme de la réponse de `IPlayerService/GetOwnedGames`. */
@@ -59,31 +97,89 @@ export class LibraryService {
   ) {}
 
   /**
-   * Bibliothèque persistée de l'utilisateur (`library_entries ⋈ games`) : les
-   * jeux ne sont récupérés depuis Steam qu'une seule fois, à l'import (voir
-   * `SyncService`). Cette lecture sert la page Bibliothèque sans recontacter
-   * Steam, et fonctionne donc même sans `STEAM_API_KEY`.
+   * Bibliothèque persistée de l'utilisateur (`library_entries ⋈ games`), filtrée,
+   * triée et paginée. Les jeux ne sont récupérés depuis Steam qu'à l'import
+   * (voir `SyncService`) : cette lecture ne recontacte jamais Steam.
    */
-  async savedLibrary(userId: number): Promise<BibliothequeGamePersiste[]> {
-    const rows = await this.db
-      .select({
-        appId: games.appId,
-        name: games.name,
-        playtimeForever: libraryEntries.playtimeForever,
-        playtimeLast2Weeks: libraryEntries.playtimeLast2Weeks,
-        lastPlayedAt: libraryEntries.lastPlayedAt,
-        genres: games.genres,
-        categories: games.categories,
-        controllerSupport: games.controllerSupport,
-        shortDescription: games.shortDescription,
-        headerImageUrl: games.headerImageUrl,
-        achievementsUnlocked: libraryEntries.achievementsUnlocked,
-      })
-      .from(libraryEntries)
-      .innerJoin(games, eq(libraryEntries.gameId, games.id))
-      .where(eq(libraryEntries.userId, userId))
-      .orderBy(games.name);
-    return rows as BibliothequeGamePersiste[];
+  async savedLibrary(
+    userId: number,
+    query: BibliothequeQuery,
+  ): Promise<BibliothequePage> {
+    const params: unknown[] = [userId];
+    const conditions = ['le.user_id = $1'];
+
+    const q = query.q?.trim();
+    if (q) {
+      params.push(q);
+      conditions.push(`strpos(lower(g.name), lower($${params.length})) > 0`);
+    }
+
+    conditions.push(...construireConditions(query, params));
+
+    // Une ligne de plus que la page demandée pour calculer `hasMore` sans
+    // requête COUNT supplémentaire ; `total` vient de la fenêtre SQL.
+    const limitIndex = params.length + 1;
+    params.push(query.limit + 1);
+    const offsetIndex = params.length + 1;
+    params.push(query.offset);
+
+    const sql = `
+      SELECT
+        g.app_id AS "appId",
+        g.name,
+        g.header_image_url AS "headerImageUrl",
+        g.genres,
+        g.category_ids AS "categoryIds",
+        g.controller_support AS "controllerSupport",
+        le.playtime_forever AS "playtimeForever",
+        le.playtime_last_2_weeks AS "playtimeLast2Weeks",
+        le.last_played_at AS "lastPlayedAt",
+        le.achievements_unlocked AS "achievementsUnlocked",
+        COUNT(*) OVER() AS total
+      FROM library_entries le
+      JOIN games g ON g.id = le.game_id
+      WHERE ${conditions.join('\n        AND ')}
+      ORDER BY ${this.orderBy(query.tri)}
+      LIMIT $${limitIndex} OFFSET $${offsetIndex}
+    `;
+
+    const result = await this.db.$client.query(sql, params);
+    const rows = result.rows as BibliothequeRow[];
+    const hasMore = rows.length > query.limit;
+    const page = rows.slice(0, query.limit);
+    const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+
+    return {
+      items: page.map((row) => ({
+        appId: row.appId,
+        name: row.name,
+        headerImageUrl: row.headerImageUrl,
+        genres: row.genres ?? [],
+        modes: modesDepuisCategories(row.categoryIds ?? []),
+        controllerSupport: row.controllerSupport,
+        playtimeForever: row.playtimeForever,
+        playtimeLast2Weeks: row.playtimeLast2Weeks,
+        lastPlayedAt: row.lastPlayedAt,
+        achievementsUnlocked: row.achievementsUnlocked,
+      })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+      hasMore,
+    };
+  }
+
+  /** Clause `ORDER BY` d'une page de bibliothèque (valeurs contrôlées). */
+  private orderBy(tri: TriBibliotheque): string {
+    switch (tri) {
+      case 'temps':
+        return 'le.playtime_forever DESC, lower(g.name), g.app_id';
+      case 'recent':
+        return 'le.last_played_at DESC NULLS LAST, lower(g.name), g.app_id';
+      case 'nom':
+      default:
+        return 'lower(g.name), g.app_id';
+    }
   }
 
   /**

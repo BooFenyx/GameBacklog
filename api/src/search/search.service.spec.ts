@@ -13,9 +13,11 @@ interface NameSearchRow {
   shortDescription: string | null;
   headerImageUrl: string | null;
   genres: string[] | null;
+  categoryIds: number[] | null;
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
   lastPlayedAt: Date | string | null;
+  total: string | number;
 }
 
 interface SemanticSearchRow extends NameSearchRow {
@@ -42,9 +44,11 @@ function ligne(overrides: Partial<NameSearchRow> = {}): NameSearchRow {
     shortDescription: 'Des énigmes dans un centre de recherche.',
     headerImageUrl: 'https://cdn/portal.jpg',
     genres: ['Puzzle'],
+    categoryIds: [2],
     controllerSupport: 'full',
     playtimeForever: 320,
     lastPlayedAt: new Date('2024-01-02T03:04:05.000Z'),
+    total: 1,
     ...overrides,
   };
 }
@@ -91,6 +95,7 @@ function reponseNom(): SearchResponse {
     offset: 0,
     limit: 20,
     hasMore: false,
+    total: 0,
     degraded: false,
   };
 }
@@ -112,6 +117,7 @@ describe('SearchService — recherche par nom', () => {
           headerImageUrl: 'https://cdn/portal.jpg',
           genres: ['Puzzle'],
           controllerSupport: 'full',
+          modes: ['solo'],
           playtimeForever: 320,
           lastPlayedAt: new Date('2024-01-02T03:04:05.000Z'),
           score: null,
@@ -122,6 +128,7 @@ describe('SearchService — recherche par nom', () => {
       offset: 0,
       limit: 20,
       hasMore: false,
+      total: 1,
       degraded: false,
     });
   });
@@ -227,6 +234,57 @@ describe('SearchService — recherche par nom', () => {
 
     const [, params] = query.mock.calls[0] as [string, unknown[]];
     expect(params[1]).toBe('portal');
+  });
+
+  it('applique le filtre genres et expose les libellés dans les critères', async () => {
+    const { service, query } = makeService();
+    query
+      .mockResolvedValueOnce({
+        rows: [{ genreIds: [25], genres: ['Aventure'] }],
+      })
+      .mockResolvedValueOnce({
+        rows: [ligne({ genres: ['Aventure'], categoryIds: [2] })],
+      });
+
+    const reponse = await service.searchByName(7, dto({ genres: [25] }));
+
+    const [sql, params] = query.mock.calls[1] as [string, unknown[]];
+    expect(sql).toContain('g.genre_ids && $3::int[]');
+    expect(params[2]).toEqual([25]);
+    expect(reponse.results[0]?.criteria).toEqual(['Genre : Aventure']);
+  });
+
+  it('applique le filtre modes avec les ids Steam correspondants', async () => {
+    const { service, query } = makeService();
+    query.mockResolvedValue({ rows: [] });
+
+    await service.searchByName(7, dto({ modes: ['coop'] }));
+
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('g.category_ids && $3::int[]');
+    expect(params[2]).toEqual([9, 38, 39, 48]);
+  });
+
+  it('applique les filtres état et durée', async () => {
+    const { service, query } = makeService();
+    query.mockResolvedValue({ rows: [] });
+
+    await service.searchByName(7, dto({ etat: 'recent', duree: ['2-10'] }));
+
+    const [sql] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('le.playtime_last_2_weeks > 0');
+    expect(sql).toContain(
+      'le.playtime_forever >= 120 AND le.playtime_forever < 600',
+    );
+  });
+
+  it('renvoie le total calculé par la fenêtre SQL', async () => {
+    const { service, query } = makeService();
+    query.mockResolvedValue({ rows: [ligne({ total: '12' })] });
+
+    const reponse = await service.searchByName(7, dto());
+
+    expect(reponse.total).toBe(12);
   });
 });
 
