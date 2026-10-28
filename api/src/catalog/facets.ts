@@ -14,7 +14,6 @@ export interface FacetRow {
   categoryIds: number[] | null;
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
-  playtimeLast2Weeks: number;
 }
 
 export interface FacetteGenre {
@@ -31,11 +30,10 @@ export interface FacetteValeur<T extends string> {
 
 export interface FacettesBibliotheque {
   total: number;
-  sansGenre: number;
   genres: FacetteGenre[];
   modes: FacetteValeur<ModeJeu>[];
-  manettes: FacetteValeur<'full' | 'partial'>[];
-  etats: FacetteValeur<'jamais' | 'joue' | 'recent'>[];
+  manettes: FacetteValeur<'full'>[];
+  etats: FacetteValeur<'jamais' | 'joue'>[];
   durees: FacetteValeur<DureeJeu>[];
 }
 
@@ -55,20 +53,16 @@ function trancheDuree(minutes: number): DureeJeu {
  */
 export function agregerFacettes(rows: FacetRow[]): FacettesBibliotheque {
   const total = rows.length;
-  let sansGenre = 0;
 
   const compteGenres = new Map<number, number>();
   const compteModes = new Map<ModeJeu, number>();
   let manetteComplete = 0;
-  let manettePartielle = 0;
   let jamaisLance = 0;
   let joue = 0;
-  let recent = 0;
   const compteDurees = new Map<DureeJeu, number>();
 
   for (const row of rows) {
     const genreIds = row.genreIds ?? [];
-    if (genreIds.length === 0) sansGenre += 1;
     for (const id of new Set(genreIds)) {
       compteGenres.set(id, (compteGenres.get(id) ?? 0) + 1);
     }
@@ -78,11 +72,9 @@ export function agregerFacettes(rows: FacetRow[]): FacettesBibliotheque {
     }
 
     if (row.controllerSupport === 'full') manetteComplete += 1;
-    if (row.controllerSupport === 'partial') manettePartielle += 1;
 
     if (row.playtimeForever === 0) jamaisLance += 1;
     if (row.playtimeForever > 0) joue += 1;
-    if (row.playtimeLast2Weeks > 0) recent += 1;
 
     const tranche = trancheDuree(row.playtimeForever);
     compteDurees.set(tranche, (compteDurees.get(tranche) ?? 0) + 1);
@@ -99,7 +91,6 @@ export function agregerFacettes(rows: FacetRow[]): FacettesBibliotheque {
 
   return {
     total,
-    sansGenre,
     genres,
     modes: MODE_VALUES.filter((mode) => (compteModes.get(mode) ?? 0) > 0).map(
       (mode) => ({
@@ -110,16 +101,10 @@ export function agregerFacettes(rows: FacetRow[]): FacettesBibliotheque {
     ),
     manettes: [
       { value: 'full', label: 'Manette complète', count: manetteComplete },
-      {
-        value: 'partial',
-        label: 'Manette partielle',
-        count: manettePartielle,
-      },
     ],
     etats: [
       { value: 'jamais', label: 'Jamais lancé', count: jamaisLance },
       { value: 'joue', label: 'Joué', count: joue },
-      { value: 'recent', label: 'Joué récemment', count: recent },
     ],
     durees: DUREE_VALUES.map((duree) => ({
       value: duree,

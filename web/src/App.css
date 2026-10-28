@@ -1993,3 +1993,11 @@
     padding-bottom: max(14px, env(safe-area-inset-bottom));
   }
 }
+
+.detail-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 13px;
+  opacity: 0.8;
+}

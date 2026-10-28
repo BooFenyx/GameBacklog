@@ -81,15 +81,17 @@ renvoie aujourd'hui `Action + Free-to-play`). Les ids restent stables.
 | Texte | `q` | ≤ 100 (bibliothèque) / ≤ 300 (recherche) | Sous-chaîne, casse ignorée |
 | Genres | `genres` | ids CSV, max 8 | **OR** dans le groupe |
 | Modes | `modes` | `solo,multi,coop,pvp,local,crossplay` | OR dans le groupe |
-| Manette | `manette` | `full`, `partial` | `partial` inclut `full` |
-| État | `etat` | `jamais`, `joue`, `recent` | Une valeur |
+| Manette | `manette` | `full` | Support complet uniquement ; le partiel est affiché sur la fiche du jeu |
+| État | `etat` | `jamais`, `joue` | Une valeur |
 | Durée | `duree` | `0-2,2-10,10-50,50plus` | OR dans le groupe |
 | Tri | `tri` | `nom`, `temps`, `recent` | Défaut `nom` |
 
 - **OR intra-groupe, AND inter-groupes.**
 - `50plus` et non `50+` : le `+` serait décodé en espace dans une query string.
-- `partial` inclut les jeux `full` (comportement historique de la recherche).
-- Durées en minutes : `< 120`, `120–599`, `600–2999`, `≥ 3000`.
+- Le filtre « Joué récemment » a été retiré : peu utile et souvent vide.
+- Le support **partiel** n'est pas filtrable : le compteur exact est souvent nul et le
+  filtre « partielle » renvoyait aussi les jeux complets, ce qui prêtait à confusion. La
+  fiche du jeu affiche le niveau réel et un avertissement pour le partiel.- Durées en minutes : `< 120`, `120–599`, `600–2999`, `≥ 3000`.
 - Modes Steam (ids vérifiés) :
 
 ```ts
@@ -138,7 +140,6 @@ GET /api/library?q=portal&genres=25,23&modes=coop&manette=full&etat=joue&duree=2
 ```json
 {
   "total": 133,
-  "sansGenre": 3,
   "genres": [{ "id": 25, "label": "Aventure", "count": 46 }],
   "modes": [{ "value": "coop", "label": "Coop", "count": 58 }],
   "manettes": [{ "value": "full", "label": "Manette complète", "count": 72 }],
@@ -165,10 +166,8 @@ Mêmes filtres, plus `q` (obligatoire) et `mode`. Ajouts :
 g.genre_ids && $n::int[]          -- OR sur les genres
 g.category_ids && $n::int[]       -- OR sur les modes
 g.controller_support = 'full'
-g.controller_support IN ('partial', 'full')
 le.playtime_forever = 0
 le.playtime_forever > 0
-le.playtime_last_2_weeks > 0
 le.playtime_forever >= 120 AND le.playtime_forever < 600
 ```
 
@@ -238,7 +237,7 @@ CREATE INDEX library_entries_user_last_played_idx
 
 - Les compteurs de facettes ne tiennent pas compte des filtres actifs (v1).
 - Les jeux sans métadonnées Steam (Dota 2, jeux retirés) n'apparaissent pas
-  quand un filtre de genre est actif ; `sansGenre` l'indique.
+  quand un filtre de genre est actif.
 - Les libellés restent en français : pas d'i18n.
 - `total` vaut 0 si `offset` dépasse la fin de la liste (fenêtre SQL absente).
 - Un jeu retiré du Store peut garder `filters_version = 0` ; il n'est pas

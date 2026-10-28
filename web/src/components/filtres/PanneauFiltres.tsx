@@ -121,12 +121,6 @@ export default function PanneauFiltres({
                   <span className="filtres-compte">{genre.count}</span>
                 </label>
               ))}
-              {facettes.sansGenre > 0 && (
-                <p className="filtres-note">
-                  {facettes.sansGenre} jeu{facettes.sansGenre > 1 ? 'x' : ''}{' '}
-                  sans genre indexé
-                </p>
-              )}
             </div>
           )}
         </fieldset>
@@ -157,35 +151,24 @@ export default function PanneauFiltres({
         <fieldset className="filtres-groupe">
           <legend>Manette</legend>
           <div className="filtres-options">
-            {(
-              [
-                { value: 'full', label: 'Complète' },
-                { value: 'partial', label: 'Partielle' },
-              ] as const
-            ).map((option) => {
-              const actif = filtres.manette === option.value
-              const compte =
-                facettes?.manettes.find(
-                  (facette) => facette.value === option.value,
-                )?.count ?? 0
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className="filtres-bouton"
-                  aria-pressed={actif}
-                  onClick={() =>
-                    onChanger({
-                      ...filtres,
-                      manette: actif ? null : option.value,
-                    })
-                  }
-                >
-                  {option.label}
-                  <span className="filtres-compte">{compte}</span>
-                </button>
-              )
-            })}
+            <button
+              type="button"
+              className="filtres-bouton"
+              aria-pressed={filtres.manette === 'full'}
+              onClick={() =>
+                onChanger({
+                  ...filtres,
+                  manette: filtres.manette === 'full' ? null : 'full',
+                })
+              }
+            >
+              Complète
+              <span className="filtres-compte">
+                {facettes?.manettes.find(
+                  (facette) => facette.value === 'full',
+                )?.count ?? 0}
+              </span>
+            </button>
           </div>
         </fieldset>
 

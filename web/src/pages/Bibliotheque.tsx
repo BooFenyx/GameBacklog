@@ -51,9 +51,7 @@ function infosJeu(jeu: JeuBibliotheque): string {
     jeu.genres.length > 0 ? jeu.genres.join(', ') : null,
     jeu.controllerSupport === 'full'
       ? 'manette complète'
-      : jeu.controllerSupport === 'partial'
-        ? 'manette partielle'
-        : null,
+      : null,
     jeu.achievementsUnlocked > 0
       ? `${jeu.achievementsUnlocked} succès`
       : null,

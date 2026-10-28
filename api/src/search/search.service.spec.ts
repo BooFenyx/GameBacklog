@@ -201,29 +201,15 @@ describe('SearchService — recherche par nom', () => {
     expect(reponse.offset).toBe(40);
   });
 
-  it('ajoute le filtre manette complète', async () => {
+  it('ajoute le filtre manette complète et son critère', async () => {
     const { service, query } = makeService();
-    query.mockResolvedValue({ rows: [] });
+    query.mockResolvedValue({ rows: [ligne()] });
 
-    await service.searchByName(7, dto({ manette: 'full' }));
+    const reponse = await service.searchByName(7, dto({ manette: 'full' }));
 
     const [sql] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("g.controller_support = 'full'");
-  });
-
-  it('accepte le support partiel comme au moins partiel', async () => {
-    const { service, query } = makeService();
-    query.mockResolvedValue({
-      rows: [ligne({ controllerSupport: 'partial' })],
-    });
-
-    const reponse = await service.searchByName(7, dto({ manette: 'partial' }));
-
-    const [sql] = query.mock.calls[0] as [string, unknown[]];
-    expect(sql).toContain("g.controller_support IN ('partial', 'full')");
-    expect(reponse.results[0]?.criteria).toEqual([
-      'Manette partielle ou complète',
-    ]);
+    expect(reponse.results[0]?.criteria).toEqual(['Manette complète']);
   });
 
   it('trim la requête avant de la transmettre', async () => {
@@ -269,10 +255,10 @@ describe('SearchService — recherche par nom', () => {
     const { service, query } = makeService();
     query.mockResolvedValue({ rows: [] });
 
-    await service.searchByName(7, dto({ etat: 'recent', duree: ['2-10'] }));
+    await service.searchByName(7, dto({ etat: 'joue', duree: ['2-10'] }));
 
     const [sql] = query.mock.calls[0] as [string, unknown[]];
-    expect(sql).toContain('le.playtime_last_2_weeks > 0');
+    expect(sql).toContain('le.playtime_forever > 0');
     expect(sql).toContain(
       'le.playtime_forever >= 120 AND le.playtime_forever < 600',
     );

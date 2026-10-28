@@ -174,13 +174,9 @@ export default function BarreFiltres({
               }
             />
           ))}
-          {filtres.manette && (
+          {filtres.manette === 'full' && (
             <PuceFiltre
-              label={
-                filtres.manette === 'full'
-                  ? 'Manette complète'
-                  : 'Manette partielle'
-              }
+              label="Manette complète"
               onRetirer={() => onChanger({ ...filtres, manette: null })}
             />
           )}

@@ -5,8 +5,8 @@ import { idsPourModes, MODES, type ModeJeu } from './modes.js';
 export interface FiltersInput {
   genres?: number[];
   modes?: ModeJeu[];
-  manette?: 'full' | 'partial';
-  etat?: 'jamais' | 'joue' | 'recent';
+  manette?: 'full';
+  etat?: 'jamais' | 'joue';
   duree?: DureeJeu[];
 }
 
@@ -41,16 +41,12 @@ export function construireConditions(
 
   if (filtres.manette === 'full') {
     conditions.push("g.controller_support = 'full'");
-  } else if (filtres.manette === 'partial') {
-    conditions.push("g.controller_support IN ('partial', 'full')");
   }
 
   if (filtres.etat === 'jamais') {
     conditions.push('le.playtime_forever = 0');
   } else if (filtres.etat === 'joue') {
     conditions.push('le.playtime_forever > 0');
-  } else if (filtres.etat === 'recent') {
-    conditions.push('le.playtime_last_2_weeks > 0');
   }
 
   const durees = dedoublonner(filtres.duree);
@@ -74,8 +70,6 @@ export function construireCriteres(
 
   if (filtres.manette === 'full') {
     criteres.push('Manette complète');
-  } else if (filtres.manette === 'partial') {
-    criteres.push('Manette partielle ou complète');
   }
 
   for (const mode of dedoublonner(filtres.modes)) {
@@ -91,8 +85,6 @@ export function construireCriteres(
     criteres.push('Jamais lancé');
   } else if (filtres.etat === 'joue') {
     criteres.push('Déjà joué');
-  } else if (filtres.etat === 'recent') {
-    criteres.push('Joué récemment');
   }
 
   for (const duree of dedoublonner(filtres.duree)) {

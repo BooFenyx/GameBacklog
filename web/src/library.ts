@@ -46,7 +46,6 @@ export type FacetteValeur<T extends string> = {
 
 export type Facettes = {
   total: number
-  sansGenre: number
   genres: FacetteGenre[]
   modes: FacetteValeur<ModeJeu>[]
   manettes: FacetteValeur<FiltreManette>[]

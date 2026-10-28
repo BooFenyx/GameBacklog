@@ -8,13 +8,6 @@ const LIBELLE_SOURCE: Record<SourceResultat, string> = {
   series: 'Série',
 }
 
-const LIBELLE_MANETTE: Record<ResultatRecherche['controllerSupport'], string> =
-  {
-    none: 'manette non supportée',
-    partial: 'manette partielle',
-    full: 'manette complète',
-  }
-
 function formaterScore(score: number): string {
   return `${Math.round(score * 100)} %`
 }
@@ -72,8 +65,7 @@ export default function CarteResultatRecherche({
             ? `${formaterDuree(resultat.playtimeForever)} de jeu`
             : 'Jamais lancé'}
           {resultat.genres.length > 0 && ` • ${resultat.genres.join(', ')}`}
-          {resultat.controllerSupport !== 'none' &&
-            ` • ${LIBELLE_MANETTE[resultat.controllerSupport]}`}
+          {resultat.controllerSupport === 'full' && ' • manette complète'}
         </p>
 
         <div className="carte-resultat-pied">

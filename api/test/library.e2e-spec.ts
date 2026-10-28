@@ -23,8 +23,8 @@ const JEUX_STEAM = {
   response: {
     game_count: 2,
     games: [
-      { appid: 730, name: 'Counter-Strike 2', playtime_forever: 120 },
-      { appid: 570, name: 'Dota 2', playtime_forever: 60 },
+      { appid: 910001, name: 'Jeu Steam 1', playtime_forever: 120 },
+      { appid: 910002, name: 'Jeu Steam 2', playtime_forever: 60 },
     ],
   },
 };
@@ -91,6 +91,10 @@ describe('Bibliothèque (e2e)', () => {
       .limit(1);
     if (!utilisateur) throw new Error('Utilisateur non créé par le callback');
     userId = utilisateur.id;
+
+    // Le test doit être déterministe même si la base de dev contient déjà cet
+    // utilisateur (runs précédents) : on repart de sa seule bibliothèque semée.
+    await db.delete(libraryEntries).where(eq(libraryEntries.userId, userId));
 
     await semerJeu(
       {
@@ -277,6 +281,7 @@ describe('Bibliothèque (e2e)', () => {
     await agent.get('/api/library?genres=abc').expect(400);
     await agent.get('/api/library?modes=inconnu').expect(400);
     await agent.get('/api/library?tri=inconnu').expect(400);
+    await agent.get('/api/library?manette=partial').expect(400);
   });
 
   it('renvoie les facettes de la bibliothèque', async () => {
@@ -304,8 +309,11 @@ describe('Bibliothèque (e2e)', () => {
     expect(res.body.etats).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ value: 'jamais', count: 0 }),
-        expect.objectContaining({ value: 'recent', count: 1 }),
+        expect.objectContaining({ value: 'joue' }),
       ]),
     );
+    expect(
+      res.body.etats.map((etat: { value: string }) => etat.value),
+    ).toEqual(['jamais', 'joue']);
   });
 });

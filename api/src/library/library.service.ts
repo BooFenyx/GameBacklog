@@ -46,8 +46,8 @@ export interface BibliothequeQuery {
   q?: string;
   genres?: number[];
   modes?: ModeJeu[];
-  manette?: 'full' | 'partial';
-  etat?: 'jamais' | 'joue' | 'recent';
+  manette?: 'full';
+  etat?: 'jamais' | 'joue';
   duree?: ('0-2' | '2-10' | '10-50' | '50plus')[];
   tri: TriBibliotheque;
   limit: number;
@@ -186,8 +186,7 @@ export class LibraryService {
           g.genres,
           g.category_ids AS "categoryIds",
           g.controller_support AS "controllerSupport",
-          le.playtime_forever AS "playtimeForever",
-          le.playtime_last_2_weeks AS "playtimeLast2Weeks"
+          le.playtime_forever AS "playtimeForever"
         FROM library_entries le
         JOIN games g ON g.id = le.game_id
         WHERE le.user_id = $1

@@ -199,6 +199,10 @@ describe('Recherche (e2e)', () => {
   }
 
   async function semerBibliotheque(db: Db, userId: number): Promise<void> {
+    // Isole le test des entrées laissées par les runs précédents (le jeu de
+    // données de la base de dev est partagé).
+    await db.delete(libraryEntries).where(eq(libraryEntries.userId, userId));
+
     await semerJeu(db, userId, 930001, 'Portal', vecteur(0));
     await semerJeu(db, userId, 930002, 'Portal 2', vecteur(0), {
       categories: ['Solo', 'Multijoueur', 'Coopération'],
@@ -232,6 +236,7 @@ describe('Recherche (e2e)', () => {
     const { agent } = await ouvrirSession();
 
     await agent.get('/api/search?q=portal&mode=name&inconnu=1').expect(400);
+    await agent.get('/api/search?q=portal&mode=name&manette=partial').expect(400);
   });
 
   it('recherche par nom sans appeler Gemini', async () => {

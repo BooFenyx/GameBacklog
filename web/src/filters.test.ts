@@ -30,7 +30,7 @@ describe('filtres — URL', () => {
 
   it('ignore les modes, états et durées inconnus', () => {
     const params = new URLSearchParams(
-      'modes=coop,inconnu&etat=parfois&duree=2-10,99&genres=25,abc,-1',
+      'modes=coop,inconnu&etat=parfois&duree=2-10,99&genres=25,abc,-1&manette=partial',
     )
 
     const filtres = lireFiltres(params)
@@ -39,6 +39,7 @@ describe('filtres — URL', () => {
     expect(filtres.etat).toBeNull()
     expect(filtres.duree).toEqual(['2-10'])
     expect(filtres.genres).toEqual([25])
+    expect(filtres.manette).toBeNull()
   })
 
   it('dédoublonne les valeurs répétées', () => {

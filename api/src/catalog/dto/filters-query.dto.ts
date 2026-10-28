@@ -53,12 +53,12 @@ export class FiltersQueryDto {
   modes?: ModeJeu[];
 
   @IsOptional()
-  @IsIn(['full', 'partial'])
-  manette?: 'full' | 'partial';
+  @IsIn(['full'])
+  manette?: 'full';
 
   @IsOptional()
-  @IsIn(['jamais', 'joue', 'recent'])
-  etat?: 'jamais' | 'joue' | 'recent';
+  @IsIn(['jamais', 'joue'])
+  etat?: 'jamais' | 'joue';
 
   @IsOptional()
   @Transform(({ value }) => csvToStrings(value))

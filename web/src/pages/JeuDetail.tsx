@@ -145,7 +145,14 @@ export default function JeuDetail() {
         </div>
         <div>
           <dt>Manette</dt>
-          <dd>{LIBELLE_MANETTE[jeu.controllerSupport]}</dd>
+          <dd>
+            {LIBELLE_MANETTE[jeu.controllerSupport]}
+            {jeu.controllerSupport === 'partial' && (
+              <small className="detail-note">
+                Certaines actions peuvent nécessiter le clavier ou la souris.
+              </small>
+            )}
+          </dd>
         </div>
         {jeu.releaseDate && (
           <div>

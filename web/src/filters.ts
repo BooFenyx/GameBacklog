@@ -7,10 +7,11 @@
  */
 
 export type ModeJeu = 'solo' | 'multi' | 'coop' | 'pvp' | 'local' | 'crossplay'
-export type EtatJeu = 'jamais' | 'joue' | 'recent'
+export type EtatJeu = 'jamais' | 'joue'
 export type DureeJeu = '0-2' | '2-10' | '10-50' | '50plus'
 export type TriBibliotheque = 'nom' | 'temps' | 'recent'
-export type FiltreManette = 'full' | 'partial'
+/** Seul le support complet est filtrable ; le partiel est affiché sur la fiche. */
+export type FiltreManette = 'full'
 
 export type Filtres = {
   q: string
@@ -44,7 +45,6 @@ export const MODES: { value: ModeJeu; label: string }[] = [
 export const ETATS: { value: EtatJeu; label: string }[] = [
   { value: 'jamais', label: 'Jamais lancé' },
   { value: 'joue', label: 'Joué' },
-  { value: 'recent', label: 'Joué récemment' },
 ]
 
 export const DUREES: { value: DureeJeu; label: string }[] = [
@@ -103,7 +103,7 @@ export function lireFiltres(
       ),
     ].slice(0, 8),
     modes: [...new Set(liste(params, 'modes').filter(estMode))],
-    manette: manette === 'full' || manette === 'partial' ? manette : null,
+    manette: manette === 'full' ? 'full' : null,
     etat: etat && estEtat(etat) ? etat : null,
     duree: [...new Set(liste(params, 'duree').filter(estDuree))],
     tri:
