@@ -10,6 +10,43 @@ de données, champs des entités, pipeline d'import, conception de la recherche
 vectorielle, stack et liste des éléments hors périmètre. Lis-la avant d'implémenter
 quoi que ce soit. Les décisions architecturales doivent rester cohérentes avec elle.
 
+## Méthode de travail — une feature par tranches
+
+**Ne jamais développer une fonctionnalité entière d'un seul coup.** Une feature se découpe
+en **tranches verticales** : chacune doit pouvoir être implémentée, testée, relue et
+commitée indépendamment. Exemple de découpage : données/migration → API → client → UI →
+documentation.
+
+Pour chaque tranche :
+
+1. **Annoncer la tranche** et son périmètre au développeur avant de commencer.
+2. **Implémenter uniquement cette tranche**, sans anticiper les suivantes.
+3. **Lancer les vérifications** du paquet concerné :
+   - `api/` : `npm run lint`, `npm test`, `npm run test:e2e`, `npm run build` ;
+   - `web/` : `npm run lint`, `npm test`, `npm run build`.
+4. **Faire un retour court** au développeur : ce qui est fait, fichiers touchés, résultat
+   des vérifications, ce qui reste, risques éventuels.
+5. **Attendre sa validation** (et son autorisation de commit) avant de passer à la tranche
+   suivante.
+6. **Commiter la tranche** une fois validée, avec un message en français.
+
+**Ne jamais coder toute la feature puis découper les commits a posteriori** : les états
+intermédiaires ne seraient pas testés et la revue serait artificielle.
+
+### Points bloquants
+
+Dès qu'une décision, une erreur, une ambiguïté de spec, un accès manquant (clé API, base,
+droit) ou un comportement inattendu **bloque la tranche** : s'arrêter et le signaler au
+développeur avec le contexte, les options possibles et une recommandation. Ne pas
+contourner en silence et ne pas inventer une règle métier.
+
+### Commits
+
+- **Ne jamais commiter sans validation explicite du développeur.**
+- Un commit = une tranche (ou une intention) ; messages en français.
+- Chaque commit doit compiler et passer les tests de son paquet.
+- Ne pas mélanger une migration, une API et une refonte UI dans le même commit.
+
 ## État du projet
 
 **Authentification Steam et import de bibliothèque fonctionnels.** L'authentification
