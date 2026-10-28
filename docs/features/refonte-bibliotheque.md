@@ -24,6 +24,7 @@ filtres livrée en PR1.
 
 **Dans le périmètre**
 
+- Correctif de la coquille : header pleine largeur, contenu aligné (option A).
 - Nouvelle carte de jeu en grille : image, badges, chips de genres, méta, modes.
 - Vue **liste** compacte et bascule grille/liste.
 - Image de repli et prévention du décalage de mise en page (CLS).
@@ -48,6 +49,8 @@ filtres livrée en PR1.
   - toolbar (`BarreFiltres`) avec recherche, tri, puces actives, compteur ;
   - grille `.liste-jeux` et carte `.jeu-carte` historiques ;
   - `infosJeu()` concatène toutes les informations dans une seule chaîne.
+- La coquille est encore limitée : `#root` utilise `min(1440px, 96vw)` avec une
+  bordure latérale, donc le header s'arrête avant les bords de la fenêtre.
 - Champs disponibles par jeu : `appId`, `name`, `headerImageUrl`, `genres`,
   `modes`, `controllerSupport`, `playtimeForever`, `playtimeLast2Weeks`,
   `lastPlayedAt`, `achievementsUnlocked`.
@@ -86,6 +89,10 @@ Ordre visuel :
 La carte entière est cliquable (overlay `Link`), avec `aria-label` enrichi :
 « Ouvrir Portal 2 — jamais lancé, coopération, manette complète ».
 
+Largeur : la grille utilise `repeat(auto-fill, minmax(300px, 1fr))` (260 px sous
+1200 px). Sur un écran large, elle **gagne des colonnes** au lieu d'étirer des
+cartes géantes ; la carte ne dépasse donc jamais ~400 px.
+
 ### 4.2 Vue liste
 
 Une ligne compacte :
@@ -106,11 +113,17 @@ Ajouter uniquement :
 - la bascule grille/liste ;
 - éventuellement un compteur « 8 résultats » déjà présent.
 
+La barre **n'est pas collante** : avec son ancien `position: sticky` et un fond
+semi-opaque, le rectangle se découpait net sur le dégradé du fond (bord bas
+droit, bord gauche contre la colonne de filtres) et laissait voir les images des
+cartes au travers. Elle reste dans le flux, comme dans la maquette validée.
+
 ### 4.4 États
 
 | État | Rendu |
 |---|---|
 | Chargement initial | 6–9 squelettes de cartes, animation désactivée si `prefers-reduced-motion` |
+| Changement de filtre | **la liste reste affichée** et s'estompe (`--maj`), pas de retour à « Chargement… » ni de saut en haut de page |
 | Chargement « Afficher plus » | bouton avec indicateur, pas de saut de grille |
 | Bibliothèque vide | message + bouton Synchroniser |
 | Filtres sans résultat | message + « Effacer les filtres » |
@@ -148,6 +161,37 @@ ou `App.css` :
 
 Objectif : supprimer les `!important` et les répétitions de couleurs dans les
 cartes.
+
+### 4.8 Coquille et header (correctif A)
+
+Le header ne doit plus être « coupé » sur les côtés, et le contenu ne doit pas
+flotter au milieu d'un grand écran.
+
+- `#root` passe à **100 % de largeur**, sans bordure latérale ni largeur max.
+- `.topbar` reste pleine largeur (fond et ligne dégradée d'un bord à l'autre).
+- Le contenu du header est dans `.topbar-inner`, **pleine largeur** avec un
+  simple padding horizontal (32 px, 20 px en tablette, 16 px en mobile).
+- `.contenu` suit la même règle : **pleine largeur, padding seul**, sans
+  `max-width` ni `margin: auto`. Le bloc commence donc au bord gauche de la
+  fenêtre et s'étire avec elle.
+- `.notice` reste un bandeau pleine largeur, avec `.notice-inner` pleine largeur
+  et le même padding horizontal.
+- Aucun changement de largeur de grille : le correctif ne touche que la coquille.
+
+Conséquence voulue : l'onglet latéral des filtres (`position: fixed; left: 0`)
+reste collé au bord de la fenêtre **et** à côté du contenu, sans le vide que
+créait l'ancien centrage.
+
+**Prérequis oublié, corrigé ici : `box-sizing`.** Le projet n'avait aucun
+`box-sizing: border-box` global. La colonne de filtres (`width: 268px` +
+`padding`) mesurait donc **302 px** pour une piste de grille de 268 px : elle
+débordait de 34 px et les résultats (barre de recherche, puces, cartes) la
+recouvraient. `index.css` pose désormais `*, *::before, *::after {
+box-sizing: border-box }`. Ne pas le retirer : plusieurs composants à padding
+large (colonne de filtres, cartes, dialogue) comptent dessus.
+
+Fichiers : `web/src/index.css`, `web/src/App.css`,
+`web/src/components/RootLayout.tsx`.
 
 ## 5. Données & API
 
@@ -226,14 +270,16 @@ Ordre recommandé, avant toute nouvelle règle :
 
 ## 9. Découpage en commits
 
-1. `refactor(web): purger le CSS mort et les doublons` — aucun changement visuel.
-2. `feat(web): carte de jeu et étiquettes` — `CarteJeu`, chips, badges, image de
+1. `fix(web): header pleine largeur et contenu aligné` — coquille A, aucun
+   changement de grille.
+2. `refactor(web): purger le CSS mort et les doublons` — aucun changement visuel.
+3. `feat(web): carte de jeu et étiquettes` — `CarteJeu`, chips, badges, image de
    repli.
-3. `feat(web): vue liste et bascule grille/liste` — `LigneJeu`, préférence
+4. `feat(web): vue liste et bascule grille/liste` — `LigneJeu`, préférence
    `localStorage`.
-4. `feat(web): squelettes, états vides et erreurs`.
-5. `feat(web): responsive et accessibilité`.
-6. `docs: mettre à jour la fiche de la refonte` — si des décisions changent en
+5. `feat(web): squelettes, états vides et erreurs`.
+6. `feat(web): responsive et accessibilité`.
+7. `docs: mettre à jour la fiche de la refonte` — si des décisions changent en
    cours de route.
 
 Chaque commit doit passer `npm run lint`, `npm test` et `npm run build` dans
@@ -259,6 +305,10 @@ commit.
 - Pas d'i18n, interface 100 % française.
 - Le partiel manette reste affiché uniquement sur la fiche du jeu.
 - Le total de succès n'est pas ajouté à l'API pour cette PR.
+- La carte de jeu est écrite directement dans `Bibliotheque.tsx` pour cette
+  première tranche ; l'extraction en `CarteJeu.tsx` attend la vue liste.
+- Un changement de filtre ne vide plus la grille : l'ancienne liste reste
+  affichée, estompée, le temps de la requête.
 
 ## 11. Références
 

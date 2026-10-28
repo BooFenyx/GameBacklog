@@ -1,3 +1,11 @@
+/* Les largeurs sont des largeurs de boîte : sans ça, une colonne de 268 px
+   avec padding déborde de sa piste de grille et recouvre les résultats. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   --text: #c7c2d3;
   --text-h: #f5f3ff;
@@ -38,21 +46,13 @@
 }
 
 #root {
-  width: min(1440px, 96vw);
-  max-width: 100%;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  border-inline: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
-}
-
-@media (max-width: 767px) {
-  #root {
-    width: 100vw;
-    border-inline: none;
-  }
 }
 
 body {

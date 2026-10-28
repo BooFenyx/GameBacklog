@@ -10,10 +10,8 @@
 /* --- Barre de navigation --- */
 
 .topbar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 16px 32px;
+  display: block;
+  padding: 0;
   border-bottom: 1px solid transparent;
   background: linear-gradient(90deg, rgba(184, 155, 255, 0.25) 0%, rgba(61, 245, 255, 0.18) 100%) border-box;
   border-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%) 1;
@@ -22,6 +20,15 @@
   /* Au-dessus des cartes de contenu, qui utilisent des z-index locaux (1 à 3)
      et peignent sinon au-dessus de l'aperçu de recherche. */
   z-index: 50;
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  padding: 16px 32px;
+  box-sizing: border-box;
 }
 
 .marque {
@@ -167,15 +174,21 @@
 /* --- Bandeau de résultat Steam --- */
 
 .notice {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin: 0;
-  padding: 10px 32px;
+  padding: 0;
   font-size: 15px;
   background: var(--accent-bg);
   border-bottom: 1px solid var(--accent-border);
   color: var(--text-h);
+}
+
+.notice-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 32px;
+  box-sizing: border-box;
 }
 
 .notice-fermer {
@@ -192,7 +205,9 @@
 
 .contenu {
   flex-grow: 1;
-  padding: 40px 24px 64px;
+  width: 100%;
+  padding: 40px 32px 64px;
+  box-sizing: border-box;
 }
 
 .chargement {
@@ -712,7 +727,7 @@
 /* --- Adaptation mobile --- */
 
 @media (max-width: 1024px) {
-  .topbar {
+  .topbar-inner {
     flex-wrap: wrap;
     gap: 12px 18px;
     padding: 14px 20px;
@@ -722,7 +737,7 @@
     padding: 28px 20px 48px;
   }
 
-  .notice {
+  .notice-inner {
     padding: 10px 20px;
   }
 
@@ -741,10 +756,13 @@
   .contenu {
     padding: 20px 16px 40px;
   }
+  .notice-inner {
+    padding: 10px 16px;
+  }
 }
 
 @media (max-width: 767px) {
-  .topbar {
+  .topbar-inner {
     gap: 10px 14px;
     padding: 12px 16px;
   }
@@ -1626,12 +1644,9 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 12px 0;
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: color-mix(in oklab, var(--bg) 90%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+  /* Pas de barre collante : sur le fond dégradé et les images de cartes, son
+     fond se découpait net (bord bas et bord gauche visibles). La barre reste
+     dans le flux, comme dans la maquette validée. */
 }
 
 .biblio-recherche {
@@ -2022,21 +2037,132 @@
   min-width: 0;
 }
 
-.biblio-layout .liste-jeux {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* Mise à jour des filtres : la liste reste affichée mais s'estompe le temps
+   de la requête, au lieu de disparaître derrière « Chargement… ». */
+.biblio-resultats .liste-jeux {
+  transition: opacity 160ms ease;
 }
 
+.biblio-resultats--maj .liste-jeux {
+  opacity: 0.45;
+}
+
+/* La largeur des cartes est plafonnée : sur un grand écran, la grille gagne des
+   colonnes au lieu d'étirer des cartes géantes. */
+.biblio-layout .liste-jeux,
 .biblio-layout.filtres-fermes .liste-jeux {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
 
 @media (max-width: 1200px) {
-  .biblio-layout .liste-jeux {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  .biblio-layout .liste-jeux,
   .biblio-layout.filtres-fermes .liste-jeux {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
+}
+
+/* --- Cartes de jeux --- */
+
+.liste-jeux .jeu-carte {
+  gap: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
+}
+
+.jeu-media {
+  position: relative;
+  z-index: 1;
+}
+
+.jeu-media .jeu-image {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
+}
+
+.jeu-image-vide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2a2340 0%, #16202e 100%);
+  color: var(--text-h);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.jeu-etat {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  color: var(--text-h);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.jeu-etat-recent {
+  border-color: var(--accent-border-2);
+  color: var(--accent-2);
+}
+
+.jeu-corps {
+  gap: 7px;
+  padding: 12px 13px 14px;
+}
+
+.jeu-genres,
+.jeu-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.jeu-genre {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-h);
+  font-size: 11px;
+}
+
+.jeu-genre-plus {
+  color: var(--text);
+}
+
+.jeu-meta {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.jeu-badge {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in oklab, var(--accent-2) 35%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-2) 10%, transparent);
+  color: var(--text-h);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.jeu-badge-solo {
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+  background: var(--accent-bg);
+}
+
+.jeu-badge-manette {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
 .filtres-sidebar {
@@ -2044,7 +2170,7 @@
   min-width: 268px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--bg-surface);
   padding: 16px 16px 12px;
   transition: transform 0.3s ease, opacity 0.25s ease;
 }
@@ -2292,7 +2418,7 @@
   gap: 6px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--elev);
+  background: var(--bg-elev);
   color: var(--text-h);
   font: inherit;
   font-size: 13px;
@@ -2484,7 +2610,7 @@
   border: 1px solid var(--accent-border);
   border-left: 0;
   border-radius: 0 10px 10px 0;
-  background: var(--elev);
+  background: var(--bg-elev);
   color: var(--text-h);
   cursor: pointer;
   box-shadow: 10px 0 30px -22px var(--accent-glow);

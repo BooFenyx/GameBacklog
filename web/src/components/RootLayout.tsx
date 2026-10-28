@@ -35,68 +35,78 @@ export default function RootLayout() {
   return (
     <div className="app">
       <header className="topbar">
-        <Link className="marque" to="/accueil">
-          GameBacklog
-        </Link>
+        <div className="topbar-inner">
+          <Link className="marque" to="/accueil">
+            GameBacklog
+          </Link>
 
-        <nav className="nav">
-          <NavLink to="/accueil">Accueil</NavLink>
-          <NavLink to="/bibliotheque">Bibliothèque</NavLink>
-        </nav>
+          <nav className="nav">
+            <NavLink to="/accueil">Accueil</NavLink>
+            <NavLink to="/bibliotheque">Bibliothèque</NavLink>
+          </nav>
 
-        {user && (
-          <BarreRecherche
-            key={
-              location.pathname === '/recherche' ? location.search : 'barre'
-            }
-          />
-        )}
+          {user && (
+            <BarreRecherche
+              key={
+                location.pathname === '/recherche'
+                  ? location.search
+                  : 'barre'
+              }
+            />
+          )}
 
-        <div className="compte">
-          {loading ? (
-            <span className="compte-attente">Session…</span>
-          ) : user ? (
-            <>
-              {user.avatarUrl && (
-                <img
-                  className="avatar"
-                  src={user.avatarUrl}
-                  alt=""
-                  width="32"
-                  height="32"
-                />
-              )}
-              <span className="compte-nom">
-                {user.displayName || 'Profil Steam'}
-              </span>
+          <div className="compte">
+            {loading ? (
+              <span className="compte-attente">Session…</span>
+            ) : user ? (
+              <>
+                {user.avatarUrl && (
+                  <img
+                    className="avatar"
+                    src={user.avatarUrl}
+                    alt=""
+                    width="32"
+                    height="32"
+                  />
+                )}
+                <span className="compte-nom">
+                  {user.displayName || 'Profil Steam'}
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void logout()}
+                >
+                  Se déconnecter
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                className="btn"
-                onClick={() => void logout()}
+                className="btn btn-principal"
+                onClick={login}
               >
-                Se déconnecter
+                Se connecter avec Steam
               </button>
-            </>
-          ) : (
-            <button type="button" className="btn btn-principal" onClick={login}>
-              Se connecter avec Steam
-            </button>
-          )}
+            )}
+          </div>
         </div>
       </header>
 
       {notice && (
-        <p className="notice" role="status">
-          {notice}
-          <button
-            type="button"
-            className="notice-fermer"
-            aria-label="Fermer le message"
-            onClick={() => setSearchParams({}, { replace: true })}
-          >
-            ×
-          </button>
-        </p>
+        <div className="notice" role="status">
+          <div className="notice-inner">
+            <span>{notice}</span>
+            <button
+              type="button"
+              className="notice-fermer"
+              aria-label="Fermer le message"
+              onClick={() => setSearchParams({}, { replace: true })}
+            >
+              ×
+            </button>
+          </div>
+        </div>
       )}
 
       <main className="contenu">

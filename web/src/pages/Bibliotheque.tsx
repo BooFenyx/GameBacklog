@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import BarreFiltres from '../components/filtres/BarreFiltres'
 import SidebarFiltres from '../components/filtres/SidebarFiltres'
 import {
+  MODES,
   cleFiltres,
   compterFiltresActifs,
   ecrireFiltres,
@@ -40,26 +41,38 @@ function messageErreur(erreur: unknown): string {
   return texte
 }
 
-/** Informations compactes affichées sous le titre d'une carte. */
-function infosJeu(jeu: JeuBibliotheque): string {
-  return [
-    jeu.playtimeForever === 0
-      ? 'Jamais lancé'
-      : formaterDuree(jeu.playtimeForever),
-    jeu.playtimeLast2Weeks > 0
-      ? `${formaterDuree(jeu.playtimeLast2Weeks)} en 2 sem`
+/** Nombre de genres affichés sur une carte avant le « +N ». */
+const GENRES_VISIBLES = 2
+
+type EtatCarte = { label: string; recent: boolean }
+
+/** Badge d'état affiché sur l'image : jamais lancé, récent ou joué. */
+function etatJeu(jeu: JeuBibliotheque): EtatCarte {
+  if (jeu.playtimeForever === 0) {
+    return { label: 'Jamais lancé', recent: false }
+  }
+  if (jeu.playtimeLast2Weeks > 0) {
+    return { label: 'Joué cette semaine', recent: true }
+  }
+  return { label: 'Joué', recent: false }
+}
+
+/** Ligne compacte sous le titre : temps de jeu, dernière partie, succès. */
+function metaJeu(jeu: JeuBibliotheque): string {
+  const morceaux = [
+    jeu.playtimeForever > 0
+      ? `${formaterDuree(jeu.playtimeForever)} de jeu`
       : null,
     jeu.lastPlayedAt ? `joué ${formaterDepuis(jeu.lastPlayedAt)}` : null,
-    jeu.genres.length > 0 ? jeu.genres.join(', ') : null,
-    jeu.controllerSupport === 'full'
-      ? 'manette complète'
-      : null,
-    jeu.achievementsUnlocked > 0
-      ? `${jeu.achievementsUnlocked} succès`
-      : null,
-  ]
-    .filter((valeur): valeur is string => Boolean(valeur))
-    .join(' • ')
+    jeu.achievementsUnlocked > 0 ? `${jeu.achievementsUnlocked} succès` : null,
+  ].filter((valeur): valeur is string => Boolean(valeur))
+
+  return morceaux.length > 0 ? morceaux.join(' · ') : 'Jamais lancé'
+}
+
+/** Libellé lisible d'un mode de jeu, tel qu'affiché dans les filtres. */
+function libelleMode(valeur: string): string {
+  return MODES.find((mode) => mode.value === valeur)?.label ?? valeur
 }
 
 /**
@@ -105,7 +118,11 @@ export default function Bibliotheque() {
     () => `${cleFiltres(filtres)}|${version}`,
     [filtres, version],
   )
-  const page = donnees?.cle === cleListe ? donnees.page : null
+  const pageAJour = donnees?.cle === cleListe ? donnees.page : null
+  // Pendant un rechargement, on garde la dernière liste connue : la grille ne
+  // disparaît plus (et ne « recharge » plus visuellement) à chaque filtre.
+  const page = pageAJour ?? donnees?.page ?? null
+  const enRafraichissement = pageAJour === null && page !== null
   const erreurCourante =
     erreurListe?.cle === cleListe ? erreurListe.message : null
   const chargement = page === null && erreurCourante === null
@@ -237,7 +254,6 @@ export default function Bibliotheque() {
       setSearchParams(ecrireFiltres(suivants, { avecTri: true }), {
         replace: remplacer,
       })
-      if (!remplacer) window.scrollTo({ top: 0 })
     },
     [setSearchParams],
   )
@@ -259,7 +275,7 @@ export default function Bibliotheque() {
   }
 
   const afficherPlus = async (): Promise<void> => {
-    if (!page || chargementPlus || !page.hasMore) return
+    if (!pageAJour || chargementPlus || !pageAJour.hasMore) return
 
     plusController.current?.abort()
     const controller = new AbortController()
@@ -269,7 +285,7 @@ export default function Bibliotheque() {
     try {
       const suivante = await chargerBibliotheque(
         filtres,
-        page.items.length,
+        pageAJour.items.length,
         controller.signal,
       )
       if (controller.signal.aborted) return
@@ -277,7 +293,7 @@ export default function Bibliotheque() {
         cle: cleListe,
         page: {
           ...suivante,
-          items: [...page.items, ...suivante.items],
+          items: [...pageAJour.items, ...suivante.items],
         },
       })
     } catch (error) {
@@ -337,7 +353,10 @@ export default function Bibliotheque() {
           onFermer={fermerFiltres}
         />
 
-        <div className="biblio-resultats">
+        <div
+          className={`biblio-resultats${enRafraichissement ? ' biblio-resultats--maj' : ''}`}
+          aria-busy={enRafraichissement}
+        >
           <BarreFiltres
             filtres={filtres}
             facettes={facettes}
@@ -382,7 +401,7 @@ export default function Bibliotheque() {
             </p>
           )}
 
-          {!chargement && page && total === 0 && (
+          {!chargement && !enRafraichissement && page && total === 0 && (
             <div className="bibliotheque-vide">
               {aDesFiltres ? (
                 <>
@@ -407,30 +426,83 @@ export default function Bibliotheque() {
           {page && page.items.length > 0 && (
             <>
               <ul className="liste-jeux">
-                {page.items.map((jeu) => (
-                  <li key={jeu.appId} className="jeu-carte">
-                    <Link
-                      to={`/jeu/${jeu.appId}`}
-                      className="jeu-lien"
-                      aria-label={`Ouvrir la fiche de ${jeu.name}`}
-                    />
-                    {jeu.headerImageUrl && (
-                      <img
-                        className="jeu-image"
-                        src={jeu.headerImageUrl}
-                        alt=""
-                        width="460"
-                        height="215"
-                        loading="lazy"
-                        decoding="async"
+                {page.items.map((jeu) => {
+                  const etat = etatJeu(jeu)
+                  const genresVus = jeu.genres.slice(0, GENRES_VISIBLES)
+                  const genresRestants =
+                    jeu.genres.length - genresVus.length
+
+                  return (
+                    <li key={jeu.appId} className="jeu-carte">
+                      <Link
+                        to={`/jeu/${jeu.appId}`}
+                        className="jeu-lien"
+                        aria-label={`Ouvrir la fiche de ${jeu.name} — ${etat.label}`}
                       />
-                    )}
-                    <div className="jeu-corps">
-                      <span className="jeu-nom">{jeu.name}</span>
-                      <span className="jeu-infos">{infosJeu(jeu)}</span>
-                    </div>
-                  </li>
-                ))}
+                      <div className="jeu-media">
+                        {jeu.headerImageUrl ? (
+                          <img
+                            className="jeu-image"
+                            src={jeu.headerImageUrl}
+                            alt=""
+                            width="460"
+                            height="215"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ) : (
+                          <span
+                            className="jeu-image jeu-image-vide"
+                            aria-hidden="true"
+                          >
+                            {jeu.name.slice(0, 1).toUpperCase()}
+                          </span>
+                        )}
+                        <span
+                          className={`jeu-etat${etat.recent ? ' jeu-etat-recent' : ''}`}
+                        >
+                          {etat.label}
+                        </span>
+                      </div>
+                      <div className="jeu-corps">
+                        <span className="jeu-nom">{jeu.name}</span>
+                        {genresVus.length > 0 && (
+                          <span className="jeu-genres">
+                            {genresVus.map((genre) => (
+                              <span key={genre} className="jeu-genre">
+                                {genre}
+                              </span>
+                            ))}
+                            {genresRestants > 0 && (
+                              <span className="jeu-genre jeu-genre-plus">
+                                +{genresRestants}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                        <span className="jeu-meta">{metaJeu(jeu)}</span>
+                        {(jeu.modes.length > 0 ||
+                          jeu.controllerSupport === 'full') && (
+                          <span className="jeu-badges">
+                            {jeu.modes.map((mode) => (
+                              <span
+                                key={mode}
+                                className={`jeu-badge${mode === 'solo' ? ' jeu-badge-solo' : ''}`}
+                              >
+                                {libelleMode(mode)}
+                              </span>
+                            ))}
+                            {jeu.controllerSupport === 'full' && (
+                              <span className="jeu-badge jeu-badge-manette">
+                                Manette
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
 
               {page.hasMore && (
