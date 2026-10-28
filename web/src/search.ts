@@ -1,4 +1,5 @@
 import { urlApi } from './api'
+import type { DureeJeu, EtatJeu, ModeJeu } from './filters'
 
 export type ModeRecherche = 'name' | 'semantic'
 export type FiltreManette = 'full' | 'partial'
@@ -15,6 +16,7 @@ export type ResultatRecherche = {
   shortDescription: string | null
   headerImageUrl: string | null
   genres: string[]
+  modes: ModeJeu[]
   controllerSupport: 'none' | 'partial' | 'full'
   playtimeForever: number
   lastPlayedAt: string | null
@@ -29,6 +31,7 @@ export type ReponseRecherche = {
   offset: number
   limit: number
   hasMore: boolean
+  total: number
   degraded: boolean
   message?: string
 }
@@ -37,6 +40,10 @@ export type ParametresRecherche = {
   q: string
   mode: ModeRecherche
   manette?: FiltreManette
+  genres?: number[]
+  modes?: ModeJeu[]
+  etat?: EtatJeu
+  duree?: DureeJeu[]
   limit?: number
   offset?: number
 }
@@ -68,6 +75,16 @@ export async function rechercherJeux(
     mode: parametres.mode,
   })
   if (parametres.manette) query.set('manette', parametres.manette)
+  if (parametres.genres && parametres.genres.length > 0) {
+    query.set('genres', parametres.genres.join(','))
+  }
+  if (parametres.modes && parametres.modes.length > 0) {
+    query.set('modes', parametres.modes.join(','))
+  }
+  if (parametres.etat) query.set('etat', parametres.etat)
+  if (parametres.duree && parametres.duree.length > 0) {
+    query.set('duree', parametres.duree.join(','))
+  }
   if (parametres.limit !== undefined) query.set('limit', String(parametres.limit))
   if (parametres.offset !== undefined) {
     query.set('offset', String(parametres.offset))

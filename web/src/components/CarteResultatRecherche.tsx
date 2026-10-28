@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { formaterDuree } from '../format'
 import type { ResultatRecherche, SourceResultat } from '../search'
 
 const LIBELLE_SOURCE: Record<SourceResultat, string> = {
@@ -13,14 +14,6 @@ const LIBELLE_MANETTE: Record<ResultatRecherche['controllerSupport'], string> =
     partial: 'manette partielle',
     full: 'manette complète',
   }
-
-function formaterDuree(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  if (h === 0) return `${m} min`
-  if (m === 0) return `${h} h`
-  return `${h} h ${String(m).padStart(2, '0')}`
-}
 
 function formaterScore(score: number): string {
   return `${Math.round(score * 100)} %`
