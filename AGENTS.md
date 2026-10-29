@@ -85,6 +85,12 @@ et s'affiche dès que l'étape `library` est passée. Sur desktop, une **colonne
 repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
 vertical permet de la rouvrir. La carte et la vue liste utilisent les tokens de
 `web/src/styles/theme.css` ; le bouton Filtres reste à gauche sur mobile/tablette.
+La vue liste a des **colonnes fixes** (image, titre, tags, modes, temps, dernière partie,
+manette, succès) : les lignes restent alignées, le titre passe sur deux lignes si besoin,
+tous les genres sont affichés et la manette non supportée est barrée. Les tags d'état
+« Joué » / « Jamais lancé » sont retirés (la méta porte l'information), « jamais lancé »
+reste en rouge et un jeu à 100 % de succès affiche un badge doré avec couronne. La grille
+garde `2 tags + N`.
 
 **Filtres et facettes.** `GET /api/library` (`api/src/library/`) accepte `q`, `genres`,
 `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`, et renvoie une enveloppe
@@ -117,10 +123,9 @@ en mode nom, **aucun Gemini à la frappe**, bouton-icône intégré) et page pro
 `Referrer-Policy`). Rate limiting en place sur `GET /api/search` par `steamId` (voir
 Écart 10) ; les autres routes ne sont pas limitées.
 
-**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), refonte
-visuelle finalisée de la bibliothèque (le prototype est en place ; les champs
-exacts des cartes/listes restent à définir), mise en ligne (socle et déploiement
-continu front prêts, rien n'est encore réellement déployé).
+**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), purge du
+CSS mort et stabilisation des champs exacts des cartes/listes, mise en ligne (socle et
+déploiement continu front prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
