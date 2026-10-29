@@ -99,8 +99,10 @@ la fiche ne doit consommer que des tokens.
 - `api/src/games/games.controller.ts` :
   - `GameDetailResponse` ajoute `achievements` et `steamUrl` ;
   - les succès sont chargés à la demande par `AchievementsService`.
-- `api/src/db/schema.ts` : `games` ne possède pas les colonnes riches.
-- `api/drizzle/` : migrations `0000` → `0004`. La prochaine sera `0005`.
+- `api/src/db/schema.ts` : `games` ne possédait pas les colonnes riches avant la
+  migration `0005`.
+- `api/drizzle/` : migrations `0000` → `0005`. La `0005` ajoute les champs de la
+  fiche de jeu.
 
 ### 3.3 Contraintes connues
 
@@ -120,7 +122,9 @@ la fiche ne doit consommer que des tokens.
 
 ### 4.1 Nouvelles colonnes
 
-Migration `0005`, générée avec `npm run db:generate` puis relue :
+Migration `0005`, générée avec `npm run db:generate` puis relue pour être
+idempotente (`ADD COLUMN IF NOT EXISTS`) sur les bases de développement
+partagées :
 
 | Colonne | Type Drizzle | Source `appdetails` | Usage |
 |---|---|---|---|
@@ -128,7 +132,7 @@ Migration `0005`, générée avec `npm run db:generate` puis relue :
 | `screenshots` | `jsonb` → `CaptureEcran[]` | `screenshots[]`, max 6 | Galerie |
 | `developers` | `text[]` | `developers` | Colonne latérale |
 | `publishers` | `text[]` | `publishers` | Colonne latérale |
-| `website` | `text` | `website` | Lien externe |
+| `website` | `text` (notNull, défaut `''`) | `website` | Lien externe (`null` côté API si vide) |
 | `platforms` | `text[]` | `platforms` | Badges Windows/macOS/Linux |
 | `metacritic_score` | `integer` | `metacritic.score` | Note |
 | `metacritic_url` | `text` | `metacritic.url` | Lien |
@@ -153,12 +157,10 @@ export type CaptureEcran = {
 }
 
 export type Plateforme = 'windows' | 'mac' | 'linux'
-
-export type Metacritic = {
-  score: number
-  url: string | null
-}
 ```
+
+Le score Metacritic n'a pas de type dédié côté API : il est porté par
+`metacriticScore` et `metacriticUrl` dans la fiche.
 
 ### 4.3 Conversion de la description
 
@@ -190,8 +192,8 @@ n'est ajoutée : le front ne reçoit que des chaînes.
   galerie charge les miniatures ; la pleine taille n'est demandée qu'à
   l'ouverture du dialogue.
 - `backgroundImageUrl = background_raw ?? background ?? null`.
-- Le hero utilise `backgroundImageUrl` en desktop ; en mobile, il peut retomber
-  sur `headerImageUrl` pour limiter le poids. Si aucune image, dégradé de
+- Le hero utilise la première capture (`screenshots[0].pleine`), puis
+  `backgroundImageUrl`, puis `headerImageUrl`. Si aucune image, dégradé de
   tokens.
 
 ### 4.5 Plateformes et Metacritic
@@ -219,23 +221,45 @@ n'est ajoutée : le front ne reçoit que des chaînes.
 
 ### 4.7 Réponse `GET /api/games/:appId`
 
-`UserGameDetail` et `GameDetailResponse` sont étendus :
+`UserGameDetail` porte les nouveaux champs issus de `games` ; `GameDetailResponse`
+ajoute les succès et le lien de lancement :
 
 ```ts
-export interface GameDetailResponse extends UserGameDetail {
+export interface UserGameDetail {
+  id: number
+  appId: number
+  name: string
+  shortDescription: string | null
   descriptionBlocks: DescriptionBlock[]
   screenshots: CaptureEcran[]
   developers: string[]
   publishers: string[]
   website: string | null
   platforms: Plateforme[]
-  metacritic: Metacritic | null
+  metacriticScore: number | null
+  metacriticUrl: string | null
   backgroundImageUrl: string | null
+  genres: string[]
+  categories: string[]
+  controllerSupport: 'none' | 'partial' | 'full'
+  releaseDate: Date | null
+  headerImageUrl: string | null
+  playtimeForever: number
+  playtimeLast2Weeks: number
+  lastPlayedAt: Date | null
+  achievementsUnlocked: number
+}
+
+export interface GameDetailResponse extends UserGameDetail {
   achievements: { total: number; unlocked: number; list: AchievementDto[] }
   steamUrl: string
 }
 ```
 
+- Le score Metacritic est stocké en deux colonnes (`metacritic_score`,
+  `metacritic_url`) : le front construit l'objet d'affichage.
+- `website` est stocké `notNull` avec un défaut vide ; l'API renvoie `null`
+  quand la chaîne est vide, pour que le front masque le lien.
 - `steamUrl` reste `steam://run/${appId}`.
 - Le front construit le lien Store
   (`https://store.steampowered.com/app/${appId}`) à partir de `appId` : pas de
@@ -257,8 +281,8 @@ export interface GameDetailResponse extends UserGameDetail {
 
 ### 5.1 Hero
 
-- Image de fond (`backgroundImageUrl`) avec voile dégradé vers le fond de page ;
-  repli sur `headerImageUrl`, puis sur un dégradé de tokens.
+- Image de fond : première capture, puis `backgroundImageUrl`, puis
+  `headerImageUrl` ; repli sur un dégradé de tokens.
 - Retour « ← Bibliothèque » en haut.
 - Titre du jeu, année de sortie, chips de genres, badge manette, temps de jeu
   principal.
@@ -391,7 +415,7 @@ rester : identité → description → galerie → infos/activité → succès.
 **Web**
 
 - `web/src/games.ts` — types `FicheJeu`, `DescriptionBlock`, `CaptureEcran`,
-  `Plateforme`, `Metacritic`, `ErreurFiche`, `chargerFicheJeu`.
+  `Plateforme`, `ErreurFiche`, `chargerFicheJeu`.
 - `web/src/pages/JeuDetail.tsx` — orchestration et états.
 - `web/src/components/jeu/EnteteJeu.tsx` — hero.
 - `web/src/components/jeu/DescriptionJeu.tsx` — blocs de description.
@@ -399,9 +423,9 @@ rester : identité → description → galerie → infos/activité → succès.
 - `web/src/components/jeu/PanneauJeu.tsx` — colonne latérale.
 - `web/src/components/jeu/SuccesJeu.tsx` — progression, filtres, grille.
 - `web/src/components/jeu/SqueletteJeu.tsx` — chargement.
-- `web/src/components/ui/BarreProgression.tsx` — si absent de la PR2.
-- `web/src/App.css` ou `web/src/styles/fiche.css` — styles de la fiche.
-- `web/src/styles/theme.css` — tokens spécifiques à la fiche.
+- `web/src/components/ui/BarreProgression.tsx` — barre de progression accessible.
+- `web/src/styles/fiche.css` — styles de la fiche.
+- `web/src/styles/theme.css` — tokens partagés (socle de la PR2).
 
 **Documentation**
 
@@ -503,7 +527,7 @@ npm run build
 | HTML Steam mal converti | `htmlToBlocks` testé, repli sur `shortDescription`, aucun HTML injecté |
 | Description trop longue | largeur de lecture limitée, option « Lire la suite » si nécessaire |
 | Captures lourdes | miniatures dans la galerie, pleine taille uniquement dans le dialogue, max 6 |
-| Fond de hero trop lourd | `background_raw` en desktop, repli `header_image` en mobile, dégradé sinon |
+| Fond de hero trop lourd | première capture en priorité, repli `background_raw` puis `header_image`, dégradé sinon |
 | Milliers de succès | rendu initial 12, bouton « Afficher tous les succès », pas de pagination API |
 | Profil privé | message générique, pas de blocage de la fiche |
 | URL externes | filtre `http(s)`, `rel="noreferrer"`, CSP inchangée |
@@ -519,7 +543,8 @@ npm run build
   HTML.
 - Les captures sont limitées à 6 et chargées en deux tailles.
 - `FILTERS_VERSION` passe à 2 et versionne le mapping complet.
-- Le hero utilise `background_raw` en desktop et `header_image` en repli.
+- Le hero utilise la première capture, puis `background_raw`, puis
+  `header_image`.
 - Les succès sont rendus par lots de 12, sans pagination serveur.
 - Le CTA principal reste `steam://run/<appId>` ; le lien Store est secondaire.
 - Pas de prix, DLC, films, configurations matérielles ni notes sociales.
