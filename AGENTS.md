@@ -56,36 +56,51 @@ prod). Au callback, l'utilisateur est upserté dans `users` puis un import est m
 (`SyncService`) s'il n'est pas déjà `done`. La bibliothèque est **lue depuis la base**
 (`library_entries ⋈ games`), plus jamais depuis Steam au fil des requêtes.
 
-**Pipeline d'import en tâche de fond (`api/src/sync/`).** Trois étapes reprises au
+**Pipeline d'import en tâche de fond (`api/src/sync/`).** Quatre étapes reprises au
 redémarrage : `library` (persistance des `library_entries` depuis `GetOwnedGames`),
-`details` (fiches `appdetails` manquantes), `embeddings` (texte
-`nom + description + genres + catégories` → Gemini `gemini-embedding-001`, 1024 dims,
-stocké dans `games.embedding`). Progression suivie par `GET /api/sync`, relance par
-`POST /api/sync`. Un job interrompu (`running`) est remis en file au boot.
+`details` (fiches `appdetails` manquantes), `achievements` (compteurs de succès,
+schéma Steam une fois par jeu et progression du joueur avec TTL), `embeddings`
+(texte `nom + description + genres + catégories` → Gemini `gemini-embedding-001`,
+1024 dims, stocké dans `games.embedding`). Progression suivie par `GET /api/sync`,
+relance par `POST /api/sync`. Un job interrompu (`running`) est remis en file au
+boot. L'étape `achievements` traite au plus 200 jeux par synchronisation, en
+priorisant les jeux récemment lancés ; `needsAchievements` relance la sync au
+login s'il reste des compteurs manquants.
 
-**Succès à la demande.** `GET /api/games/:appId` renvoie la fiche complète (description,
-genres, catégories, support manette, temps de jeu) et charge les succès
-(`GetSchemaForGame` + `GetPlayerAchievements`) uniquement à l'ouverture de la fiche.
+**Succès et compteurs.** L'étape `achievements` précharge
+`games.achievements_total` / `games.achievements_fetched_at` et
+`library_entries.achievements_unlocked` / `library_entries.achievements_fetched_at`.
+Un jeu jamais lancé n'appelle pas `GetPlayerAchievements` : seul le schéma est
+demandé. `GET /api/library` renvoie `achievementsTotal` et
+`achievementsUnlocked` (`null` tant que la donnée n'est pas prête) ; les cartes
+et la liste affichent `12 / 51`, `— / total` ou masquent le badge.
+`GET /api/games/:appId` ne charge plus les succès : il renvoie la fiche et les
+compteurs. `GET /api/games/:appId/achievements` charge la liste détaillée à la
+demande, avec le cache et le TTL de l'étape `achievements`.
 
 **Front.** Pages Connexion, accueil, bibliothèque, détail d'un jeu (`/jeu/:appId`) et 404,
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
 les 2 s ; elle est filtrée, triée et paginée via l'URL (`/bibliotheque?genres=25&modes=coop&tri=temps`)
 et s'affiche dès que l'étape `library` est passée. Sur desktop, une **colonne de filtres**
 repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
-vertical permet de la rouvrir.
+vertical permet de la rouvrir. La carte et la vue liste utilisent les tokens de
+`web/src/styles/theme.css` ; le bouton Filtres reste à gauche sur mobile/tablette.
 
 **Filtres et facettes.** `GET /api/library` (`api/src/library/`) accepte `q`, `genres`,
 `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`, et renvoie une enveloppe
 `{ items, total, limit, offset, hasMore }`. `GET /api/library/facets` renvoie les compteurs
 des genres, modes, manettes, états et durées. Les filtres sont appliqués en SQL à partir des
 **ids Steam** stockés dans `games.genre_ids` / `games.category_ids` (les libellés restent
-utilisés pour l'affichage et les embeddings). Les mêmes filtres s'appliquent aux deux modes
-de `GET /api/search`. Front : `web/src/filters.ts` (URL), `web/src/library.ts` (client),
-`web/src/components/filtres/SidebarFiltres.tsx` (colonne desktop repliable : genres, modes,
-temps de jeu, manette en bas), `BarreFiltres` (barre de résultats, puces actives, bouton
-mobile) et `PanneauFiltres` (`<dialog>` pour mobile et recherche). Les sections sont
-repliables ; la manette est un interrupteur hors section. Libellés des modes : `Solo`,
-`Multi en ligne`, `Multi Local`, `Coop`, `PvP`, `CrossPlay` (valeurs d'URL inchangées).
+utilisés pour l'affichage et les embeddings). **Genres et modes se combinent en ET
+exclusif** (`@>` pour les genres, une condition d'intersection par mode) ; les
+durées restent en OR, leurs tranches étant mutuellement exclusives. Les mêmes
+filtres s'appliquent aux deux modes de `GET /api/search`. Front : `web/src/filters.ts`
+(URL), `web/src/library.ts` (client), `web/src/components/filtres/SidebarFiltres.tsx`
+(colonne desktop repliable : genres, modes, temps de jeu, manette en bas), `BarreFiltres`
+(barre de résultats, puces actives, bouton mobile) et `PanneauFiltres` (`<dialog>` pour
+mobile et recherche). Les sections sont repliables ; la manette est un interrupteur hors
+section. Libellés des modes : `Solo`, `Multi en ligne`, `Multi Local`, `Coop`, `PvP`,
+`CrossPlay` (valeurs d'URL inchangées).
 
 **Recherche vectorielle.** `GET /api/search` (`api/src/search/`) accepte `mode=name`
 (SQL `ILIKE` + priorité de série) ou `mode=semantic` (embedding de la requête via Gemini,
@@ -102,38 +117,47 @@ en mode nom, **aucun Gemini à la frappe**, bouton-icône intégré) et page pro
 `Referrer-Policy`). Rate limiting en place sur `GET /api/search` par `steamId` (voir
 Écart 10) ; les autres routes ne sont pas limitées.
 
-**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), refonte visuelle
-des cartes de bibliothèque (PR2 : chips, vue liste, squelettes), mise en ligne (socle et
-déploiement continu front prêts, rien n'est encore réellement déployé).
+**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), refonte
+visuelle finalisée de la bibliothèque (le prototype est en place ; les champs
+exacts des cartes/listes restent à définir), mise en ligne (socle et déploiement
+continu front prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
-- `api/src/sync/` — pipeline d'import (3 étapes, reprise, progression, backfill `filters_version`)
+- `api/src/sync/` — pipeline d'import (4 étapes, reprise, progression, backfill `filters_version`, compteurs de succès)
 - `api/src/library/` — `ownedGames` (Steam, à l'import), `savedLibrary` (lecture filtrée/triée/paginée) et `facets`
-- `api/src/catalog/` — modes Steam, durées, conditions SQL des filtres, libellés de genres, agrégation des facettes
-- `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId`
-- `api/src/achievements/` — succès à la demande (`GetSchemaForGame` / `GetPlayerAchievements`)
+- `api/src/catalog/` — modes Steam, durées, conditions SQL des filtres (ET genres/modes, OR durées), libellés de genres, agrégation des facettes
+- `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId` et `/achievements`
+- `api/src/achievements/` — cache du schéma, compteurs, TTL, liste détaillée (`GetSchemaForGame` / `GetPlayerAchievements`)
 - `api/src/users/` — upsert utilisateur, `syncStatus`
 - `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j)
 - `api/src/search/` — `GET /api/search` (nom/sémantique/série), filtres partagés, limite par `steamId`, cache d'embeddings de requête, DTO
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
-- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0004)
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0006 ; 0005 compteurs de succès, 0006 champs de fiche)
 - `render.yaml` — blueprint Render (API seule)
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
+- `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
 - `web/src/filters.ts` — types, libellés et sérialisation URL des filtres
 - `web/src/library.ts` — client `/api/library` et `/api/library/facets`
+- `web/src/games.ts` — client de la fiche (`chargerFicheJeu`) et des succès (`chargerSuccesJeu`)
 - `web/src/format.ts` — formats partagés (durée, date, date relative)
+- `web/src/components/bibliotheque/` — `CarteJeu`, `LigneJeu`, `BasculeVue`, `SqueletteCarte`, helpers d'affichage
+- `web/src/components/jeu/` — `EnteteJeu`, `DescriptionJeu`, `GalerieJeu`, `PanneauJeu`, `SuccesJeu`, `SqueletteJeu`
+- `web/src/components/ui/` — `Etiquette`, `Icones`, `BarreProgression`
 - `web/src/components/filtres/` — colonne latérale (`SidebarFiltres`), barre de résultats (`BarreFiltres`), panneau `<dialog>` (`PanneauFiltres`), puces actives
 - `web/src/components/BarreRecherche.tsx` — barre globale (modes, aperçu, bouton-icône de mode)
 - `web/src/components/CarteResultatRecherche.tsx` — carte d'un résultat de recherche
-- `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync)
+- `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync, grille/liste)
+- `web/src/pages/JeuDetail.tsx` — page `/jeu/:appId` (fiche et succès chargés séparément)
 - `web/src/pages/Recherche.tsx` — page `/recherche` (filtres partagés, pagination, états)
 - `docs/features/recherche-vectorielle.md` — fiche de la fonctionnalité recherche
 - `docs/features/filtres-recherche.md` — fiche de la fonctionnalité filtres/facettes
+- `docs/features/refonte-bibliotheque.md` — fiche du prototype bibliothèque
+- `docs/features/refonte-fiche-jeu.md` — fiche du prototype fiche de jeu
 - `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
 - `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token, alignement de l'auteur du commit) sur push `main`
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
@@ -356,7 +380,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Connexion : authentification via Steam (OpenID), puis **import de la bibliothèque** avec suivi de progression. » (`fiche_projet.md:15`) — « L'import se fait en **tâche de fond** avec reprise : les entrées de bibliothèque d'abord, puis les fiches manquantes, puis les embeddings. » (`fiche_projet.md:39`) |
-| **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done`, trois étapes reprises (`onModuleInit` remet les jobs `running` en `pending`). `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). |
+| **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done`, **quatre étapes** reprises (`onModuleInit` remet les jobs `running` en `pending`) : `library`, `details`, `achievements`, `embeddings`. `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). |
 
 #### Écart 2 — Recherche vectorielle
 
@@ -378,7 +402,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Détail d'un jeu : description, genres, support manette, temps de jeu, succès obtenus, lien pour lancer le jeu dans Steam. » (`fiche_projet.md:19`) |
-| **État** | ✅ Résolu — `api/src/games/games.controller.ts` expose `GET /api/games/:appId` (fiche + succès de l'utilisateur via `SessionGuard`), route `web/src/App.tsx` `/jeu/:appId` → `web/src/pages/JeuDetail.tsx` (description, genres, manette, temps de jeu, succès, lien `steam://run/<appId>`). |
+| **État** | ✅ Résolu — `GET /api/games/:appId` renvoie la fiche et les compteurs lus en base ; `GET /api/games/:appId/achievements` charge la liste détaillée. Route `web/src/App.tsx` `/jeu/:appId` → `web/src/pages/JeuDetail.tsx` (description, genres, manette, temps de jeu, succès, lien `steam://run/<appId>`), avec fiche et succès chargés séparément. |
 
 #### Écart 7 — Embeddings branchés — ✅ Résolu
 
@@ -408,7 +432,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Achievement : id, gameId, apiName, displayName, description, iconUrl — Source: `GetSchemaForGame` » (`fiche_projet.md:28`) — « UserAchievement : userId, achievementId, unlockedAt — Source: `GetPlayerAchievements` » (`fiche_projet.md:29`) — « Les succès (`Achievement`, `UserAchievement`) sont chargés **à la demande**, à l'ouverture du détail d'un jeu » (`fiche_projet.md:38`) |
-| **État** | ✅ Résolu — `api/src/achievements/` : `getGameAchievements` (`GetSchemaForGame`, cache `achievements`) et `getUserAchievements` (`GetPlayerAchievements`, upsert `user_achievements` + compteur `library_entries.achievementsUnlocked`), appelés par `GamesService` au `GET /api/games/:appId`. `apiname` est normalisé en `apiName`. |
+| **État** | ✅ Résolu — `api/src/achievements/` : l'étape `achievements` du sync précharge les compteurs (`getUserAchievementsDetail` via `refreshForSync`), avec cache du schéma, TTL de 24 h et plafond de 200 jeux par run. `GET /api/library` expose `achievementsTotal`/`achievementsUnlocked` pour la grille et la liste. `GET /api/games/:appId/achievements` charge la liste détaillée à la demande ; `apiname` est normalisé en `apiName`. |
 
 #### Écart 9 — Utilisateur persisté en base — ✅ Résolu
 
@@ -490,7 +514,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec temps de jeu, dernière utilisation, genres, **filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **État** | ✅ Résolu — `LibraryQueryDto` (`api/src/library/dto/`) valide `q`, `genres`, `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`. `LibraryService.savedLibrary` applique les filtres en SQL (`construireConditions`), trie (`nom`/`temps`/`recent`) et pagine. Les facettes sont exposées par `GET /api/library/facets`. Le front sérialise les filtres dans l'URL et réutilise le même panneau sur `/recherche`. |
+| **État** | ✅ Résolu — `LibraryQueryDto` (`api/src/library/dto/`) valide `q`, `genres`, `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`. `LibraryService.savedLibrary` applique les filtres en SQL (`construireConditions`), trie (`nom`/`temps`/`recent`) et pagine. **Genres et modes sont combinés en ET exclusif** (`genre_ids @>`, une condition par mode) ; les durées restent en OR. Les facettes sont exposées par `GET /api/library/facets`. Le front sérialise les filtres dans l'URL et réutilise le même panneau sur `/recherche`. |
 
 #### Écart 20 — Jeux à relancer / à découvrir absents
 
@@ -505,7 +529,7 @@ reste à corriger).
 Ordre recommandé pour combler les écarts restants :
 
 1. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
-2. **Refonte visuelle de la bibliothèque** (PR2) : cartes avec chips/badges, vue liste, squelettes, purge du CSS mort.
+2. **Finaliser la refonte visuelle de la bibliothèque** : préciser les champs exacts des cartes/listes, purger le CSS mort et valider la fiche de jeu sur sa branche.
 3. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
 
 ## Base de données
@@ -521,11 +545,14 @@ classique — la spécification exige une recherche par similarité vectorielle 
 `Game.embedding`.
 
 Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
-`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0004). `npm run db:migrate`
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0006 ; 0005 compteurs
+de succès, 0006 champs de fiche). `npm run db:migrate`
 applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
 manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
 démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée
 `CREATE EXTENSION IF NOT EXISTS vector` — obligatoire sur une base fraîche type Neon.
+Les 0005 et 0006 sont idempotentes (`IF NOT EXISTS`) pour les bases de dev
+partagées ; l'ordre reste 0005 puis 0006, la branche fiche empilant la 0006.
 
 `DbModule` est global et **exige `DATABASE_URL` et une base joignable au boot** : la
 migration s'exécute immédiatement, la base doit donc être up avant l'API (c'est le cas
