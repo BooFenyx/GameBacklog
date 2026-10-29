@@ -4,10 +4,25 @@ import {
   text,
   integer,
   timestamp,
+  jsonb,
   vector,
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
+
+/** Bloc de description longue, converti depuis le HTML Steam. */
+export type DescriptionBlock =
+  | { type: 'paragraphe'; texte: string }
+  | { type: 'titre'; texte: string }
+  | { type: 'liste'; items: string[] };
+
+/** Capture d'écran : miniature pour la galerie, pleine taille pour le dialogue. */
+export type CaptureEcran = {
+  miniature: string;
+  pleine: string;
+};
+
+export type Plateforme = 'windows' | 'mac' | 'linux';
 
 export const users = pgTable(
   'users',
@@ -55,6 +70,23 @@ export const games = pgTable(
       .default('none'),
     releaseDate: timestamp('release_date'),
     headerImageUrl: text('header_image_url'),
+    /** Description longue convertie en blocs sûrs (jamais de HTML brut). */
+    descriptionBlocks: jsonb('description_blocks')
+      .$type<DescriptionBlock[]>()
+      .notNull()
+      .default([]),
+    /** Captures d'écran, limitées à 6 par le mapping. */
+    screenshots: jsonb('screenshots')
+      .$type<CaptureEcran[]>()
+      .notNull()
+      .default([]),
+    developers: text('developers').array().notNull().default([]),
+    publishers: text('publishers').array().notNull().default([]),
+    website: text('website').notNull().default(''),
+    platforms: text('platforms').array().notNull().default([]),
+    metacriticScore: integer('metacritic_score'),
+    metacriticUrl: text('metacritic_url'),
+    backgroundImageUrl: text('background_image_url'),
     /**
      * Total de succès du jeu (schéma Steam) et date de récupération du schéma.
      * Le total est partagé entre utilisateurs ; un jeu sans succès garde

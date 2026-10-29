@@ -4,7 +4,12 @@ import { DB, type Db } from '../db/db.module.js';
 import {
   FILTERS_VERSION,
   GamesService,
+  decodeEntities,
+  htmlToBlocks,
+  mapAppDetails,
   mapControllerSupport,
+  mapPlatforms,
+  mapScreenshots,
   parseReleaseDate,
 } from './games.service.js';
 
@@ -42,6 +47,20 @@ function fakeDb(returnedId = 7) {
 const DATA_FULL = {
   name: 'Portal 2',
   short_description: '<b>Résolvez</b> des énigmes.',
+  detailed_description:
+    '<p>Bonjour &amp; bienvenue.</p><h3>Points forts</h3><ul><li>Un</li><li>Deux</li></ul>',
+  developers: ['Valve'],
+  publishers: ['Valve'],
+  website: 'https://www.thinkwithportals.com/',
+  screenshots: [
+    {
+      path_thumbnail: 'https://cdn.example/mini.jpg',
+      path_full: 'https://cdn.example/full.jpg',
+    },
+  ],
+  background_raw: 'https://cdn.example/background.jpg',
+  platforms: { windows: true, mac: false, linux: true },
+  metacritic: { score: 95, url: 'https://www.metacritic.com/game/pc/portal-2' },
   genres: [
     { id: '1', description: 'Action' },
     { id: '25', description: 'Aventure' },
@@ -108,6 +127,124 @@ describe('mapControllerSupport', () => {
   });
 });
 
+describe('decodeEntities', () => {
+  it('décode les entités nommées et numériques', () => {
+    expect(decodeEntities('A &amp; B &lt; C &#39;ok&#39; &#x1F600;')).toBe(
+      "A & B < C 'ok' 😀",
+    );
+  });
+});
+
+describe('htmlToBlocks', () => {
+  it('convertit les paragraphes et les br', () => {
+    expect(htmlToBlocks('<p>Bonjour</p><p>Monde</p>')).toEqual([
+      { type: 'paragraphe', texte: 'Bonjour' },
+      { type: 'paragraphe', texte: 'Monde' },
+    ]);
+    expect(htmlToBlocks('Un<br><br>Deux')).toEqual([
+      { type: 'paragraphe', texte: 'Un' },
+      { type: 'paragraphe', texte: 'Deux' },
+    ]);
+  });
+
+  it('convertit les titres et les listes', () => {
+    expect(
+      htmlToBlocks('<h3>Points forts</h3><ul><li>Un</li><li>Deux</li></ul>'),
+    ).toEqual([
+      { type: 'titre', texte: 'Points forts' },
+      { type: 'liste', items: ['Un', 'Deux'] },
+    ]);
+  });
+
+  it('retire les balises inline et décode les entités', () => {
+    expect(
+      htmlToBlocks('<p><strong>Bonjour</strong> &amp; <a href="#">lien</a></p>'),
+    ).toEqual([{ type: 'paragraphe', texte: 'Bonjour & lien' }]);
+  });
+
+  it('supprime les balises dangereuses', () => {
+    expect(
+      htmlToBlocks('<p>Texte</p><script>alert(1)</script><img onerror="x">'),
+    ).toEqual([{ type: 'paragraphe', texte: 'Texte' }]);
+  });
+
+  it('renvoie un tableau vide pour une entrée absente', () => {
+    expect(htmlToBlocks(undefined)).toEqual([]);
+    expect(htmlToBlocks('')).toEqual([]);
+  });
+});
+
+describe('mapScreenshots', () => {
+  it('filtre les URL invalides, déduplique et limite à 6', () => {
+    const captures = mapScreenshots(
+      Array.from({ length: 8 }, (_, index) => ({
+        path_thumbnail: `https://cdn.example/${index}.mini.jpg`,
+        path_full: `https://cdn.example/${index}.full.jpg`,
+      })).concat([
+        // URL invalide
+        {
+          path_thumbnail: 'pas-une-url',
+          path_full: 'pas-une-url',
+        },
+        // doublon
+        {
+          path_thumbnail: 'https://cdn.example/0.mini.jpg',
+          path_full: 'https://cdn.example/0.full.jpg',
+        },
+      ]),
+    );
+    expect(captures).toHaveLength(6);
+    expect(captures[0]).toEqual({
+      miniature: 'https://cdn.example/0.mini.jpg',
+      pleine: 'https://cdn.example/0.full.jpg',
+    });
+  });
+});
+
+describe('mapPlatforms', () => {
+  it('respecte l’ordre Windows, macOS, Linux', () => {
+    expect(
+      mapPlatforms({ windows: true, mac: true, linux: true }),
+    ).toEqual(['windows', 'mac', 'linux']);
+    expect(mapPlatforms({ linux: true, windows: false })).toEqual(['linux']);
+    expect(mapPlatforms(undefined)).toEqual([]);
+  });
+});
+
+describe('mapAppDetails', () => {
+  it('mappe les champs riches et les valeurs par défaut', () => {
+    const details = mapAppDetails(620, DATA_FULL);
+    expect(details.descriptionBlocks).toEqual([
+      { type: 'paragraphe', texte: 'Bonjour & bienvenue.' },
+      { type: 'titre', texte: 'Points forts' },
+      { type: 'liste', items: ['Un', 'Deux'] },
+    ]);
+    expect(details.screenshots).toHaveLength(1);
+    expect(details.developers).toEqual(['Valve']);
+    expect(details.publishers).toEqual(['Valve']);
+    expect(details.website).toBe('https://www.thinkwithportals.com/');
+    expect(details.platforms).toEqual(['windows', 'linux']);
+    expect(details.metacriticScore).toBe(95);
+    expect(details.metacriticUrl).toContain('metacritic.com');
+    expect(details.backgroundImageUrl).toBe(
+      'https://cdn.example/background.jpg',
+    );
+  });
+
+  it('renvoie des valeurs vides quand les champs manquent', () => {
+    const details = mapAppDetails(621, { name: 'Sans fiche' });
+    expect(details.descriptionBlocks).toEqual([]);
+    expect(details.screenshots).toEqual([]);
+    expect(details.developers).toEqual([]);
+    expect(details.publishers).toEqual([]);
+    expect(details.website).toBeNull();
+    expect(details.platforms).toEqual([]);
+    expect(details.metacriticScore).toBeNull();
+    expect(details.metacriticUrl).toBeNull();
+    expect(details.backgroundImageUrl).toBeNull();
+  });
+});
+
 describe('GamesService', () => {
   let service: GamesService;
 
@@ -129,6 +266,20 @@ describe('GamesService', () => {
       appId: 620,
       name: 'Portal 2',
       shortDescription: 'Résolvez des énigmes.',
+      descriptionBlocks: [{ type: 'paragraphe', texte: 'Bonjour' }],
+      screenshots: [
+        {
+          miniature: 'https://cdn.example/mini.jpg',
+          pleine: 'https://cdn.example/full.jpg',
+        },
+      ],
+      developers: ['Valve'],
+      publishers: ['Valve'],
+      website: 'https://www.thinkwithportals.com/',
+      platforms: ['windows', 'linux'],
+      metacriticScore: 95,
+      metacriticUrl: 'https://www.metacritic.com/game/pc/portal-2',
+      backgroundImageUrl: 'https://cdn.example/background.jpg',
       genres: ['Action', 'Aventure'],
       genreIds: [1, 25],
       categories: ['Solo', 'Compat. contrôleurs complète'],
@@ -142,6 +293,11 @@ describe('GamesService', () => {
       expect.objectContaining({
         appId: 620,
         name: 'Portal 2',
+        descriptionBlocks: [{ type: 'paragraphe', texte: 'Bonjour' }],
+        developers: ['Valve'],
+        publishers: ['Valve'],
+        platforms: ['windows', 'linux'],
+        metacriticScore: 95,
         genreIds: [1, 25],
         categoryIds: [2, 28],
         filtersVersion: FILTERS_VERSION,
