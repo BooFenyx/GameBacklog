@@ -141,6 +141,8 @@ describe('Bibliothèque (e2e)', () => {
         filtersVersion: 1,
         headerImageUrl: `http://img/${jeu.appId}.jpg`,
         detailsFetchedAt: new Date(),
+        achievementsTotal: 5,
+        achievementsFetchedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: games.appId,
@@ -149,6 +151,8 @@ describe('Bibliothèque (e2e)', () => {
           filtersVersion: 1,
           headerImageUrl: `http://img/${jeu.appId}.jpg`,
           detailsFetchedAt: new Date(),
+          achievementsTotal: 5,
+          achievementsFetchedAt: new Date(),
         },
       })
       .returning();
@@ -163,6 +167,7 @@ describe('Bibliothèque (e2e)', () => {
         ...temps,
         lastPlayedAt,
         achievementsUnlocked: 3,
+        achievementsFetchedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: [libraryEntries.userId, libraryEntries.gameId],
@@ -170,6 +175,7 @@ describe('Bibliothèque (e2e)', () => {
           ...temps,
           lastPlayedAt,
           achievementsUnlocked: 3,
+          achievementsFetchedAt: new Date(),
         },
       });
   }
@@ -211,6 +217,7 @@ describe('Bibliothèque (e2e)', () => {
           controllerSupport: 'full',
           headerImageUrl: 'http://img/424242.jpg',
           achievementsUnlocked: 3,
+          achievementsTotal: 5,
         }),
       ]),
     );

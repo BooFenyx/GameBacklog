@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import type { Db } from '../db/db.module.js';
+import { AchievementsService } from '../achievements/achievements.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
 import { GamesService } from '../games/games.service.js';
 import { LibraryService } from '../library/library.service.js';
@@ -10,7 +11,7 @@ type JobRow = {
   id: number;
   userId: number;
   status: 'pending' | 'running' | 'done' | 'error';
-  step: 'library' | 'details' | 'embeddings' | 'done';
+  step: 'library' | 'details' | 'achievements' | 'embeddings' | 'done';
   totalGames: number;
   processedGames: number;
   error: string | null;
@@ -25,6 +26,7 @@ function makeService(db: unknown): SyncService {
     config,
     {} as LibraryService,
     {} as GamesService,
+    {} as AchievementsService,
     {} as EmbeddingService,
     {} as UsersService,
   );
@@ -57,6 +59,34 @@ describe('SyncService', () => {
     };
 
     await expect(makeService(db).needsFilters(1)).resolves.toBe(false);
+  });
+
+  it('needsAchievements : vrai quand un jeu manque de compteurs', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => Promise.resolve([{ count: '2' }]),
+          }),
+        }),
+      }),
+    };
+
+    await expect(makeService(db).needsAchievements(1)).resolves.toBe(true);
+  });
+
+  it('needsAchievements : faux quand tous les compteurs sont présents', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => Promise.resolve([{ count: '0' }]),
+          }),
+        }),
+      }),
+    };
+
+    await expect(makeService(db).needsAchievements(1)).resolves.toBe(false);
   });
 
   it('enqueue : renvoie le job en cours sans réinitialiser sa progression', async () => {

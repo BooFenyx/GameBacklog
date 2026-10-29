@@ -93,11 +93,15 @@ export class AuthController {
       // Steam est récupérée au premier login puis mise en cache en base
       // (`sync_jobs`, `library_entries`, `games`). Le sync ne repart pas quand
       // un import s'est déjà terminé (`done`), sauf si des fiches n'ont pas
-      // encore reçu le mapping courant (`needsFilters`, backfill d'une nouvelle
-      // version). Le front peut aussi relancer à la main via `POST /api/sync`.
+      // encore reçu le mapping courant (`needsFilters`) ou si les compteurs de
+      // succès manquent encore (`needsAchievements`). Le front peut aussi
+      // relancer à la main via `POST /api/sync`.
       const statut = await this.usersService.syncStatusOf(userId);
-      const aRemapper = await this.syncService.needsFilters(userId);
-      if (statut !== 'done' || aRemapper) {
+      const [aRemapper, succesAMettreAJour] = await Promise.all([
+        this.syncService.needsFilters(userId),
+        this.syncService.needsAchievements(userId),
+      ]);
+      if (statut !== 'done' || aRemapper || succesAMettreAJour) {
         void this.syncService.enqueue(userId);
       }
 

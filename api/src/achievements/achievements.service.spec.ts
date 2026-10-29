@@ -37,6 +37,7 @@ function fakeDb(reponses: unknown[][]) {
   const select = vi.fn();
   const from = vi.fn();
   const whereChain = vi.fn();
+  const innerJoin = vi.fn();
   const limit = vi.fn();
   const insert = vi.fn();
   const values = vi.fn();
@@ -58,8 +59,9 @@ function fakeDb(reponses: unknown[][]) {
   };
   limit.mockImplementation(suivant);
   whereChain.mockReturnValue(builder);
+  innerJoin.mockReturnValue({ where: whereChain });
   select.mockReturnValue({ from });
-  from.mockReturnValue({ where: whereChain });
+  from.mockReturnValue({ where: whereChain, innerJoin });
 
   insert.mockReturnValue({ values });
   values.mockReturnValue({ onConflictDoUpdate });
@@ -89,7 +91,10 @@ describe('AchievementsService', () => {
 
   describe('getGameAchievements', () => {
     it('ne rappelle pas Steam quand le cache est déjà rempli', async () => {
-      const fake = fakeDb([LIGNE_DETAIL, LIGNE_DETAIL]);
+      const fake = fakeDb([
+        [{ fetchedAt: new Date(), total: 2 }],
+        LIGNE_DETAIL,
+      ]);
       const fetchMock = vi.fn();
       vi.stubGlobal('fetch', fetchMock);
 
@@ -112,7 +117,11 @@ describe('AchievementsService', () => {
     });
 
     it('récupère puis persiste le schéma quand le cache est vide', async () => {
-      const fake = fakeDb([[], LIGNE_DETAIL]);
+      const fake = fakeDb([
+        [{ fetchedAt: null, total: 0 }],
+        [],
+        LIGNE_DETAIL,
+      ]);
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue({
@@ -186,8 +195,14 @@ describe('AchievementsService', () => {
       service = module.get<AchievementsService>(AchievementsService);
     };
 
+    const schemaEnCache = [
+      [{ fetchedAt: new Date(), total: 2 }],
+      LIGNE_DETAIL,
+      [{ playtimeForever: 60, achievementsFetchedAt: null }],
+    ];
+
     it('upsert les réussites débloquées et met à jour le compteur', async () => {
-      const fake = fakeDb([LIGNE_DETAIL, LIGNE_DETAIL]);
+      const fake = fakeDb(schemaEnCache);
       await creerService(fake);
 
       vi.stubGlobal(
@@ -216,15 +231,20 @@ describe('AchievementsService', () => {
           unlockedAt: new Date(1_700_000_000 * 1000),
         }),
       );
-      expect(fake.set).toHaveBeenCalledWith({ achievementsUnlocked: 1 });
+      expect(fake.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          achievementsUnlocked: 1,
+          achievementsFetchedAt: expect.any(Date),
+        }),
+      );
 
       expect(result).toHaveLength(2);
       expect(result[0].unlockedAt).toEqual(new Date(1_700_000_000 * 1000));
       expect(result[1].unlockedAt).toBeNull();
     });
 
-    it('renvoie une liste vide si le profil est privé (success:false)', async () => {
-      const fake = fakeDb([LIGNE_DETAIL, LIGNE_DETAIL]);
+    it('renvoie une liste verrouillée si le profil est privé (success:false)', async () => {
+      const fake = fakeDb(schemaEnCache);
       await creerService(fake);
 
       vi.stubGlobal(
@@ -238,7 +258,56 @@ describe('AchievementsService', () => {
       const result = await service.getUserAchievements('7656119', 3, 7, 620);
       expect(result).toHaveLength(2);
       expect(result.every((succes) => succes.unlockedAt === null)).toBe(true);
-      expect(fake.set).toHaveBeenCalledWith({ achievementsUnlocked: 0 });
+      expect(fake.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          achievementsUnlocked: 0,
+          achievementsFetchedAt: expect.any(Date),
+        }),
+      );
+    });
+
+    it('ne rappelle pas Steam quand la progression est fraîche', async () => {
+      const fake = fakeDb([
+        [{ fetchedAt: new Date(), total: 2 }],
+        LIGNE_DETAIL,
+        [{ playtimeForever: 60, achievementsFetchedAt: new Date() }],
+        [{ apiName: 'PORTAL_PUZZLE', unlockedAt: new Date('2024-01-01') }],
+      ]);
+      await creerService(fake);
+
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result).toHaveLength(2);
+      expect(result[0].unlockedAt).toEqual(new Date('2024-01-01'));
+      expect(result[1].unlockedAt).toBeNull();
+    });
+
+    it('ne demande pas les succès joueur pour un jeu jamais lancé', async () => {
+      const fake = fakeDb([
+        [{ fetchedAt: new Date(), total: 2 }],
+        LIGNE_DETAIL,
+        [{ playtimeForever: 0, achievementsFetchedAt: null }],
+      ]);
+      await creerService(fake);
+
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result).toHaveLength(2);
+      expect(result.every((succes) => succes.unlockedAt === null)).toBe(true);
+      expect(fake.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          achievementsUnlocked: 0,
+          achievementsFetchedAt: expect.any(Date),
+        }),
+      );
     });
   });
 });
