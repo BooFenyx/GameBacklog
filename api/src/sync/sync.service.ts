@@ -6,13 +6,16 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import { games, libraryEntries, syncJobs, users } from '../db/schema.js';
 import { QuotaReachedError } from '../embedding/rate-limiter.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
-import { GamesService } from '../games/games.service.js';
-import { LibraryService, type BibliothequeGame } from '../library/library.service.js';
+import { FILTERS_VERSION, GamesService } from '../games/games.service.js';
+import {
+  LibraryService,
+  type BibliothequeGame,
+} from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
 
 const DEFAULT_APPDETAILS_THROTTLE_MS = 300;
@@ -82,12 +85,53 @@ export class SyncService implements OnModuleInit {
   /**
    * Crée/réactive le job de l'utilisateur (une ligne par utilisateur, upsert)
    * puis lance le traitement en tâche de fond, sans bloquer la réponse HTTP.
+   *
+   * Si un job est déjà en file ou en cours, il est renvoyé tel quel : relancer
+   * l'import ne doit pas remettre sa progression à zéro.
    */
   async enqueue(userId: number): Promise<SyncJobResponse> {
+    const [existant] = await this.db
+      .select()
+      .from(syncJobs)
+      .where(eq(syncJobs.userId, userId))
+      .limit(1);
+
+    if (
+      existant &&
+      (existant.status === 'pending' || existant.status === 'running')
+    ) {
+      return this.toResponse(existant as SyncJobRow);
+    }
+
     const job = await this.upsertJob(userId);
     // Traitement hors du cycle de requête : le front suivra via GET /api/sync.
     void this.drain();
     return this.toResponse(job);
+  }
+
+  /**
+   * Indique si au moins un jeu de l'utilisateur a une fiche déjà récupérée mais
+   * pas encore remappée (`filters_version`). Sert à relancer un import après
+   * l'ajout d'un champ dérivé de `appdetails`, même si le dernier import est
+   * terminé.
+   *
+   * Les fiches jamais récupérées (`details_fetched_at IS NULL`) sont exclues :
+   * les inclure relancerait un import à chaque connexion pour un jeu retiré du
+   * Store, sans jamais pouvoir aboutir. Un `Synchroniser` manuel les retente.
+   */
+  async needsFilters(userId: number): Promise<boolean> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          isNotNull(games.detailsFetchedAt),
+          lt(games.filtersVersion, FILTERS_VERSION),
+        ),
+      );
+    return Number(row?.count ?? 0) > 0;
   }
 
   /** Renvoie le job courant de l'utilisateur (null si jamais importé). */
@@ -167,7 +211,7 @@ export class SyncService implements OnModuleInit {
     try {
       const jeux = await this.library.ownedGames(user.steamId);
       await this.syncLibrary(job.id, job.userId, jeux);
-      await this.stepDetails(job.id, job.userId, jeux.length);
+      await this.stepDetails(job.id, job.userId);
       await this.stepEmbeddings(job.id, job.userId);
 
       await this.finish(job.id, 'done', 'done', null, new Date());
@@ -235,19 +279,26 @@ export class SyncService implements OnModuleInit {
     });
   }
 
-  /** Étape 2 : récupère les fiches `appdetails` manquantes. */
-  private async stepDetails(
-    jobId: number,
-    userId: number,
-    totalGames: number,
-  ): Promise<void> {
-    const jeuxSansFiche = await this.appIdsForUser(userId, true);
+  /**
+   * Étape 2 : récupère les fiches `appdetails` manquantes, ainsi que celles
+   * dont le mapping est antérieur à `FILTERS_VERSION` (backfill des ids).
+   *
+   * La progression porte sur le nombre de fiches réellement à traiter, et non
+   * sur la taille de la bibliothèque : la barre ne recule plus entre les étapes.
+   */
+  private async stepDetails(jobId: number, userId: number): Promise<void> {
+    const jeuxSansFiche = await this.appIdsSansDetails(userId);
     this.logger.log(
-      `Étape fiches : ${jeuxSansFiche.length} fiche(s) manquante(s)`,
+      `Étape fiches : ${jeuxSansFiche.length} fiche(s) à traiter`,
     );
     const throttleMs =
       this.config.get<number>('APPDETAILS_THROTTLE_MS') ??
       DEFAULT_APPDETAILS_THROTTLE_MS;
+
+    await this.setProgress(jobId, 'details', {
+      totalGames: jeuxSansFiche.length,
+      processedGames: 0,
+    });
 
     let processed = 0;
     for (const appId of jeuxSansFiche) {
@@ -260,7 +311,7 @@ export class SyncService implements OnModuleInit {
       }
       processed += 1;
       await this.setProgress(jobId, 'details', {
-        totalGames,
+        totalGames: jeuxSansFiche.length,
         processedGames: processed,
       });
     }
@@ -268,14 +319,23 @@ export class SyncService implements OnModuleInit {
 
   /** Étape 3 : génère et persiste les embeddings manquants. */
   private async stepEmbeddings(jobId: number, userId: number): Promise<void> {
-    const appIds = await this.appIdsForUser(userId, false);
+    const appIds = await this.appIdsSansEmbedding(userId);
     this.logger.log(`Étape embeddings : ${appIds.length} jeu(x)`);
+
+    await this.setProgress(jobId, 'embeddings', {
+      totalGames: appIds.length,
+      processedGames: 0,
+    });
 
     let processed = 0;
     for (const appId of appIds) {
       const input = await this.games.embeddingInputFor(appId);
       if (!input) {
         processed += 1;
+        await this.setProgress(jobId, 'embeddings', {
+          totalGames: appIds.length,
+          processedGames: processed,
+        });
         continue;
       }
       const embedding = await this.embedding.embedGame(input);
@@ -290,16 +350,14 @@ export class SyncService implements OnModuleInit {
       }
       processed += 1;
       await this.setProgress(jobId, 'embeddings', {
+        totalGames: appIds.length,
         processedGames: processed,
       });
     }
   }
 
-  /** Liste des `appId` de la bibliothèque, sans fiche ou sans embedding. */
-  private async appIdsForUser(
-    userId: number,
-    ficheManquante: boolean,
-  ): Promise<number[]> {
+  /** `appId` de la bibliothèque dont la fiche manque ou est à remapper. */
+  private async appIdsSansDetails(userId: number): Promise<number[]> {
     const rows = await this.db
       .select({ appId: games.appId })
       .from(libraryEntries)
@@ -307,11 +365,22 @@ export class SyncService implements OnModuleInit {
       .where(
         and(
           eq(libraryEntries.userId, userId),
-          ficheManquante
-            ? isNull(games.detailsFetchedAt)
-            : isNull(games.embedding),
+          or(
+            isNull(games.detailsFetchedAt),
+            lt(games.filtersVersion, FILTERS_VERSION),
+          ),
         ),
       );
+    return rows.map((row) => row.appId);
+  }
+
+  /** `appId` de la bibliothèque dont l'embedding manque. */
+  private async appIdsSansEmbedding(userId: number): Promise<number[]> {
+    const rows = await this.db
+      .select({ appId: games.appId })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(and(eq(libraryEntries.userId, userId), isNull(games.embedding)));
     return rows.map((row) => row.appId);
   }
 

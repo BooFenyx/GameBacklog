@@ -1,25 +1,11 @@
 import { Link } from 'react-router-dom'
+import { formaterDuree } from '../format'
 import type { ResultatRecherche, SourceResultat } from '../search'
 
 const LIBELLE_SOURCE: Record<SourceResultat, string> = {
   name: 'Nom',
   semantic: 'Similarité',
   series: 'Série',
-}
-
-const LIBELLE_MANETTE: Record<ResultatRecherche['controllerSupport'], string> =
-  {
-    none: 'manette non supportée',
-    partial: 'manette partielle',
-    full: 'manette complète',
-  }
-
-function formaterDuree(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  if (h === 0) return `${m} min`
-  if (m === 0) return `${h} h`
-  return `${h} h ${String(m).padStart(2, '0')}`
 }
 
 function formaterScore(score: number): string {
@@ -79,8 +65,7 @@ export default function CarteResultatRecherche({
             ? `${formaterDuree(resultat.playtimeForever)} de jeu`
             : 'Jamais lancé'}
           {resultat.genres.length > 0 && ` • ${resultat.genres.join(', ')}`}
-          {resultat.controllerSupport !== 'none' &&
-            ` • ${LIBELLE_MANETTE[resultat.controllerSupport]}`}
+          {resultat.controllerSupport === 'full' && ' • manette complète'}
         </p>
 
         <div className="carte-resultat-pied">

@@ -1,13 +1,6 @@
 import { Transform, Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Length,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsIn, IsInt, IsString, Length, Max, Min } from 'class-validator';
+import { FiltersQueryDto } from '../../catalog/dto/filters-query.dto.js';
 
 /** Modes de recherche exposés par l'API. */
 export const SEARCH_MODES = ['name', 'semantic'] as const;
@@ -21,9 +14,11 @@ export const SEARCH_MAX_LIMIT = 50;
  * Paramètres de `GET /api/search`.
  *
  * `q` est trimé avant validation : une requête composée uniquement d'espaces
- * est donc refusée par `@Length(1, …)`.
+ * est donc refusée par `@Length(1, …)`. Les filtres (genres, modes, manette,
+ * état, durée) sont hérités de `FiltersQueryDto` et appliqués dans les deux
+ * modes de recherche.
  */
-export class SearchQueryDto {
+export class SearchQueryDto extends FiltersQueryDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @Length(1, SEARCH_MAX_QUERY_LENGTH)
@@ -32,18 +27,12 @@ export class SearchQueryDto {
   @IsIn(SEARCH_MODES)
   mode!: SearchMode;
 
-  @IsOptional()
-  @IsIn(['full', 'partial'])
-  manette?: 'full' | 'partial';
-
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(SEARCH_MAX_LIMIT)
   limit: number = SEARCH_DEFAULT_LIMIT;
 
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)

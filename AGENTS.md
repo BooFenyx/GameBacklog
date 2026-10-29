@@ -10,6 +10,43 @@ de données, champs des entités, pipeline d'import, conception de la recherche
 vectorielle, stack et liste des éléments hors périmètre. Lis-la avant d'implémenter
 quoi que ce soit. Les décisions architecturales doivent rester cohérentes avec elle.
 
+## Méthode de travail — une feature par tranches
+
+**Ne jamais développer une fonctionnalité entière d'un seul coup.** Une feature se découpe
+en **tranches verticales** : chacune doit pouvoir être implémentée, testée, relue et
+commitée indépendamment. Exemple de découpage : données/migration → API → client → UI →
+documentation.
+
+Pour chaque tranche :
+
+1. **Annoncer la tranche** et son périmètre au développeur avant de commencer.
+2. **Implémenter uniquement cette tranche**, sans anticiper les suivantes.
+3. **Lancer les vérifications** du paquet concerné :
+   - `api/` : `npm run lint`, `npm test`, `npm run test:e2e`, `npm run build` ;
+   - `web/` : `npm run lint`, `npm test`, `npm run build`.
+4. **Faire un retour court** au développeur : ce qui est fait, fichiers touchés, résultat
+   des vérifications, ce qui reste, risques éventuels.
+5. **Attendre sa validation** (et son autorisation de commit) avant de passer à la tranche
+   suivante.
+6. **Commiter la tranche** une fois validée, avec un message en français.
+
+**Ne jamais coder toute la feature puis découper les commits a posteriori** : les états
+intermédiaires ne seraient pas testés et la revue serait artificielle.
+
+### Points bloquants
+
+Dès qu'une décision, une erreur, une ambiguïté de spec, un accès manquant (clé API, base,
+droit) ou un comportement inattendu **bloque la tranche** : s'arrêter et le signaler au
+développeur avec le contexte, les options possibles et une recommandation. Ne pas
+contourner en silence et ne pas inventer une règle métier.
+
+### Commits
+
+- **Ne jamais commiter sans validation explicite du développeur.**
+- Un commit = une tranche (ou une intention) ; messages en français.
+- Chaque commit doit compiler et passer les tests de son paquet.
+- Ne pas mélanger une migration, une API et une refonte UI dans le même commit.
+
 ## État du projet
 
 **Authentification Steam et import de bibliothèque fonctionnels.** L'authentification
@@ -32,48 +69,71 @@ genres, catégories, support manette, temps de jeu) et charge les succès
 
 **Front.** Pages Connexion, accueil, bibliothèque, détail d'un jeu (`/jeu/:appId`) et 404,
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
-les 2 s et s'affiche dès que l'étape `library` est passée.
+les 2 s ; elle est filtrée, triée et paginée via l'URL (`/bibliotheque?genres=25&modes=coop&tri=temps`)
+et s'affiche dès que l'étape `library` est passée. Sur desktop, une **colonne de filtres**
+repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
+vertical permet de la rouvrir.
+
+**Filtres et facettes.** `GET /api/library` (`api/src/library/`) accepte `q`, `genres`,
+`modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`, et renvoie une enveloppe
+`{ items, total, limit, offset, hasMore }`. `GET /api/library/facets` renvoie les compteurs
+des genres, modes, manettes, états et durées. Les filtres sont appliqués en SQL à partir des
+**ids Steam** stockés dans `games.genre_ids` / `games.category_ids` (les libellés restent
+utilisés pour l'affichage et les embeddings). Les mêmes filtres s'appliquent aux deux modes
+de `GET /api/search`. Front : `web/src/filters.ts` (URL), `web/src/library.ts` (client),
+`web/src/components/filtres/SidebarFiltres.tsx` (colonne desktop repliable : genres, modes,
+temps de jeu, manette en bas), `BarreFiltres` (barre de résultats, puces actives, bouton
+mobile) et `PanneauFiltres` (`<dialog>` pour mobile et recherche). Les sections sont
+repliables ; la manette est un interrupteur hors section. Libellés des modes : `Solo`,
+`Multi en ligne`, `Multi Local`, `Coop`, `PvP`, `CrossPlay` (valeurs d'URL inchangées).
 
 **Recherche vectorielle.** `GET /api/search` (`api/src/search/`) accepte `mode=name`
 (SQL `ILIKE` + priorité de série) ou `mode=semantic` (embedding de la requête via Gemini,
-tri pgvector `<=>`), avec filtres stricts (bibliothèque de l'utilisateur, `manette`) et
-pagination (`limit`/`offset`, `hasMore`). Limitation par `steamId` (20/min sémantique,
-120/min nom, 429 + `Retry-After`), cache d'embeddings de requête (TTL 1 h, 500 entrées)
-et repli dégradé (`degraded`) si Gemini échoue ou dépasse ~1,5 s. Front : barre globale
-dans `RootLayout` (modes nom/description, aperçu 7 résultats en mode nom, **aucun Gemini
-à la frappe**, bouton-icône intégré) et page protégée `/recherche` (filtre manette,
-« Afficher plus », états dégradé/quota/erreur).
+tri pgvector `<=>`), avec filtres stricts (bibliothèque de l'utilisateur, `manette`, genres,
+modes, état, durée) et pagination (`limit`/`offset`, `hasMore`, `total`). Limitation par
+`steamId` (20/min sémantique, 120/min nom, 429 + `Retry-After`), cache d'embeddings de
+requête (TTL 1 h, 500 entrées) et repli dégradé (`degraded`) si Gemini échoue ou dépasse
+~1,5 s. Front : barre globale dans `RootLayout` (modes nom/description, aperçu 7 résultats
+en mode nom, **aucun Gemini à la frappe**, bouton-icône intégré) et page protégée
+`/recherche` (mêmes filtres que la bibliothèque, « Afficher plus », états dégradé/quota/erreur).
 
 **Sécurité.** CSP de production en place : stricte côté API (`app.setup.ts`, `default-src
 'none'`, prod uniquement) et via les en-têtes Vercel côté front (CSP SPA + `nosniff` +
 `Referrer-Policy`). Rate limiting en place sur `GET /api/search` par `steamId` (voir
 Écart 10) ; les autres routes ne sont pas limitées.
 
-**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), filtres et tri
-de la bibliothèque, mise en ligne (socle et déploiement continu front prêts, rien n'est
-encore réellement déployé).
+**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), refonte visuelle
+des cartes de bibliothèque (PR2 : chips, vue liste, squelettes), mise en ligne (socle et
+déploiement continu front prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
-- `api/src/sync/` — pipeline d'import (3 étapes, reprise, progression)
-- `api/src/library/` — `ownedGames` (Steam, à l'import) et `savedLibrary` (lecture base)
+- `api/src/sync/` — pipeline d'import (3 étapes, reprise, progression, backfill `filters_version`)
+- `api/src/library/` — `ownedGames` (Steam, à l'import), `savedLibrary` (lecture filtrée/triée/paginée) et `facets`
+- `api/src/catalog/` — modes Steam, durées, conditions SQL des filtres, libellés de genres, agrégation des facettes
 - `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId`
 - `api/src/achievements/` — succès à la demande (`GetSchemaForGame` / `GetPlayerAchievements`)
 - `api/src/users/` — upsert utilisateur, `syncStatus`
 - `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j)
-- `api/src/search/` — `GET /api/search` (nom/sémantique/série), limite par `steamId`, cache d'embeddings de requête, DTO
+- `api/src/search/` — `GET /api/search` (nom/sémantique/série), filtres partagés, limite par `steamId`, cache d'embeddings de requête, DTO
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
-- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0003)
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0004)
 - `render.yaml` — blueprint Render (API seule)
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
+- `web/src/filters.ts` — types, libellés et sérialisation URL des filtres
+- `web/src/library.ts` — client `/api/library` et `/api/library/facets`
+- `web/src/format.ts` — formats partagés (durée, date, date relative)
+- `web/src/components/filtres/` — colonne latérale (`SidebarFiltres`), barre de résultats (`BarreFiltres`), panneau `<dialog>` (`PanneauFiltres`), puces actives
 - `web/src/components/BarreRecherche.tsx` — barre globale (modes, aperçu, bouton-icône de mode)
 - `web/src/components/CarteResultatRecherche.tsx` — carte d'un résultat de recherche
-- `web/src/pages/Recherche.tsx` — page `/recherche` (filtre manette, pagination, états)
+- `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync)
+- `web/src/pages/Recherche.tsx` — page `/recherche` (filtres partagés, pagination, états)
 - `docs/features/recherche-vectorielle.md` — fiche de la fonctionnalité recherche
+- `docs/features/filtres-recherche.md` — fiche de la fonctionnalité filtres/facettes
 - `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
 - `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token, alignement de l'auteur du commit) sur push `main`
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
@@ -303,7 +363,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Recherche : saisie libre (« un jeu calme avec des énigmes, jouable à la manette ») et résultats classés. » (`fiche_projet.md:18`) — « embedding de la requête, puis SQL unique combinant **filtres stricts** (support manette, dans la bibliothèque de l'utilisateur) et **tri par similarité cosinus**. » (`fiche_projet.md:45`) — « liste de 10 jeux de la bibliothèque de l'utilisateur, avec le score de similarité et les critères respectés. » (`fiche_projet.md:46`) |
-| **État** | ✅ Résolu — `api/src/search/` : `GET /api/search` (`search.controller.ts`) avec `SessionGuard`, `SearchQueryDto` (`mode=name\|semantic`, `manette`, `limit`, `offset`), `SearchService` (nom via `ILIKE` + priorité de série, sémantique via embedding Gemini et tri pgvector `<=>`, filtres stricts bibliothèque/manette, pagination `hasMore`), `SearchRateLimitService` par `steamId` et cache d'embeddings de requête. Front : `web/src/components/BarreRecherche.tsx` (modes nom/description, aperçu 7 résultats en mode nom, aucun Gemini à la frappe) et `web/src/pages/Recherche.tsx` (route protégée `/recherche`, filtre manette, « Afficher plus », états dégradé/quota/erreur). `<span className="nav-avenir">` retiré de `RootLayout.tsx`. |
+| **État** | ✅ Résolu — `api/src/search/` : `GET /api/search` (`search.controller.ts`) avec `SessionGuard`, `SearchQueryDto` (`mode=name\|semantic`, filtres partagés `genres`/`modes`/`manette`/`etat`/`duree`, `limit`/`offset`), `SearchService` (nom via `ILIKE` + priorité de série, sémantique via embedding Gemini et tri pgvector `<=>`, filtres stricts bibliothèque/genres/modes, pagination `hasMore` + `total`), `SearchRateLimitService` par `steamId` et cache d'embeddings de requête. Front : `web/src/components/BarreRecherche.tsx` (modes nom/description, aperçu 7 résultats en mode nom, aucun Gemini à la frappe) et `web/src/pages/Recherche.tsx` (route protégée `/recherche`, mêmes filtres que la bibliothèque, « Afficher plus », états dégradé/quota/erreur). `<span className="nav-avenir">` retiré de `RootLayout.tsx`. |
 
 #### Écart 3 — Page d'accueil non fonctionnelle
 
@@ -336,12 +396,12 @@ reste à corriger).
 
 ### Écarts élevés
 
-#### Écart 4 — Page bibliothèque — ⚠️ Partiel
+#### Écart 4 — Page bibliothèque — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec **temps de jeu, dernière utilisation, genres, filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **État** | ⚠️ Partiel — champs enrichis faits : `GET /api/library` renvoie `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `categories`, `controllerSupport`, `shortDescription`, `headerImageUrl`, `achievementsUnlocked` (`BibliothequeGamePersiste`), affichés dans `web/src/pages/Bibliotheque.tsx`. **Manquent** : filtres et tri (voir Écart 19). |
+| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs. Le front (`web/src/pages/Bibliotheque.tsx`) affiche une colonne de filtres repliable sur desktop, la barre de résultats, les filtres actifs, le tri, la pagination et les états vides/erreur. La colonne se ferme en glissant à gauche ; un onglet vertical la rouvre et la grille gagne une colonne. Sur mobile, le panneau `<dialog>` est utilisé. La refonte visuelle des cartes est prévue en PR2. |
 
 #### Écart 6 — Succès à la demande — ✅ Résolu
 
@@ -409,7 +469,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « API : NestJS + TypeScript (DTO validés) » (`fiche_projet.md:54`) |
-| **État** | ✅ Résolu — `ValidationPipe` global (`api/src/app.setup.ts` : `whitelist: true, forbidNonWhitelisted: true, transform: true`) est effectivement exercé par `SearchQueryDto` (`api/src/search/search-query.dto.ts`), le seul point d'entrée acceptant des paramètres de requête. Corollaire : toute nouvelle route à paramètres (ex. filtres de bibliothèque, Écart 19) doit livrer son DTO. |
+| **État** | ✅ Résolu — `ValidationPipe` global (`api/src/app.setup.ts` : `whitelist: true, forbidNonWhitelisted: true, transform: true`) est effectivement exercé par `SearchQueryDto` et `LibraryQueryDto` (`api/src/search/dto/search-query.dto.ts`, `api/src/library/dto/library-query.dto.ts`), les points d'entrée acceptant des paramètres de requête. Corollaire : toute nouvelle route à paramètres doit livrer son DTO. |
 
 #### Écart 16 — Validation de `openid.mode` — ✅ Résolu
 
@@ -418,21 +478,19 @@ reste à corriger).
 | **Spec** | Non mentionné. |
 | **État** | ✅ Résolu — `verifySteamCallback` (`api/src/auth/auth.service.ts`) rejette les réponses dont `openid.mode` n'est pas `id_res` avant toute validation de signature. |
 
-#### Écart 18 — Message d'aide si profil privé
+#### Écart 18 — Message d'aide si profil privé — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Message d'aide si le profil est privé. » (`fiche_projet.md:15`) |
-| **Code réel** | L'échec survient désormais à l'import : `LibraryService.ownedGames` lève `ServiceUnavailableException` (« profil privé ou clé invalide »), le `SyncService` la capture et stocke le message dans `sync_jobs.error` ; le front l'affiche (`web/src/pages/Bibliotheque.tsx`). **Mais** pas de message d'aide spécifique (comment rendre le profil public). |
-| **Correction** | Ajouter un message d'aide explicite dans le front : « Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque. » |
+| **État** | ✅ Résolu — `LibraryService.ownedGames` lève `ServiceUnavailableException` (« profil privé ou clé invalide »), le `SyncService` stocke le message dans `sync_jobs.error`, et `web/src/pages/Bibliotheque.tsx` affiche l'aide explicite : « Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque. » |
 
-#### Écart 19 — Tri et filtres de la bibliothèque absents
+#### Écart 19 — Tri et filtres de la bibliothèque — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec temps de jeu, dernière utilisation, genres, **filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **Code réel** | `web/src/pages/Bibliotheque.tsx` : aucune fonctionnalité de filtre ou tri. `api/src/library/library.controller.ts` : route `GET /api/library` sans paramètres de requête. |
-| **Correction** | Ajouter des paramètres `?tri=nom\|temps\|date&filtre_genre=&filtre_manette=&filtre_joues=` et les contrôles correspondants dans le front. |
+| **État** | ✅ Résolu — `LibraryQueryDto` (`api/src/library/dto/`) valide `q`, `genres`, `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`. `LibraryService.savedLibrary` applique les filtres en SQL (`construireConditions`), trie (`nom`/`temps`/`recent`) et pagine. Les facettes sont exposées par `GET /api/library/facets`. Le front sérialise les filtres dans l'URL et réutilise le même panneau sur `/recherche`. |
 
 #### Écart 20 — Jeux à relancer / à découvrir absents
 
@@ -447,9 +505,8 @@ reste à corriger).
 Ordre recommandé pour combler les écarts restants :
 
 1. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
-2. **Bibliothèque enrichie** (Écarts 4, 19) : filtres et tri.
-3. **Sécurité et robustesse** (Écart 18) : message d'aide si profil privé. Prérequis avant mise en ligne.
-4. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
+2. **Refonte visuelle de la bibliothèque** (PR2) : cartes avec chips/badges, vue liste, squelettes, purge du CSS mort.
+3. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
 
 ## Base de données
 
@@ -464,7 +521,7 @@ classique — la spécification exige une recherche par similarité vectorielle 
 `Game.embedding`.
 
 Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
-`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0003). `npm run db:migrate`
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0004). `npm run db:migrate`
 applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
 manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
 démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée

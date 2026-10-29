@@ -1,5 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  construireConditions,
+  construireCriteres,
+} from '../catalog/filters.js';
+import { libellesGenresUtilisateur } from '../catalog/genres.js';
+import { modesDepuisCategories, type ModeJeu } from '../catalog/modes.js';
 import { DB, type Db } from '../db/db.module.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
 import { QuotaReachedError } from '../embedding/rate-limiter.service.js';
@@ -17,6 +23,8 @@ export interface SearchResult {
   headerImageUrl: string | null;
   genres: string[];
   controllerSupport: 'none' | 'partial' | 'full';
+  /** Modes dérivés des catégories Steam. */
+  modes: ModeJeu[];
   playtimeForever: number;
   lastPlayedAt: Date | string | null;
   score: number | null;
@@ -31,6 +39,7 @@ export interface SearchResponse {
   offset: number;
   limit: number;
   hasMore: boolean;
+  total: number;
   degraded: boolean;
   message?: string;
 }
@@ -42,9 +51,11 @@ interface NameSearchRow {
   shortDescription: string | null;
   headerImageUrl: string | null;
   genres: string[] | null;
+  categoryIds: number[] | null;
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
   lastPlayedAt: Date | string | null;
+  total: string | number;
 }
 
 /** Ligne brute renvoyée par la requête vectorielle. */
@@ -77,20 +88,22 @@ export class SearchService {
    * Recherche par nom dans la bibliothèque de l'utilisateur. `strpos` effectue
    * une recherche littérale : les `%` et `_` saisis ne sont pas des jokers.
    * Le classement privilégie l'égalité, puis le préfixe, puis la présence.
+   * Les filtres communs (genres, modes, manette, état, durée) sont appliqués
+   * dans la même requête.
    */
   async searchByName(
     userId: number,
     dto: SearchQueryDto,
   ): Promise<SearchResponse> {
     const q = dto.q.trim();
+    const params: unknown[] = [userId, q];
     const conditions = [
       'le.user_id = $1',
       'strpos(lower(g.name), lower($2)) > 0',
     ];
-    const criteria = this.criteriaFor(dto);
-    const params: unknown[] = [userId, q];
+    conditions.push(...construireConditions(dto, params));
 
-    this.addControllerCondition(dto, conditions);
+    const criteres = await this.criteresPour(userId, dto);
 
     // On demande une ligne de plus que la page pour calculer `hasMore` sans
     // exécuter une requête COUNT supplémentaire.
@@ -106,9 +119,11 @@ export class SearchService {
         g.short_description AS "shortDescription",
         g.header_image_url AS "headerImageUrl",
         g.genres,
+        g.category_ids AS "categoryIds",
         g.controller_support AS "controllerSupport",
         le.playtime_forever AS "playtimeForever",
-        le.last_played_at AS "lastPlayedAt"
+        le.last_played_at AS "lastPlayedAt",
+        COUNT(*) OVER() AS total
       FROM library_entries le
       JOIN games g ON g.id = le.game_id
       WHERE ${conditions.join('\n        AND ')}
@@ -126,15 +141,17 @@ export class SearchService {
     const result = await this.db.$client.query(sql, params);
     const rows = result.rows as NameSearchRow[];
     const hasMore = rows.length > dto.limit;
+    const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
 
     return {
       mode: 'name',
       results: rows
         .slice(0, dto.limit)
-        .map((row) => this.toNameResult(row, criteria)),
+        .map((row) => this.toNameResult(row, criteres)),
       offset: dto.offset,
       limit: dto.limit,
       hasMore,
+      total,
       degraded: false,
     };
   }
@@ -166,8 +183,9 @@ export class SearchService {
       return this.degraded(userId, dto, q);
     }
 
+    const criteres = await this.criteresPour(userId, dto);
     const reference = await this.findReferencedGameName(userId, q);
-    return this.querySemantic(userId, dto, vector, reference);
+    return this.querySemantic(userId, dto, vector, reference, criteres);
   }
 
   private async querySemantic(
@@ -175,12 +193,12 @@ export class SearchService {
     dto: SearchQueryDto,
     vector: number[],
     reference: string | null,
+    criteres: string[],
   ): Promise<SearchResponse> {
     const conditions = ['le.user_id = $2', 'g.embedding IS NOT NULL'];
-    const criteria = this.criteriaFor(dto);
     const params: unknown[] = [JSON.stringify(vector), userId, reference];
 
-    this.addControllerCondition(dto, conditions);
+    conditions.push(...construireConditions(dto, params));
 
     const minScore = this.minScore();
     if (minScore !== null) {
@@ -201,6 +219,7 @@ export class SearchService {
         g.short_description AS "shortDescription",
         g.header_image_url AS "headerImageUrl",
         g.genres,
+        g.category_ids AS "categoryIds",
         g.controller_support AS "controllerSupport",
         le.playtime_forever AS "playtimeForever",
         le.last_played_at AS "lastPlayedAt",
@@ -209,7 +228,8 @@ export class SearchService {
           WHEN $3::text IS NOT NULL
             AND strpos(lower(g.name), lower($3)) > 0
           THEN 1 ELSE 0
-        END AS "seriesMatch"
+        END AS "seriesMatch",
+        COUNT(*) OVER() AS total
       FROM library_entries le
       JOIN games g ON g.id = le.game_id
       WHERE ${conditions.join('\n        AND ')}
@@ -227,12 +247,13 @@ export class SearchService {
     const result = await this.db.$client.query(sql, params);
     const rows = result.rows as SemanticSearchRow[];
     const hasMore = rows.length > dto.limit;
+    const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
 
     return {
       mode: 'semantic',
       results: rows.slice(0, dto.limit).map((row) => {
         const isSeries = Number(row.seriesMatch) > 0;
-        const rowCriteria = [...criteria];
+        const rowCriteria = [...criteres];
         if (isSeries && reference) {
           rowCriteria.push(`Se rapproche de ${reference}`);
         }
@@ -246,6 +267,7 @@ export class SearchService {
       offset: dto.offset,
       limit: dto.limit,
       hasMore,
+      total,
       degraded: false,
     };
   }
@@ -303,27 +325,21 @@ export class SearchService {
     return row?.name ?? null;
   }
 
-  private addControllerCondition(
+  /**
+   * Critères lisibles des filtres actifs, communs à tous les résultats.
+   * Les libellés de genres sont lus dans la bibliothèque de l'utilisateur.
+   */
+  private async criteresPour(
+    userId: number,
     dto: SearchQueryDto,
-    conditions: string[],
-  ): void {
-    if (dto.manette === 'full') {
-      conditions.push("g.controller_support = 'full'");
-    } else if (dto.manette === 'partial') {
-      conditions.push("g.controller_support IN ('partial', 'full')");
-    }
+  ): Promise<string[]> {
+    const libelles = await libellesGenresUtilisateur(
+      this.db,
+      userId,
+      dto.genres,
+    );
+    return construireCriteres(dto, libelles);
   }
-
-  private criteriaFor(dto: SearchQueryDto): string[] {
-    const criteria: string[] = [];
-    if (dto.manette === 'full') {
-      criteria.push('Manette complète');
-    } else if (dto.manette === 'partial') {
-      criteria.push('Manette partielle ou complète');
-    }
-    return criteria;
-  }
-
   private embeddingMaxWaitMs(): number {
     const raw = this.config.get<string | number>(
       'SEARCH_EMBEDDING_MAX_WAIT_MS',
@@ -365,6 +381,7 @@ export class SearchService {
       headerImageUrl: row.headerImageUrl,
       genres: row.genres ?? [],
       controllerSupport: row.controllerSupport,
+      modes: modesDepuisCategories(row.categoryIds ?? []),
       playtimeForever: row.playtimeForever,
       lastPlayedAt: row.lastPlayedAt,
     };

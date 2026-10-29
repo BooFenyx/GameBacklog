@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { urlApi } from '../api'
+import { formaterDate, formaterDuree } from '../format'
 
 type Succes = {
   apiName: string
@@ -36,20 +37,6 @@ const LIBELLE_MANETTE: Record<FicheJeu['controllerSupport'], string> = {
   none: 'Manette non supportée',
   partial: 'Manette partielle',
   full: 'Manette complète',
-}
-
-function formaterDuree(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  if (h === 0) return `${m} min`
-  if (m === 0) return `${h} h`
-  return `${h} h ${String(m).padStart(2, '0')}`
-}
-
-function formaterDate(iso: string | null): string | null {
-  if (!iso) return null
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('fr-FR')
 }
 
 /** Page détail d'un jeu : fiche `GET /api/games/:appId` + succès et temps de jeu. */
@@ -158,7 +145,14 @@ export default function JeuDetail() {
         </div>
         <div>
           <dt>Manette</dt>
-          <dd>{LIBELLE_MANETTE[jeu.controllerSupport]}</dd>
+          <dd>
+            {LIBELLE_MANETTE[jeu.controllerSupport]}
+            {jeu.controllerSupport === 'partial' && (
+              <small className="detail-note">
+                Certaines actions peuvent nécessiter le clavier ou la souris.
+              </small>
+            )}
+          </dd>
         </div>
         {jeu.releaseDate && (
           <div>

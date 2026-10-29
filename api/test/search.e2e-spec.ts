@@ -30,21 +30,42 @@ function vecteur(index: number): number[] {
 
 const VECTEUR_REQUETE = vecteur(0);
 
+interface OptionsJeu {
+  genreIds?: number[];
+  genres?: string[];
+  categoryIds?: number[];
+  categories?: string[];
+  controllerSupport?: 'none' | 'partial' | 'full';
+  playtimeForever?: number;
+}
+
 async function semerJeu(
   db: Db,
   userId: number,
   appId: number,
   name: string,
   embedding: number[],
+  options: OptionsJeu = {},
 ): Promise<void> {
+  const genres = options.genres ?? ['Aventure'];
+  const genreIds = options.genreIds ?? [25];
+  const categories = options.categories ?? ['Solo'];
+  const categoryIds = options.categoryIds ?? [2];
+  const controllerSupport = options.controllerSupport ?? 'full';
+  const playtimeForever = options.playtimeForever ?? 60;
+
   const [jeu] = await db
     .insert(games)
     .values({
       appId,
       name,
       shortDescription: `Description de ${name}`,
-      genres: ['Puzzle'],
-      controllerSupport: 'full',
+      genres,
+      genreIds,
+      categories,
+      categoryIds,
+      filtersVersion: 1,
+      controllerSupport,
       headerImageUrl: `https://cdn/${appId}.jpg`,
       embedding,
       embeddingModel: 'test',
@@ -52,16 +73,26 @@ async function semerJeu(
     })
     .onConflictDoUpdate({
       target: games.appId,
-      set: { name, embedding, embeddingModel: 'test' },
+      set: {
+        name,
+        genres,
+        genreIds,
+        categories,
+        categoryIds,
+        filtersVersion: 1,
+        controllerSupport,
+        embedding,
+        embeddingModel: 'test',
+      },
     })
     .returning();
 
   await db
     .insert(libraryEntries)
-    .values({ userId, gameId: jeu.id, playtimeForever: 60 })
+    .values({ userId, gameId: jeu.id, playtimeForever })
     .onConflictDoUpdate({
       target: [libraryEntries.userId, libraryEntries.gameId],
-      set: { playtimeForever: 60 },
+      set: { playtimeForever },
     });
 }
 
@@ -168,11 +199,24 @@ describe('Recherche (e2e)', () => {
   }
 
   async function semerBibliotheque(db: Db, userId: number): Promise<void> {
+    // Isole le test des entrées laissées par les runs précédents (le jeu de
+    // données de la base de dev est partagé).
+    await db.delete(libraryEntries).where(eq(libraryEntries.userId, userId));
+
     await semerJeu(db, userId, 930001, 'Portal', vecteur(0));
-    await semerJeu(db, userId, 930002, 'Portal 2', vecteur(0));
+    await semerJeu(db, userId, 930002, 'Portal 2', vecteur(0), {
+      categories: ['Solo', 'Multijoueur', 'Coopération'],
+      categoryIds: [2, 1, 9],
+    });
     await semerJeu(db, userId, 930003, 'Portal Stories: Mel', vecteur(0));
-    await semerJeu(db, userId, 930004, 'The Witness', vecteur(1));
-    await semerJeu(db, userId, 930005, 'Borderlands 2', vecteur(2));
+    await semerJeu(db, userId, 930004, 'The Witness', vecteur(1), {
+      genres: ['Action'],
+      genreIds: [1],
+    });
+    await semerJeu(db, userId, 930005, 'Borderlands 2', vecteur(2), {
+      controllerSupport: 'partial',
+      playtimeForever: 0,
+    });
   }
 
   it('renvoie 401 sans session ouverte', async () => {
@@ -192,6 +236,7 @@ describe('Recherche (e2e)', () => {
     const { agent } = await ouvrirSession();
 
     await agent.get('/api/search?q=portal&mode=name&inconnu=1').expect(400);
+    await agent.get('/api/search?q=portal&mode=name&manette=partial').expect(400);
   });
 
   it('recherche par nom sans appeler Gemini', async () => {
@@ -224,6 +269,7 @@ describe('Recherche (e2e)', () => {
       .expect(200);
     expect(premiere.body.results).toHaveLength(2);
     expect(premiere.body.hasMore).toBe(true);
+    expect(premiere.body.total).toBe(3);
 
     const seconde = await agent
       .get('/api/search?q=Portal&mode=name&limit=2&offset=2')
@@ -231,6 +277,59 @@ describe('Recherche (e2e)', () => {
     expect(seconde.body.results).toHaveLength(1);
     expect(seconde.body.hasMore).toBe(false);
     expect(seconde.body.offset).toBe(2);
+    expect(seconde.body.total).toBe(3);
+  });
+
+  it('applique les filtres genres et modes à la recherche par nom', async () => {
+    const { agent, db, userId } = await ouvrirSession();
+    await semerBibliotheque(db, userId);
+
+    const parGenre = await agent
+      .get('/api/search?q=Portal&mode=name&genres=1')
+      .expect(200);
+    expect(parGenre.body.results).toEqual([]);
+    expect(parGenre.body.total).toBe(0);
+
+    const parMode = await agent
+      .get('/api/search?q=Portal&mode=name&modes=coop')
+      .expect(200);
+    expect(
+      parMode.body.results.map((resultat: { name: string }) => resultat.name),
+    ).toEqual(['Portal 2']);
+    expect(parMode.body.results[0].modes).toEqual(['solo', 'multi', 'coop']);
+  });
+
+  it('applique les filtres manette et état', async () => {
+    const { agent, db, userId } = await ouvrirSession();
+    await semerBibliotheque(db, userId);
+
+    const manette = await agent
+      .get('/api/search?q=a&mode=name&manette=full')
+      .expect(200);
+    expect(
+      manette.body.results.map((resultat: { name: string }) => resultat.name),
+    ).not.toContain('Borderlands 2');
+
+    const jamais = await agent
+      .get('/api/search?q=a&mode=name&etat=jamais')
+      .expect(200);
+    expect(
+      jamais.body.results.map((resultat: { name: string }) => resultat.name),
+    ).toEqual(['Borderlands 2']);
+  });
+
+  it('applique les filtres à la recherche sémantique', async () => {
+    const { agent, db, userId } = await ouvrirSession();
+    await semerBibliotheque(db, userId);
+
+    const res = await agent
+      .get('/api/search?q=jeu%20comme%20Portal&mode=semantic&modes=coop')
+      .expect(200);
+
+    expect(
+      res.body.results.map((resultat: { name: string }) => resultat.name),
+    ).toEqual(['Portal 2']);
+    expect(res.body.results[0].criteria).toContain('Coopération');
   });
 
   it('recherche sémantiquement et met la série citée en tête', async () => {

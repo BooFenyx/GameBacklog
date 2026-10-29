@@ -7,13 +7,22 @@ import type { EmbeddingInput } from '../embedding/embedding.service.js';
 const STEAM_STORE_APPDETAILS = 'https://store.steampowered.com/api/appdetails';
 const EXTERNAL_CALL_TIMEOUT_MS = 5000;
 
+/**
+ * Version du mapping appliqué aux fiches. À incrémenter quand on ajoute un
+ * champ dérivé de `appdetails` : le sync reprend alors les fiches dont la
+ * version est inférieure (`SyncService.stepDetails`).
+ */
+export const FILTERS_VERSION = 1;
+
 /** Fiche Steam telle que persistée dans `games`. */
 export interface AppDetails {
   appId: number;
   name: string;
   shortDescription: string | null;
   genres: string[];
+  genreIds: number[];
   categories: string[];
+  categoryIds: number[];
   controllerSupport: 'none' | 'partial' | 'full';
   releaseDate: Date | null;
   headerImageUrl: string | null;
@@ -24,8 +33,10 @@ interface AppdetailsData {
   data?: {
     name?: string;
     short_description?: string;
-    genres?: Array<{ description?: string }>;
-    categories?: Array<{ description?: string }>;
+    /** `id` est une chaîne dans la réponse réelle de Steam. */
+    genres?: Array<{ id?: string; description?: string }>;
+    /** `id` est un nombre dans la réponse réelle de Steam. */
+    categories?: Array<{ id?: number; description?: string }>;
     controller_support?: string;
     release_date?: { date?: string; coming_soon?: boolean };
     header_image?: string;
@@ -65,11 +76,7 @@ export function parseReleaseDate(raw: string | undefined): Date | null {
   const month = FRENCH_MONTHS.find(([regex]) => regex.test(match[2]));
   if (!month) return null;
 
-  const date = new Date(
-    Number(match[3]),
-    month[1],
-    Number(match[1]),
-  );
+  const date = new Date(Number(match[3]), month[1], Number(match[1]));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -81,8 +88,9 @@ export function mapControllerSupport(
   if (direct === 'full' || direct === 'partial' || direct === 'none') {
     return direct;
   }
-  const categories = (data.categories ?? [])
-    .map((category) => category.description?.toLowerCase() ?? '');
+  const categories = (data.categories ?? []).map(
+    (category) => category.description?.toLowerCase() ?? '',
+  );
   if (categories.some((c) => c.includes('full controller support'))) {
     return 'full';
   }
@@ -96,19 +104,50 @@ function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, '').trim();
 }
 
-function mapAppDetails(appId: number, data: NonNullable<AppdetailsData['data']>): AppDetails {
+/**
+ * Extrait les ids et les libellés d'un tableau de taxonomie Steam en gardant
+ * les deux tableaux **alignés index par index** (les filtres utilisent les ids,
+ * l'affichage et les embeddings utilisent les libellés).
+ *
+ * Les doublons d'id sont ignorés en conservant le premier libellé rencontré.
+ */
+function mapTaxonomie(
+  entries: Array<{ id?: string | number; description?: string }> | undefined,
+): { ids: number[]; labels: string[] } {
+  const ids: number[] = [];
+  const labels: string[] = [];
+  const dejaVu = new Set<number>();
+
+  for (const entry of entries ?? []) {
+    const id = Number(entry.id);
+    if (!Number.isInteger(id) || id <= 0 || dejaVu.has(id)) {
+      continue;
+    }
+    dejaVu.add(id);
+    ids.push(id);
+    labels.push(entry.description?.trim() ?? '');
+  }
+
+  return { ids, labels };
+}
+
+export function mapAppDetails(
+  appId: number,
+  data: NonNullable<AppdetailsData['data']>,
+): AppDetails {
+  const genres = mapTaxonomie(data.genres);
+  const categories = mapTaxonomie(data.categories);
+
   return {
     appId,
     name: data.name as string,
     shortDescription: data.short_description
       ? stripHtml(data.short_description)
       : null,
-    genres: (data.genres ?? [])
-      .map((genre) => genre.description?.trim() ?? '')
-      .filter((description) => description.length > 0),
-    categories: (data.categories ?? [])
-      .map((category) => category.description?.trim() ?? '')
-      .filter((description) => description.length > 0),
+    genres: genres.labels,
+    genreIds: genres.ids,
+    categories: categories.labels,
+    categoryIds: categories.ids,
     controllerSupport: mapControllerSupport(data),
     releaseDate: parseReleaseDate(data.release_date?.date),
     headerImageUrl: data.header_image ?? null,
@@ -176,7 +215,10 @@ export class GamesService {
         name: details.name,
         shortDescription: details.shortDescription,
         genres: details.genres,
+        genreIds: details.genreIds,
         categories: details.categories,
+        categoryIds: details.categoryIds,
+        filtersVersion: FILTERS_VERSION,
         controllerSupport: details.controllerSupport,
         releaseDate: details.releaseDate,
         headerImageUrl: details.headerImageUrl,
@@ -188,7 +230,10 @@ export class GamesService {
           name: details.name,
           shortDescription: details.shortDescription,
           genres: details.genres,
+          genreIds: details.genreIds,
           categories: details.categories,
+          categoryIds: details.categoryIds,
+          filtersVersion: FILTERS_VERSION,
           controllerSupport: details.controllerSupport,
           releaseDate: details.releaseDate,
           headerImageUrl: details.headerImageUrl,
@@ -219,7 +264,11 @@ export class GamesService {
       .where(eq(games.appId, appId))
       .limit(1);
     if (!row) return null;
-    if (!row.shortDescription && row.genres.length === 0 && row.categories.length === 0) {
+    if (
+      !row.shortDescription &&
+      row.genres.length === 0 &&
+      row.categories.length === 0
+    ) {
       return null;
     }
     return {
@@ -256,9 +305,7 @@ export class GamesService {
       })
       .from(libraryEntries)
       .innerJoin(games, eq(libraryEntries.gameId, games.id))
-      .where(
-        and(eq(games.appId, appId), eq(libraryEntries.userId, userId)),
-      )
+      .where(and(eq(games.appId, appId), eq(libraryEntries.userId, userId)))
       .limit(1);
     return row ?? null;
   }

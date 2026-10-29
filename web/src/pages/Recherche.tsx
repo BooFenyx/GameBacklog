@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import BarreFiltres from '../components/filtres/BarreFiltres'
 import CarteResultatRecherche from '../components/CarteResultatRecherche'
+import {
+  cleFiltres,
+  ecrireFiltres,
+  lireFiltres,
+  type Filtres,
+} from '../filters'
+import { chargerFacettes, type Facettes } from '../library'
 import {
   ErreurRecherche,
   LIBELLE_MODE,
   rechercherJeux,
-  type FiltreManette,
   type ModeRecherche,
   type ResultatRecherche,
 } from '../search'
@@ -21,7 +28,8 @@ type EtatErreur = {
 type PropsResultats = {
   q: string
   mode: ModeRecherche
-  manette: FiltreManette | undefined
+  filtres: Filtres
+  onTotal: (total: number) => void
 }
 
 function convertirErreur(error: unknown): EtatErreur {
@@ -54,9 +62,14 @@ function messageErreur(erreur: EtatErreur): string {
   return erreur.message
 }
 
-function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
-  const [, setSearchParams] = useSearchParams()
+function ResultatsRecherche({
+  q,
+  mode,
+  filtres,
+  onTotal,
+}: PropsResultats) {
   const [resultats, setResultats] = useState<ResultatRecherche[]>([])
+  const [total, setTotal] = useState(0)
   const [prochainOffset, setProchainOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [degrade, setDegrade] = useState<string | null>(null)
@@ -75,11 +88,23 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
     void (async () => {
       try {
         const reponse = await rechercherJeux(
-          { q, mode, manette, limit: LIMITE, offset: 0 },
+          {
+            q,
+            mode,
+            genres: filtres.genres,
+            modes: filtres.modes,
+            manette: filtres.manette ?? undefined,
+            etat: filtres.etat ?? undefined,
+            duree: filtres.duree,
+            limit: LIMITE,
+            offset: 0,
+          },
           controller.signal,
         )
         if (!actif) return
         setResultats(reponse.results)
+        setTotal(reponse.total)
+        onTotal(reponse.total)
         setHasMore(reponse.hasMore)
         setProchainOffset(reponse.offset + reponse.results.length)
         setDegrade(reponse.degraded ? (reponse.message ?? null) : null)
@@ -96,7 +121,7 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
       controller.abort()
       plusController.current?.abort()
     }
-  }, [q, mode, manette, reessai])
+  }, [q, mode, filtres, reessai, onTotal])
 
   const afficherPlus = async () => {
     if (!q || chargementPlus || !hasMore) return
@@ -109,11 +134,23 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
 
     try {
       const reponse = await rechercherJeux(
-        { q, mode, manette, limit: LIMITE, offset: prochainOffset },
+        {
+          q,
+          mode,
+          genres: filtres.genres,
+          modes: filtres.modes,
+          manette: filtres.manette ?? undefined,
+          etat: filtres.etat ?? undefined,
+          duree: filtres.duree,
+          limit: LIMITE,
+          offset: prochainOffset,
+        },
         controller.signal,
       )
       if (controller.signal.aborted) return
       setResultats((actuels) => [...actuels, ...reponse.results])
+      setTotal(reponse.total)
+      onTotal(reponse.total)
       setHasMore(reponse.hasMore)
       setProchainOffset(reponse.offset + reponse.results.length)
       if (reponse.degraded) setDegrade(reponse.message ?? null)
@@ -128,6 +165,8 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
   const reessayer = () => {
     setErreur(null)
     setResultats([])
+    setTotal(0)
+    onTotal(0)
     setHasMore(false)
     setDegrade(null)
     setProchainOffset(0)
@@ -136,35 +175,8 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
     setReessai((valeur) => valeur + 1)
   }
 
-  const changerManette = (valeur: string) => {
-    const params = new URLSearchParams({ q, mode })
-    if (valeur === 'full' || valeur === 'partial') {
-      params.set('manette', valeur)
-    }
-    setSearchParams(params)
-  }
-
   return (
-    <section className="recherche">
-      <div className="recherche-tete">
-        <div>
-          <p className="sur-titre">{LIBELLE_MODE[mode]}</p>
-          <h1>{q ? `Résultats pour « ${q} »` : 'Recherche'}</h1>
-        </div>
-        <label className="recherche-filtre">
-          Manette
-          <select
-            value={manette ?? ''}
-            onChange={(event) => changerManette(event.target.value)}
-            disabled={!q}
-          >
-            <option value="">Toutes</option>
-            <option value="full">Complète</option>
-            <option value="partial">Partielle ou complète</option>
-          </select>
-        </label>
-      </div>
-
+    <>
       {degrade && (
         <p className="recherche-degrade" role="status">
           {degrade}
@@ -194,8 +206,8 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
         resultats.length > 0 && (
           <>
             <p className="recherche-compte">
-              {resultats.length} résultat{resultats.length > 1 ? 's' : ''}{' '}
-              affiché{resultats.length > 1 ? 's' : ''}
+              {total} résultat{total > 1 ? 's' : ''} affiché
+              {total > 1 ? 's' : ''}
             </p>
             <div className="resultats">
               {resultats.map((resultat) => (
@@ -222,32 +234,86 @@ function ResultatsRecherche({ q, mode, manette }: PropsResultats) {
           </>
         )
       )}
-    </section>
+    </>
   )
 }
 
 /**
- * `/recherche` — lit `q`, `mode` et `manette` dans l'URL. La clé de
+ * `/recherche` — lit `q`, `mode` et les filtres dans l'URL. La clé de
  * `ResultatsRecherche` remonte le composant à chaque changement, ce qui remet
  * l'état à zéro sans effet de synchronisation.
  */
 export default function Recherche() {
-  const [searchParams] = useSearchParams()
-  const q = (searchParams.get('q') ?? '').trim()
-  const modeParam = searchParams.get('mode')
-  const mode: ModeRecherche = modeParam === 'semantic' ? 'semantic' : 'name'
-  const manetteParam = searchParams.get('manette')
-  const manette: FiltreManette | undefined =
-    manetteParam === 'full' || manetteParam === 'partial'
-      ? manetteParam
-      : undefined
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filtres = useMemo(
+    () => lireFiltres(searchParams, { avecTri: false }),
+    [searchParams],
+  )
+  const q = filtres.q
+  const mode: ModeRecherche =
+    searchParams.get('mode') === 'semantic' ? 'semantic' : 'name'
 
+  const [facettes, setFacettes] = useState<Facettes | null>(null)
+  const [total, setTotal] = useState(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void chargerFacettes(controller.signal)
+      .then((reponse) => {
+        if (!controller.signal.aborted) setFacettes(reponse)
+      })
+      .catch(() => {
+        // Le panneau affichera « Chargement des genres… » ; la recherche reste
+        // utilisable sans facettes.
+      })
+    return () => controller.abort()
+  }, [])
+
+  const changerFiltres = useCallback(
+    (suivants: Filtres, remplacer = false) => {
+      const params = ecrireFiltres(suivants, { avecTri: false })
+      params.set('mode', mode)
+      setSearchParams(params, { replace: remplacer })
+      setTotal(0)
+      if (!remplacer) window.scrollTo({ top: 0 })
+    },
+    [mode, setSearchParams],
+  )
+
+  const effacerFiltres = useCallback(() => {
+    const params = new URLSearchParams({ mode })
+    setSearchParams(params, { replace: false })
+    setTotal(0)
+    window.scrollTo({ top: 0 })
+  }, [mode, setSearchParams])
   return (
-    <ResultatsRecherche
-      key={`${q}|${mode}|${manette ?? ''}`}
-      q={q}
-      mode={mode}
-      manette={manette}
-    />
+    <section className="recherche">
+      <div className="recherche-tete">
+        <div>
+          <p className="sur-titre">{LIBELLE_MODE[mode]}</p>
+          <h1>{q ? `Résultats pour « ${q} »` : 'Recherche'}</h1>
+        </div>
+      </div>
+
+      <BarreFiltres
+        filtres={filtres}
+        facettes={facettes}
+        total={total}
+        chargement={false}
+        avecTri={false}
+        afficherCompte={false}
+        maxLength={300}
+        onChanger={changerFiltres}
+        onEffacer={effacerFiltres}
+      />
+
+      <ResultatsRecherche
+        key={`${q}|${mode}|${cleFiltres(filtres)}`}
+        q={q}
+        mode={mode}
+        filtres={filtres}
+        onTotal={setTotal}
+      />
+    </section>
   )
 }
