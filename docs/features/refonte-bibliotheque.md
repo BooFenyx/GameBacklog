@@ -84,9 +84,10 @@ modifier l'API ni la colonne de filtres livrée en PR1. La PR2 pose aussi le
   1200 px. Elle gagne des colonnes au lieu d'étirer des cartes géantes.
 - Champs disponibles par jeu : `appId`, `name`, `headerImageUrl`, `genres`,
   `modes`, `controllerSupport`, `playtimeForever`, `playtimeLast2Weeks`,
-  `lastPlayedAt`, `achievementsUnlocked`.
-- `achievementsUnlocked` est un **compteur de succès débloqués**, pas un total :
-  ne jamais afficher `12/40` sur une carte sans ouvrir la fiche.
+  `lastPlayedAt`, `achievementsTotal`, `achievementsUnlocked`.
+- `achievementsTotal` et `achievementsUnlocked` peuvent être `null` tant que
+  l'étape `achievements` du sync n'a pas récupéré la donnée. Le compteur est
+  alors masqué ou affiché `— / total`, jamais inventé.
 - `web/src/App.css` contient encore :
   - des classes mortes : `.nav-avenir`, `.bibliotheque-barre`,
     `.bibliotheque-recherche`, `.bibliotheque-tri`, `.carte-vide`,
@@ -244,7 +245,9 @@ Ordre visuel :
    `CrossPlay` (uniquement les modes présents).
 7. **Manette** : badge discret si `full` ; le partiel n'est pas affiché sur la
    carte (il l'est sur la fiche).
-8. **Succès** : `12 succès` si `achievementsUnlocked > 0`, sans total inventé.
+8. **Succès** : `12 / 51` si le total et la progression sont connus,
+   `— / 51` si seule la progression manque, et masqué si le total est inconnu
+   ou nul.
 
 La carte entière est cliquable via un overlay `Link`, avec `aria-label`
 enrichi : « Ouvrir Portal 2 — jamais lancé, coopération, manette complète ».
@@ -342,10 +345,38 @@ cette fiche ; la maquette peut ensuite être jetée.
 
 ## 7. Données & API
 
-Aucun changement backend n'est nécessaire pour la bibliothèque.
+La bibliothèque lit toujours `library_entries ⋈ games`, mais l'API expose deux
+compteurs de succès et le sync les précharge.
 
-- La page reçoit déjà tout ce dont les cartes ont besoin.
-- Le total de succès n'est pas disponible dans la liste : ne pas l'inventer.
+### 7.1 Compteurs de succès
+
+- `games.achievements_total` et `games.achievements_fetched_at` : schéma Steam,
+  partagé entre utilisateurs, récupéré une fois par jeu.
+- `library_entries.achievements_fetched_at` : date de la dernière récupération
+  des succès du joueur pour ce jeu.
+- `GET /api/library` renvoie `achievementsTotal` et `achievementsUnlocked`.
+  Les deux valent `null` tant que la donnée n'a pas été récupérée ; le front
+  affiche alors `— / total` ou masque le badge.
+- `achievementsUnlocked` reste un compteur : la liste détaillée n'est chargée
+  qu'à l'ouverture de la fiche.
+
+### 7.2 Étape `achievements` du sync
+
+- Nouvelle étape après `details`, avant `embeddings`.
+- Priorité aux jeux récemment lancés ; plafond
+  `ACHIEVEMENTS_MAX_GAMES_PER_SYNC` (200 jeux par défaut). Les jeux restants
+  sont repris à la prochaine synchronisation, déclenchée au login par
+  `needsAchievements`.
+- `GetSchemaForGame` est appelé une fois par jeu (cache global).
+  `GetPlayerAchievements` est appelé par utilisateur/jeu, avec un TTL de 24 h.
+- Un jeu jamais lancé ne déclenche **pas** `GetPlayerAchievements` : le
+  débloqué vaut 0, seul le schéma est nécessaire pour le total.
+- Throttle `ACHIEVEMENTS_THROTTLE_MS` (200 ms par défaut).
+- La fiche garde la liste détaillée ; le découplage de son endpoint est traité
+  sur la branche `feature/refonte-fiche-jeu`.
+
+### 7.3 Autres
+
 - Les images Steam sont des URL absolues ; la CSP Vercel autorise déjà les
   domaines Steam (`*.steamstatic.com`, `*.akamaihd.net`, `*.steamcontent.com`,
   `*.steampowered.com`).
@@ -456,6 +487,10 @@ npm run build
 - 0 jeu, 1 jeu, 8 jeux, 130 jeux.
 - Jeu sans image, sans genre, sans mode.
 - Jamais lancé, joué récemment, joué il y a longtemps.
+- Compteur de succès : `12 / 51`, `— / 51` avant la progression, masqué
+  avant le schéma ou pour un jeu sans succès.
+- Sync : l'étape « Récupération des succès » progresse, plafonne à 200 jeux et
+  reprend au login suivant.
 - Grille et liste, bascule persistée après rechargement.
 - Filtres ouverts/fermés, 3 → 4 colonnes.
 - Changement de filtre : la liste s'estompe sans disparaître.
@@ -473,7 +508,8 @@ npm run build
 | Les alias de tokens créent un cycle | alias uniquement vers des primitives, jamais l'inverse |
 | Carte trop chargée | max 2 chips de genres + `+N`, badges de mode compacts, une seule méta forte |
 | CLS sur les images | `aspect-ratio`, `width`/`height`, repli dégradé |
-| Succès sans total | afficher « N succès », jamais « N/Total » |
+| Compteur de succès indisponible | afficher `— / total` ou masquer le badge ; jamais inventer la progression |
+| Sync de succès trop longue | plafond de 200 jeux par run, priorité aux jeux récents, reprise au login |
 | Vue liste coûteuse sur 1 000 jeux | l'API pagine 48 par page ; la liste reste bornée |
 | Filtres et cartes se chevauchent | ne pas toucher à `SidebarFiltres`/`PanneauFiltres` |
 | Régression mobile | tester 375/768 px et le panneau de filtres existant |
@@ -486,7 +522,8 @@ npm run build
   de base ; la PR2 ne la refait pas.
 - Pas d'i18n, interface 100 % française.
 - Le partiel manette reste affiché uniquement sur la fiche du jeu.
-- Le total de succès n'est pas ajouté à l'API pour cette PR.
+- Le total de succès est ajouté à l'API bibliothèque et préchargé par l'étape
+  `achievements` du sync ; le format affiché est `12 / 51`.
 - La carte est extraite dans `CarteJeu.tsx` (la décision inverse de la première
   tranche est abandonnée au profit de composants testables).
 - Un changement de filtre ne vide plus la grille : l'ancienne liste reste
