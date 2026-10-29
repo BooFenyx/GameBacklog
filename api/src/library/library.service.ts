@@ -38,7 +38,10 @@ export interface BibliothequeGamePersiste extends BibliothequeGame {
   modes: ModeJeu[];
   controllerSupport: 'none' | 'partial' | 'full';
   headerImageUrl: string | null;
-  achievementsUnlocked: number;
+  /** `null` tant que le schéma Steam n'a pas été récupéré. */
+  achievementsTotal: number | null;
+  /** `null` tant que la progression du joueur n'a pas été récupérée. */
+  achievementsUnlocked: number | null;
 }
 
 /** Filtres, tri et pagination de `GET /api/library`. */
@@ -74,7 +77,8 @@ interface BibliothequeRow {
   playtimeForever: number;
   playtimeLast2Weeks: number;
   lastPlayedAt: Date | null;
-  achievementsUnlocked: number;
+  achievementsUnlocked: number | null;
+  achievementsTotal: number | null;
   total: string | number;
 }
 
@@ -139,7 +143,14 @@ export class LibraryService {
         le.playtime_forever AS "playtimeForever",
         le.playtime_last_2_weeks AS "playtimeLast2Weeks",
         le.last_played_at AS "lastPlayedAt",
-        le.achievements_unlocked AS "achievementsUnlocked",
+        CASE
+          WHEN le.achievements_fetched_at IS NULL THEN NULL
+          ELSE le.achievements_unlocked
+        END AS "achievementsUnlocked",
+        CASE
+          WHEN g.achievements_fetched_at IS NULL THEN NULL
+          ELSE g.achievements_total
+        END AS "achievementsTotal",
         COUNT(*) OVER() AS total
       FROM library_entries le
       JOIN games g ON g.id = le.game_id
@@ -166,6 +177,7 @@ export class LibraryService {
         playtimeLast2Weeks: row.playtimeLast2Weeks,
         lastPlayedAt: row.lastPlayedAt,
         achievementsUnlocked: row.achievementsUnlocked,
+        achievementsTotal: row.achievementsTotal,
       })),
       total,
       limit: query.limit,

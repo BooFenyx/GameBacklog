@@ -10,10 +10,8 @@
 /* --- Barre de navigation --- */
 
 .topbar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 16px 32px;
+  display: block;
+  padding: 0;
   border-bottom: 1px solid transparent;
   background: linear-gradient(90deg, rgba(184, 155, 255, 0.25) 0%, rgba(61, 245, 255, 0.18) 100%) border-box;
   border-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%) 1;
@@ -24,41 +22,52 @@
   z-index: 50;
 }
 
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  padding: 16px 32px;
+  box-sizing: border-box;
+}
+
 .marque {
-  font-weight: 600;
-  font-size: 20px;
-  color: var(--text-h);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--couleur-texte-fort);
   text-decoration: none;
-  letter-spacing: -0.3px;
-  position: relative;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
   transition: text-shadow 160ms ease;
 }
 
 .marque:hover,
 .marque:focus-visible {
-  text-shadow: 0 0 20px var(--accent-glow), 0 0 60px rgba(184, 155, 255, 0.4);
+  text-shadow:
+    0 0 20px var(--couleur-accent),
+    0 0 60px color-mix(in oklab, var(--couleur-accent) 40%, transparent);
 }
 
 .marque::before {
   content: '';
-  position: absolute;
-  left: -14px;
-  top: 50%;
-  transform: translate(-4px, -50%) scaleX(0.96);
-  width: 6px;
-  height: 70%;
-  border-left: 2px solid var(--accent);
-  border-top: 2px solid var(--accent);
-  border-bottom: 2px solid var(--accent-2);
-  opacity: 0;
-  transition: opacity 160ms ease, transform 160ms ease;
-  pointer-events: none;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--degrade-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--couleur-accent) 55%, transparent),
+    0 8px 24px -10px var(--couleur-accent);
+  transform: rotate(-8deg);
+  transition: transform 160ms ease;
 }
 
 .marque:hover::before,
 .marque:focus-visible::before {
-  opacity: 1;
-  transform: translate(0, -50%) scaleX(1);
+  transform: rotate(-8deg) scale(1.04);
 }
 
 .nav {
@@ -78,8 +87,8 @@
 
     &.active {
       color: var(--text-h);
-      background: linear-gradient(90deg, rgba(184, 155, 255, 0.22) 0%, rgba(61, 245, 255, 0.14) 100%);
-      box-shadow: inset 0 -2px 0 linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+      background: var(--couleur-accent-doux);
+      box-shadow: inset 0 -2px 0 var(--couleur-accent);
       padding: 6px 10px;
       margin: -6px -10px;
       border-radius: 8px;
@@ -128,54 +137,95 @@
 /* --- Boutons --- */
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: var(--rayon-md);
+  border: 1px solid var(--couleur-bordure-douce);
+  background: color-mix(in oklab, var(--couleur-surface-2) 62%, transparent);
+  color: var(--couleur-texte-fort);
   font: inherit;
-  font-size: 15px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in oklab, var(--accent) 25%, var(--border));
-  background: var(--social-bg);
-  color: var(--text-h);
+  font-size: 0.875rem;
+  font-weight: 550;
+  text-decoration: none;
   cursor: pointer;
-  transition: box-shadow 140ms ease, border-color 140ms ease, transform 140ms ease, color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
 
   &:hover {
-    border-color: color-mix(in oklab, var(--accent) 70%, var(--accent-2) 30%);
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent), 0 8px 30px -12px var(--accent-glow), 0 12px 40px -14px var(--accent-glow-2);
+    border-color: var(--couleur-accent-bordure);
+    background: color-mix(in oklab, var(--couleur-surface-2) 88%, transparent);
+    box-shadow: 0 10px 30px -18px var(--couleur-accent);
     transform: translateY(-1px);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--couleur-accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent), 0 12px 40px -12px var(--accent-glow);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--couleur-accent) 35%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 }
 
 .btn-principal {
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
-  border-color: color-mix(in oklab, var(--accent) 70%, var(--border));
-  color: var(--text-h);
-  font-weight: 600;
+  border-color: color-mix(
+    in oklab,
+    var(--couleur-accent) 80%,
+    var(--couleur-bordure)
+  );
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--couleur-accent) 52%, transparent) 0%,
+    color-mix(in oklab, var(--couleur-accent-2) 30%, transparent) 100%
+  );
+  color: var(--couleur-texte-fort);
+  font-weight: 700;
+  box-shadow: 0 10px 30px -18px var(--couleur-accent);
+
+  &:hover {
+    box-shadow:
+      0 16px 44px -18px var(--couleur-accent),
+      0 10px 30px -18px var(--couleur-accent-2);
+  }
 }
 
 .btn-grand {
-  font-size: 18px;
-  padding: 13px 26px;
-  border-radius: 8px;
+  height: 46px;
+  padding: 0 26px;
+  border-radius: var(--rayon-md);
+  font-size: 1rem;
 }
 
 /* --- Bandeau de résultat Steam --- */
 
 .notice {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin: 0;
-  padding: 10px 32px;
+  padding: 0;
   font-size: 15px;
   background: var(--accent-bg);
   border-bottom: 1px solid var(--accent-border);
   color: var(--text-h);
+}
+
+.notice-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 32px;
+  box-sizing: border-box;
 }
 
 .notice-fermer {
@@ -192,7 +242,9 @@
 
 .contenu {
   flex-grow: 1;
-  padding: 40px 24px 64px;
+  width: 100%;
+  padding: 40px 32px 64px;
+  box-sizing: border-box;
 }
 
 .chargement {
@@ -428,18 +480,17 @@
   left: 0;
   bottom: -6px;
   height: 3px;
-  width: 40px;
+  width: 52px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
-  opacity: 0;
-  transform: scaleX(0.9);
+  background: var(--degrade-accent);
+  opacity: 1;
+  transform: scaleX(1);
   transform-origin: left;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: transform 160ms ease;
 }
 
 .bibliotheque-tete h1:hover::after {
-  opacity: 1;
-  transform: scaleX(1);
+  transform: scaleX(1.08);
 }
 
 .bibliotheque-compte {
@@ -712,7 +763,7 @@
 /* --- Adaptation mobile --- */
 
 @media (max-width: 1024px) {
-  .topbar {
+  .topbar-inner {
     flex-wrap: wrap;
     gap: 12px 18px;
     padding: 14px 20px;
@@ -722,7 +773,7 @@
     padding: 28px 20px 48px;
   }
 
-  .notice {
+  .notice-inner {
     padding: 10px 20px;
   }
 
@@ -741,12 +792,18 @@
   .contenu {
     padding: 20px 16px 40px;
   }
+  .notice-inner {
+    padding: 10px 16px;
+  }
 }
 
 @media (max-width: 767px) {
-  .topbar {
+  .topbar-inner {
     gap: 10px 14px;
     padding: 12px 16px;
+  }
+  .marque {
+    font-size: 1rem;
   }
   .nav {
     gap: 10px 12px;
@@ -760,6 +817,9 @@
   .compte {
     margin-left: auto;
     font-size: 15px;
+  }
+  .compte-nom {
+    display: none;
   }
 }
 
@@ -1669,10 +1729,20 @@
 
 @media (max-width: 1024px) {
   .barre-recherche {
-    order: 5;
+    order: 2;
     flex: 1 1 100%;
     min-width: 0;
     margin-left: 0;
+  }
+
+  .compte {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .nav {
+    order: 3;
+    flex-basis: 100%;
   }
 }
 
@@ -1689,15 +1759,12 @@
 .biblio-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 12px 0;
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: color-mix(in oklab, var(--bg) 90%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+  padding: 0 0 10px;
+  /* Pas de barre collante : sur le fond dégradé et les images de cartes, son
+     fond se découpait net (bord bas et bord gauche visibles). La barre reste
+     dans le flux, comme dans la maquette validée. */
 }
 
 .biblio-recherche {
@@ -1707,22 +1774,33 @@
   input {
     width: 100%;
     box-sizing: border-box;
+    height: 38px;
     font: inherit;
-    font-size: 15px;
-    padding: 9px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--social-bg);
-    color: var(--text-h);
+    font-size: 0.875rem;
+    padding: 0 12px;
+    border-radius: var(--rayon-md);
+    border: 1px solid var(--couleur-bordure-douce);
+    background: color-mix(
+      in oklab,
+      var(--couleur-surface-1) 84%,
+      transparent
+    );
+    color: var(--couleur-texte-fort);
+    transition:
+      border-color 140ms ease,
+      background 140ms ease,
+      box-shadow 140ms ease;
 
     &::placeholder {
-      color: var(--text);
-      opacity: 0.7;
+      color: var(--couleur-texte-doux);
     }
 
     &:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
+      outline: none;
+      border-color: var(--couleur-accent-bordure);
+      background: var(--couleur-surface-1);
+      box-shadow: 0 0 0 3px
+        color-mix(in oklab, var(--couleur-accent) 15%, transparent);
     }
   }
 }
@@ -1731,22 +1809,29 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
-  color: var(--text);
+  font-size: 0.78rem;
+  color: var(--couleur-texte-doux);
 
   select {
+    height: 38px;
+    padding: 0 12px;
+    border-radius: var(--rayon-md);
+    border: 1px solid var(--couleur-bordure-douce);
+    background: color-mix(
+      in oklab,
+      var(--couleur-surface-1) 84%,
+      transparent
+    );
+    color: var(--couleur-texte-fort);
     font: inherit;
-    font-size: 14px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--social-bg);
-    color: var(--text-h);
+    font-size: 0.84rem;
     cursor: pointer;
 
     &:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
+      outline: none;
+      border-color: var(--couleur-accent-bordure);
+      box-shadow: 0 0 0 3px
+        color-mix(in oklab, var(--couleur-accent) 15%, transparent);
     }
   }
 }
@@ -1764,10 +1849,10 @@
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #120f1c;
-  font-size: 12px;
+  border-radius: var(--rayon-pilule);
+  background: var(--couleur-accent);
+  color: var(--couleur-sur-accent);
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -1853,6 +1938,13 @@
     background: rgba(3, 2, 6, 0.68);
     backdrop-filter: blur(3px);
   }
+}
+
+/* Un `<dialog>` fermé doit rester masqué, même quand une media query lui
+   donne `display: flex` pour le plein écran mobile. Sans cette règle, le
+   panneau fermé occupe 100vw et déborde de la page. */
+.filtres-dialogue:not([open]) {
+  display: none;
 }
 
 .filtres-entete {
@@ -2088,21 +2180,132 @@
   min-width: 0;
 }
 
-.biblio-layout .liste-jeux {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* Mise à jour des filtres : la liste reste affichée mais s'estompe le temps
+   de la requête, au lieu de disparaître derrière « Chargement… ». */
+.biblio-resultats .liste-jeux {
+  transition: opacity 160ms ease;
 }
 
+.biblio-resultats--maj .liste-jeux {
+  opacity: 0.45;
+}
+
+/* La largeur des cartes est plafonnée : sur un grand écran, la grille gagne des
+   colonnes au lieu d'étirer des cartes géantes. */
+.biblio-layout .liste-jeux,
 .biblio-layout.filtres-fermes .liste-jeux {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
 
 @media (max-width: 1200px) {
-  .biblio-layout .liste-jeux {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  .biblio-layout .liste-jeux,
   .biblio-layout.filtres-fermes .liste-jeux {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
+}
+
+/* --- Cartes de jeux --- */
+
+.liste-jeux .jeu-carte {
+  gap: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
+}
+
+.jeu-media {
+  position: relative;
+  z-index: 1;
+}
+
+.jeu-media .jeu-image {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
+}
+
+.jeu-image-vide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2a2340 0%, #16202e 100%);
+  color: var(--text-h);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.jeu-etat {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  color: var(--text-h);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.jeu-etat-recent {
+  border-color: var(--accent-border-2);
+  color: var(--accent-2);
+}
+
+.jeu-corps {
+  gap: 7px;
+  padding: 12px 13px 14px;
+}
+
+.jeu-genres,
+.jeu-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.jeu-genre {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-h);
+  font-size: 11px;
+}
+
+.jeu-genre-plus {
+  color: var(--text);
+}
+
+.jeu-meta {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.jeu-badge {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in oklab, var(--accent-2) 35%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-2) 10%, transparent);
+  color: var(--text-h);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.jeu-badge-solo {
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+  background: var(--accent-bg);
+}
+
+.jeu-badge-manette {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
 .filtres-sidebar {

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import BasculeVue from '../components/bibliotheque/BasculeVue'
+import CarteJeu from '../components/bibliotheque/CarteJeu'
+import LigneJeu from '../components/bibliotheque/LigneJeu'
+import SqueletteCarte from '../components/bibliotheque/SqueletteCarte'
+import { useVueBibliotheque } from '../components/bibliotheque/useVueBibliotheque'
 import BarreFiltres from '../components/filtres/BarreFiltres'
 import SidebarFiltres from '../components/filtres/SidebarFiltres'
+import { IconeAlerte, IconeBoite } from '../components/ui/Icones'
 import {
   cleFiltres,
   compterFiltresActifs,
@@ -9,12 +15,10 @@ import {
   lireFiltres,
   type Filtres,
 } from '../filters'
-import { formaterDepuis, formaterDuree } from '../format'
 import {
   chargerBibliotheque,
   chargerFacettes,
   type Facettes,
-  type JeuBibliotheque,
   type ReponseBibliotheque,
 } from '../library'
 import {
@@ -38,28 +42,6 @@ function messageErreur(erreur: unknown): string {
     return 'Quota d’embedding atteint (Google Gemini) : l’import reprendra plus tard.'
   }
   return texte
-}
-
-/** Informations compactes affichées sous le titre d'une carte. */
-function infosJeu(jeu: JeuBibliotheque): string {
-  return [
-    jeu.playtimeForever === 0
-      ? 'Jamais lancé'
-      : formaterDuree(jeu.playtimeForever),
-    jeu.playtimeLast2Weeks > 0
-      ? `${formaterDuree(jeu.playtimeLast2Weeks)} en 2 sem`
-      : null,
-    jeu.lastPlayedAt ? `joué ${formaterDepuis(jeu.lastPlayedAt)}` : null,
-    jeu.genres.length > 0 ? jeu.genres.join(', ') : null,
-    jeu.controllerSupport === 'full'
-      ? 'manette complète'
-      : null,
-    jeu.achievementsUnlocked > 0
-      ? `${jeu.achievementsUnlocked} succès`
-      : null,
-  ]
-    .filter((valeur): valeur is string => Boolean(valeur))
-    .join(' • ')
 }
 
 /**
@@ -90,6 +72,8 @@ export default function Bibliotheque() {
   const [job, setJob] = useState<JobSync | null>(null)
   const [version, setVersion] = useState(0)
   const [relance, setRelance] = useState(0)
+  const [recharger, setRecharger] = useState(0)
+  const [vue, changerVue] = useVueBibliotheque()
   const [filtresOuverts, setFiltresOuverts] = useState(true)
   const [ongletVisible, setOngletVisible] = useState(false)
   const plusController = useRef<AbortController | null>(null)
@@ -105,7 +89,11 @@ export default function Bibliotheque() {
     () => `${cleFiltres(filtres)}|${version}`,
     [filtres, version],
   )
-  const page = donnees?.cle === cleListe ? donnees.page : null
+  const pageAJour = donnees?.cle === cleListe ? donnees.page : null
+  // Pendant un rechargement, on garde la dernière liste connue : la grille ne
+  // disparaît plus (et ne « recharge » plus visuellement) à chaque filtre.
+  const page = pageAJour ?? donnees?.page ?? null
+  const enRafraichissement = pageAJour === null && page !== null
   const erreurCourante =
     erreurListe?.cle === cleListe ? erreurListe.message : null
   const chargement = page === null && erreurCourante === null
@@ -148,7 +136,7 @@ export default function Bibliotheque() {
       })
 
     return () => controller.abort()
-  }, [cleListe])
+  }, [cleListe, recharger])
 
   // Suivi de l'import : on sonde tant qu'un job tourne, puis on rafraîchit la
   // page et les facettes une seule fois quand il se termine.
@@ -237,7 +225,6 @@ export default function Bibliotheque() {
       setSearchParams(ecrireFiltres(suivants, { avecTri: true }), {
         replace: remplacer,
       })
-      if (!remplacer) window.scrollTo({ top: 0 })
     },
     [setSearchParams],
   )
@@ -246,6 +233,11 @@ export default function Bibliotheque() {
     setSearchParams(new URLSearchParams(), { replace: false })
     window.scrollTo({ top: 0 })
   }, [setSearchParams])
+
+  const reessayerListe = useCallback(() => {
+    setErreurListe(null)
+    setRecharger((valeur) => valeur + 1)
+  }, [])
 
   const relancer = async (): Promise<void> => {
     setErreur(null)
@@ -259,7 +251,7 @@ export default function Bibliotheque() {
   }
 
   const afficherPlus = async (): Promise<void> => {
-    if (!page || chargementPlus || !page.hasMore) return
+    if (!pageAJour || chargementPlus || !pageAJour.hasMore) return
 
     plusController.current?.abort()
     const controller = new AbortController()
@@ -269,7 +261,7 @@ export default function Bibliotheque() {
     try {
       const suivante = await chargerBibliotheque(
         filtres,
-        page.items.length,
+        pageAJour.items.length,
         controller.signal,
       )
       if (controller.signal.aborted) return
@@ -277,7 +269,7 @@ export default function Bibliotheque() {
         cle: cleListe,
         page: {
           ...suivante,
-          items: [...page.items, ...suivante.items],
+          items: [...pageAJour.items, ...suivante.items],
         },
       })
     } catch (error) {
@@ -337,7 +329,10 @@ export default function Bibliotheque() {
           onFermer={fermerFiltres}
         />
 
-        <div className="biblio-resultats">
+        <div
+          className={`biblio-resultats${enRafraichissement ? ' biblio-resultats--maj' : ''}`}
+          aria-busy={enRafraichissement}
+        >
           <BarreFiltres
             filtres={filtres}
             facettes={facettes}
@@ -348,6 +343,7 @@ export default function Bibliotheque() {
             filtresEnSidebar
             afficherCompte={false}
             afficherToutEffacer={false}
+            actions={<BasculeVue vue={vue} onChanger={changerVue} />}
             onChanger={changerFiltres}
             onEffacer={effacerFiltres}
           />
@@ -368,12 +364,40 @@ export default function Bibliotheque() {
             </div>
           )}
 
-          {(erreurCourante || erreur) && (
-            <p className="message-erreur">{erreurCourante ?? erreur}</p>
+          {erreurCourante && (
+            <div className="etat-erreur" role="alert">
+              <p className="message-erreur">{erreurCourante}</p>
+              <button
+                type="button"
+                className="btn"
+                onClick={reessayerListe}
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
+
+          {erreur && !erreurCourante && (
+            <p className="message-erreur">{erreur}</p>
           )}
 
           {chargement && (
-            <p className="chargement">Chargement de la bibliothèque…</p>
+            <>
+              <p className="sr-only" role="status">
+                Chargement de la bibliothèque…
+              </p>
+              <ul
+                className={
+                  vue === 'grille' ? 'biblio-grille' : 'biblio-liste'
+                }
+              >
+                {Array.from({
+                  length: vue === 'grille' ? 6 : 5,
+                }).map((_, index) => (
+                  <SqueletteCarte key={index} variante={vue} />
+                ))}
+              </ul>
+            </>
           )}
 
           {page && (
@@ -382,8 +406,11 @@ export default function Bibliotheque() {
             </p>
           )}
 
-          {!chargement && page && total === 0 && (
-            <div className="bibliotheque-vide">
+          {!chargement && !enRafraichissement && page && total === 0 && (
+            <div className="etat-biblio">
+              <span className="etat-biblio__icone" aria-hidden="true">
+                {aDesFiltres ? <IconeAlerte /> : <IconeBoite />}
+              </span>
               {aDesFiltres ? (
                 <>
                   <p>Aucun jeu ne correspond à ces filtres.</p>
@@ -396,42 +423,38 @@ export default function Bibliotheque() {
                   </button>
                 </>
               ) : (
-                <p>
-                  Aucun jeu importé. Clique sur « Synchroniser » pour lancer
-                  l’import de ta bibliothèque Steam.
-                </p>
+                <>
+                  <p>
+                    Aucun jeu importé. Lance un import Steam pour commencer.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-principal"
+                    disabled={enCours}
+                    onClick={() => void relancer()}
+                  >
+                    {enCours ? 'Synchronisation…' : 'Synchroniser'}
+                  </button>
+                </>
               )}
             </div>
           )}
 
           {page && page.items.length > 0 && (
             <>
-              <ul className="liste-jeux">
-                {page.items.map((jeu) => (
-                  <li key={jeu.appId} className="jeu-carte">
-                    <Link
-                      to={`/jeu/${jeu.appId}`}
-                      className="jeu-lien"
-                      aria-label={`Ouvrir la fiche de ${jeu.name}`}
-                    />
-                    {jeu.headerImageUrl && (
-                      <img
-                        className="jeu-image"
-                        src={jeu.headerImageUrl}
-                        alt=""
-                        width="460"
-                        height="215"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    )}
-                    <div className="jeu-corps">
-                      <span className="jeu-nom">{jeu.name}</span>
-                      <span className="jeu-infos">{infosJeu(jeu)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {vue === 'grille' ? (
+                <ul className="biblio-grille">
+                  {page.items.map((jeu) => (
+                    <CarteJeu key={jeu.appId} jeu={jeu} />
+                  ))}
+                </ul>
+              ) : (
+                <ul className="biblio-liste">
+                  {page.items.map((jeu) => (
+                    <LigneJeu key={jeu.appId} jeu={jeu} />
+                  ))}
+                </ul>
+              )}
 
               {page.hasMore && (
                 <div className="biblio-plus">

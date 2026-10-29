@@ -55,6 +55,13 @@ export const games = pgTable(
       .default('none'),
     releaseDate: timestamp('release_date'),
     headerImageUrl: text('header_image_url'),
+    /**
+     * Total de succès du jeu (schéma Steam) et date de récupération du schéma.
+     * Le total est partagé entre utilisateurs ; un jeu sans succès garde
+     * `achievements_total = 0` avec une date non nulle.
+     */
+    achievementsTotal: integer('achievements_total').notNull().default(0),
+    achievementsFetchedAt: timestamp('achievements_fetched_at'),
     embedding: vector('embedding', { dimensions: 1024 }),
     embeddingModel: text('embedding_model'),
     detailsFetchedAt: timestamp('details_fetched_at'),
@@ -83,6 +90,8 @@ export const libraryEntries = pgTable(
     playtimeLast2Weeks: integer('playtime_last_2_weeks').notNull().default(0),
     lastPlayedAt: timestamp('last_played_at'),
     achievementsUnlocked: integer('achievements_unlocked').notNull().default(0),
+    /** Date de la dernière récupération des succès du joueur pour ce jeu. */
+    achievementsFetchedAt: timestamp('achievements_fetched_at'),
   },
   (table) => ({
     userGameIdx: uniqueIndex('library_entries_user_game_idx').on(
@@ -158,7 +167,7 @@ export const syncJobs = pgTable(
       .notNull()
       .default('pending'),
     step: text('step', {
-      enum: ['library', 'details', 'embeddings', 'done'],
+      enum: ['library', 'details', 'achievements', 'embeddings', 'done'],
     })
       .notNull()
       .default('library'),

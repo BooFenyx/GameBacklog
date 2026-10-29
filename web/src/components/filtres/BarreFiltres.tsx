@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   DUREES,
   ETATS,
@@ -30,6 +31,8 @@ type Props = {
   filtresEnSidebar?: boolean
   /** Masque « Tout effacer » quand la colonne latérale le propose déjà. */
   afficherToutEffacer?: boolean
+  /** Contenu optionnel à droite de la barre (bascule grille/liste). */
+  actions?: ReactNode
   onChanger: (filtres: Filtres, remplacer?: boolean) => void
   onEffacer: () => void
 }
@@ -51,6 +54,7 @@ export default function BarreFiltres({
   libelleRecherche = 'Rechercher dans ta bibliothèque',
   filtresEnSidebar = false,
   afficherToutEffacer = true,
+  actions,
   onChanger,
   onEffacer,
 }: Props) {
@@ -84,9 +88,31 @@ export default function BarreFiltres({
   const libelleGenre = (id: number) =>
     facettes?.genres.find((genre) => genre.id === id)?.label ?? `Genre ${id}`
 
+  const boutonFiltres = (
+    <button
+      type="button"
+      className={
+        filtresEnSidebar
+          ? 'btn biblio-bouton-filtres biblio-bouton-filtres--mobile'
+          : 'btn biblio-bouton-filtres'
+      }
+      aria-expanded={panneauOuvert}
+      onClick={() => setPanneauOuvert(true)}
+    >
+      Filtres
+      {nombreFiltres > 0 && (
+        <span className="biblio-badge" aria-hidden="true">
+          {nombreFiltres}
+        </span>
+      )}
+    </button>
+  )
+
   return (
     <>
       <div className="biblio-toolbar">
+        {filtresEnSidebar && boutonFiltres}
+
         <label className="biblio-recherche">
           <span className="sr-only">{libelleRecherche}</span>
           <input
@@ -119,23 +145,9 @@ export default function BarreFiltres({
           </label>
         )}
 
-        <button
-          type="button"
-          className={
-            filtresEnSidebar
-              ? 'btn biblio-bouton-filtres biblio-bouton-filtres--mobile'
-              : 'btn biblio-bouton-filtres'
-          }
-          aria-expanded={panneauOuvert}
-          onClick={() => setPanneauOuvert(true)}
-        >
-          Filtres
-          {nombreFiltres > 0 && (
-            <span className="biblio-badge" aria-hidden="true">
-              {nombreFiltres}
-            </span>
-          )}
-        </button>
+        {actions && <div className="biblio-actions">{actions}</div>}
+
+        {!filtresEnSidebar && boutonFiltres}
 
         {afficherToutEffacer && (!filtresVides(filtres) || filtres.q) && (
           <button type="button" className="btn" onClick={onEffacer}>

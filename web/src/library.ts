@@ -21,7 +21,10 @@ export type JeuBibliotheque = {
   playtimeForever: number
   playtimeLast2Weeks: number
   lastPlayedAt: string | null
-  achievementsUnlocked: number
+  /** `null` tant que le schéma Steam n'a pas été récupéré. */
+  achievementsTotal: number | null
+  /** `null` tant que la progression du joueur n'a pas été récupérée. */
+  achievementsUnlocked: number | null
 }
 
 export type ReponseBibliotheque = {

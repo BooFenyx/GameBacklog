@@ -1,0 +1,735 @@
+/* --- Bibliothèque : grille, liste, étiquettes, squelettes, états --- */
+
+/* Étiquettes partagées (genres, modes, manette, succès, état) */
+.etiquette {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--couleur-bordure-douce);
+  border-radius: var(--rayon-pilule);
+  background: color-mix(in oklab, var(--couleur-surface-2) 62%, transparent);
+  color: var(--couleur-texte);
+  font-size: var(--typo-micro);
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.etiquette--genre {
+  color: var(--couleur-texte);
+}
+
+.etiquette--genre.etiquette--plus {
+  border-style: dashed;
+  color: var(--couleur-texte-doux);
+}
+
+.etiquette--mode {
+  border-color: color-mix(
+    in oklab,
+    var(--couleur-accent-2) 28%,
+    var(--couleur-bordure)
+  );
+  background: color-mix(in oklab, var(--couleur-accent-2) 8%, transparent);
+  color: var(--couleur-texte-fort);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.etiquette--solo {
+  border-color: color-mix(
+    in oklab,
+    var(--couleur-accent) 42%,
+    var(--couleur-bordure)
+  );
+  background: var(--couleur-accent-doux);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.etiquette--manette {
+  border-color: color-mix(
+    in oklab,
+    var(--couleur-accent) 32%,
+    var(--couleur-bordure)
+  );
+  background: color-mix(in oklab, var(--couleur-accent) 9%, transparent);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.etiquette--succes {
+  border-color: var(--couleur-bordure-douce);
+  background: color-mix(in oklab, var(--couleur-surface-2) 70%, transparent);
+  color: var(--couleur-texte-doux);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.etiquette--succes-complet {
+  border-color: var(--couleur-or-bordure);
+  background: var(--couleur-or-doux);
+  color: var(--couleur-or);
+  font-weight: 700;
+  box-shadow: 0 0 18px -10px var(--couleur-or);
+}
+
+.etiquette--succes-complet svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+/* Image de jeu + repli */
+.image-jeu {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  background: var(--couleur-surface-2);
+}
+
+.image-jeu--vide {
+  display: grid;
+  place-items: center;
+  color: color-mix(in oklab, var(--couleur-texte-fort) 70%, transparent);
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  background:
+    radial-gradient(
+      circle at 30% 20%,
+      color-mix(in oklab, var(--couleur-accent) 22%, transparent),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 80% 80%,
+      color-mix(in oklab, var(--couleur-accent-2) 16%, transparent),
+      transparent 50%
+    ),
+    linear-gradient(135deg, #2a2340 0%, #16202e 100%);
+}
+
+/* Actions de la barre de résultats (bascule grille/liste) */
+.biblio-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.bascule-vue {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--couleur-bordure-douce);
+  border-radius: var(--rayon-md);
+  background: color-mix(in oklab, var(--couleur-surface-1) 82%, transparent);
+}
+
+.bascule-vue button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rayon-sm);
+  background: transparent;
+  color: var(--couleur-texte-doux);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.bascule-vue button:hover {
+  color: var(--couleur-texte-fort);
+  background: color-mix(in oklab, var(--couleur-surface-2) 62%, transparent);
+}
+
+.bascule-vue button[aria-pressed='true'] {
+  color: var(--couleur-texte-fort);
+  background: var(--couleur-accent-doux);
+  box-shadow: inset 0 0 0 1px var(--couleur-accent-bordure);
+}
+
+.bascule-vue svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* --- Grille de cartes --- */
+.biblio-grille {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--espace-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition: opacity 160ms ease;
+}
+
+.carte-jeu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--couleur-bordure-douce);
+  border-radius: var(--rayon-lg);
+  background: var(--degrade-surface);
+  box-shadow: var(--ombre-carte);
+  overflow: hidden;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.carte-jeu:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(
+    in oklab,
+    var(--couleur-accent) 52%,
+    var(--couleur-accent-2) 48%
+  );
+  box-shadow: var(--ombre-survol);
+}
+
+.carte-jeu__lien {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  text-decoration: none;
+}
+
+.carte-jeu__lien:focus-visible {
+  outline: none;
+  box-shadow: var(--anneau-focus);
+}
+
+.carte-jeu__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.carte-jeu__media .image-jeu {
+  transition: transform 320ms ease, filter 320ms ease;
+}
+
+.carte-jeu:hover .carte-jeu__media .image-jeu {
+  transform: scale(1.035);
+  filter: saturate(1.06);
+}
+
+.carte-jeu__media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 48%,
+    color-mix(in oklab, var(--couleur-surface-1) 52%, transparent) 78%,
+    color-mix(in oklab, var(--couleur-surface-1) 92%, transparent) 100%
+  );
+}
+
+.carte-jeu__corps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 15px 15px;
+}
+
+.carte-jeu__titre {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.3;
+  color: var(--couleur-texte-fort);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.carte-jeu__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 9px;
+  font-size: 0.76rem;
+  color: var(--couleur-texte-doux);
+}
+
+.carte-jeu__meta strong {
+  color: var(--couleur-texte-fort);
+  font-weight: 650;
+}
+
+.carte-jeu__meta .jamais {
+  color: var(--couleur-danger);
+  font-weight: 650;
+}
+
+.carte-jeu__meta .dernier::before {
+  content: '·';
+  margin-right: 8px;
+  color: color-mix(in oklab, var(--couleur-texte) 45%, transparent);
+}
+
+.carte-jeu__chips,
+.carte-jeu__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.carte-jeu__badges {
+  margin-top: 2px;
+}
+
+/* --- Vue liste --- */
+.biblio-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition: opacity 160ms ease;
+}
+
+.ligne-jeu {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    104px 220px minmax(130px, 1fr) minmax(150px, 1fr)
+    96px 94px 42px 84px;
+  grid-template-areas: 'media principal genres modes temps dernier manette succes';
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--couleur-bordure-douce);
+  border-radius: var(--rayon-md);
+  background: color-mix(in oklab, var(--couleur-surface-1) 62%, transparent);
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.ligne-jeu::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--degrade-accent);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.ligne-jeu:hover {
+  background: color-mix(in oklab, var(--couleur-surface-1) 92%, transparent);
+  border-color: color-mix(
+    in oklab,
+    var(--couleur-accent) 38%,
+    var(--couleur-bordure)
+  );
+  box-shadow: 0 14px 36px -30px var(--couleur-accent);
+}
+
+.ligne-jeu:hover::before {
+  opacity: 1;
+}
+
+.ligne-jeu__lien {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+}
+
+.ligne-jeu__lien:focus-visible {
+  outline: none;
+  box-shadow: var(--anneau-focus);
+}
+
+.ligne-jeu__media {
+  grid-area: media;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--rayon-sm);
+  overflow: hidden;
+  align-self: center;
+  background: linear-gradient(135deg, #2a2340 0%, #16202e 100%);
+}
+
+.ligne-jeu__principal {
+  grid-area: principal;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ligne-jeu__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--couleur-texte-fort);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.ligne-jeu__titre > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ligne-jeu__genres,
+.ligne-jeu__modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 4px;
+}
+
+.ligne-jeu__genres {
+  grid-area: genres;
+}
+
+.ligne-jeu__modes {
+  grid-area: modes;
+}
+
+.ligne-jeu__temps {
+  grid-area: temps;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ligne-jeu__temps strong {
+  color: var(--couleur-texte-fort);
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.ligne-jeu__temps span {
+  color: var(--couleur-texte);
+  font-size: 0.95rem;
+}
+
+.ligne-jeu__dernier {
+  grid-area: dernier;
+  color: var(--couleur-texte);
+  font-size: 0.95rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ligne-jeu__dernier--jamais {
+  color: var(--couleur-danger);
+  font-weight: 600;
+}
+
+.ligne-jeu__manette {
+  grid-area: manette;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manette-icone {
+  position: relative;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  color: var(--couleur-texte-doux);
+}
+
+.manette-icone svg {
+  width: 20px;
+  height: 20px;
+}
+
+.manette-icone--full {
+  color: var(--couleur-accent);
+}
+
+.manette-icone--partial {
+  color: var(--couleur-alerte);
+}
+
+.manette-icone--none::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: var(--couleur-danger);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.ligne-jeu__succes {
+  grid-area: succes;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ligne-jeu__vide {
+  color: var(--couleur-texte-doux);
+  font-size: 0.9rem;
+}
+
+/* Fondu pendant un changement de filtre : la liste reste affichée. */
+.biblio-resultats--maj .biblio-grille,
+.biblio-resultats--maj .biblio-liste {
+  opacity: 0.45;
+}
+
+/* --- Squelettes --- */
+.squelette-carte {
+  overflow: hidden;
+  border: 1px solid var(--couleur-bordure-douce);
+  border-radius: var(--rayon-lg);
+  background: var(--couleur-surface-1);
+}
+
+.squelette-carte__media {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(
+    100deg,
+    var(--couleur-surface-2) 20%,
+    color-mix(in oklab, var(--couleur-surface-3) 82%, transparent) 38%,
+    var(--couleur-surface-2) 56%
+  );
+  background-size: 220% 100%;
+  animation: biblio-shimmer 1.8s ease-in-out infinite;
+}
+
+.squelette-carte__corps {
+  padding: 13px 15px 15px;
+}
+
+.squelette-ligne {
+  height: 9px;
+  border-radius: 999px;
+  background: var(--couleur-surface-2);
+}
+
+.squelette-ligne + .squelette-ligne {
+  margin-top: 8px;
+}
+
+.squelette-ligne--titre {
+  width: 72%;
+  height: 13px;
+}
+
+.squelette-ligne--courte {
+  width: 42%;
+}
+
+.squelette-ligne--liste {
+  height: 100%;
+  margin: 0;
+}
+
+.squelette-carte--liste {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: var(--rayon-md);
+}
+
+.squelette-carte--liste .squelette-carte__media {
+  aspect-ratio: 16 / 9;
+  border-radius: var(--rayon-sm);
+}
+
+.squelette-carte--liste .squelette-carte__corps {
+  padding: 0;
+}
+
+@keyframes biblio-shimmer {
+  0% {
+    background-position: 160% 0;
+  }
+  100% {
+    background-position: -60% 0;
+  }
+}
+
+/* --- États vides / erreur --- */
+.etat-biblio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 20px;
+  border: 1px dashed var(--couleur-bordure);
+  border-radius: var(--rayon-lg);
+  color: var(--couleur-texte-doux);
+  text-align: center;
+}
+
+.etat-biblio__icone {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--couleur-accent-bordure);
+  background: var(--couleur-accent-doux);
+  color: var(--couleur-accent);
+}
+
+.etat-biblio__icone svg {
+  width: 24px;
+  height: 24px;
+}
+
+.etat-biblio p {
+  max-width: 44ch;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.etat-erreur {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* --- Responsive --- */
+@media (max-width: 1399px) {
+  .ligne-jeu {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+  }
+
+  .ligne-jeu__media {
+    flex: 0 0 96px;
+    width: 96px;
+  }
+
+  .ligne-jeu__principal {
+    flex: 0 1 220px;
+  }
+
+  .ligne-jeu__genres,
+  .ligne-jeu__modes {
+    flex: 1 1 45%;
+  }
+
+  .ligne-jeu__temps,
+  .ligne-jeu__dernier {
+    flex: 0 0 auto;
+    text-align: left;
+  }
+
+  .ligne-jeu__manette {
+    flex: 0 0 auto;
+  }
+
+  .ligne-jeu__succes {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 1200px) {
+  .biblio-grille {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .biblio-grille {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .ligne-jeu__media {
+    flex-basis: 84px;
+    width: 84px;
+  }
+
+  .ligne-jeu__principal {
+    flex-basis: 140px;
+  }
+
+  .ligne-jeu__genres,
+  .ligne-jeu__modes {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .biblio-grille {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .ligne-jeu__media {
+    flex-basis: 72px;
+    width: 72px;
+  }
+
+  .ligne-jeu__succes {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .biblio-grille,
+  .biblio-liste,
+  .carte-jeu,
+  .carte-jeu__media .image-jeu,
+  .ligne-jeu,
+  .squelette-carte__media {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

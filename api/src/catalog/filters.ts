@@ -1,5 +1,5 @@
 import { conditionDuree, DUREE_LABELS, type DureeJeu } from './duree.js';
-import { idsPourModes, MODES, type ModeJeu } from './modes.js';
+import { MODES, type ModeJeu } from './modes.js';
 
 /** Sous-ensemble de filtres communs à la bibliothèque et à la recherche. */
 export interface FiltersInput {
@@ -17,6 +17,11 @@ function dedoublonner<T>(valeurs: T[] | undefined): T[] {
 /**
  * Construit les conditions SQL des filtres et pousse les valeurs dans `params`.
  *
+ * Les genres et les modes se combinent en **ET exclusif** : sélectionner
+ * Action + RPG ne garde que les jeux qui portent les deux genres, et
+ * Solo + Coop que les jeux qui supportent les deux modes. Les durées restent
+ * en **OR**, car leurs tranches sont mutuellement exclusives.
+ *
  * Les valeurs utilisateur passent toujours par des paramètres `$n` ; seules
  * les valeurs issues d'énumérations contrôlées (manette, état, tri) sont
  * écrites en littéral SQL.
@@ -30,12 +35,14 @@ export function construireConditions(
   const genres = dedoublonner(filtres.genres);
   if (genres.length > 0) {
     params.push(genres);
-    conditions.push(`g.genre_ids && $${params.length}::int[]`);
+    conditions.push(`g.genre_ids @> $${params.length}::int[]`);
   }
 
-  const idsModes = idsPourModes(dedoublonner(filtres.modes));
-  if (idsModes.length > 0) {
-    params.push(idsModes);
+  // Un mode Steam correspond à plusieurs catégories possibles : on ajoute une
+  // condition d'intersection par mode pour exiger chaque mode sélectionné,
+  // sans exiger toutes les catégories de chaque mode.
+  for (const mode of dedoublonner(filtres.modes)) {
+    params.push(MODES[mode].ids);
     conditions.push(`g.category_ids && $${params.length}::int[]`);
   }
 

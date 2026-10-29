@@ -8,7 +8,7 @@ import { urlApi } from './api'
 export type JobSync = {
   id: number
   status: 'pending' | 'running' | 'done' | 'error'
-  step: 'library' | 'details' | 'embeddings' | 'done'
+  step: 'library' | 'details' | 'achievements' | 'embeddings' | 'done'
   totalGames: number
   processedGames: number
   error: string | null
@@ -19,6 +19,7 @@ export type JobSync = {
 export const libelleEtape: Record<JobSync['step'], string> = {
   library: 'Import de la bibliothèque',
   details: 'Récupération des fiches des jeux',
+  achievements: 'Récupération des succès',
   embeddings: 'Indexation des descriptions',
   done: 'Import terminé',
 }
