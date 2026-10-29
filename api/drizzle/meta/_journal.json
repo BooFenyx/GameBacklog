@@ -43,6 +43,13 @@
       "when": 1793292613515,
       "tag": "0005_brief_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793294071008,
+      "tag": "0006_futuristic_lyja",
+      "breakpoints": true
     }
   ]
 }
