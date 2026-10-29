@@ -62,3 +62,12 @@ export function IconeFiltre({ className }: PropsIcone) {
     </svg>
   )
 }
+
+export function IconeCouronne({ className }: PropsIcone) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 17h16l-1.6-9-4.1 3L12 5.5 9.7 11 5.6 8 4 17Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M6 20h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}

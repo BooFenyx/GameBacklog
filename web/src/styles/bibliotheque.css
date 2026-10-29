@@ -74,37 +74,18 @@
   text-transform: uppercase;
 }
 
-.etiquette--etat {
-  border-color: color-mix(
-    in oklab,
-    var(--couleur-accent) 40%,
-    var(--couleur-bordure)
-  );
-  background: color-mix(in oklab, var(--couleur-fond) 72%, transparent);
-  color: var(--couleur-texte-fort);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-  backdrop-filter: blur(8px);
+.etiquette--succes-complet {
+  border-color: var(--couleur-or-bordure);
+  background: var(--couleur-or-doux);
+  color: var(--couleur-or);
+  font-weight: 700;
+  box-shadow: 0 0 18px -10px var(--couleur-or);
 }
 
-.etiquette--etat-recent {
-  border-color: color-mix(
-    in oklab,
-    var(--couleur-accent-2) 50%,
-    var(--couleur-bordure)
-  );
-  color: var(--couleur-accent-2);
-}
-
-.etiquette--etat-recent::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--couleur-accent-2);
-  box-shadow: 0 0 8px var(--couleur-accent-2);
+.etiquette--succes-complet svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 
 /* Image de jeu + repli */
@@ -267,13 +248,6 @@
   );
 }
 
-.carte-jeu__etat {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 2;
-}
-
 .carte-jeu__corps {
   display: flex;
   flex-direction: column;
@@ -307,7 +281,7 @@
 }
 
 .carte-jeu__meta .jamais {
-  color: var(--couleur-accent-2);
+  color: var(--couleur-danger);
   font-weight: 650;
 }
 
@@ -342,9 +316,11 @@
 .ligne-jeu {
   position: relative;
   display: grid;
-  grid-template-columns: 112px minmax(0, 1.6fr) minmax(120px, 1fr) minmax(130px, 1fr) auto;
-  grid-template-areas: 'media principal genres modes meta';
-  gap: 16px;
+  grid-template-columns:
+    104px 220px minmax(130px, 1fr) minmax(150px, 1fr)
+    96px 94px 42px 84px;
+  grid-template-areas: 'media principal genres modes temps dernier manette succes';
+  gap: 12px;
   align-items: center;
   padding: 10px 14px;
   border: 1px solid var(--couleur-bordure-douce);
@@ -397,9 +373,11 @@
 
 .ligne-jeu__media {
   grid-area: media;
+  width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: var(--rayon-sm);
   overflow: hidden;
+  align-self: center;
   background: linear-gradient(135deg, #2a2340 0%, #16202e 100%);
 }
 
@@ -423,15 +401,21 @@
 }
 
 .ligne-jeu__titre > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .ligne-jeu__genres,
 .ligne-jeu__modes {
   display: flex;
   flex-wrap: wrap;
+  align-content: center;
   gap: 4px;
 }
 
@@ -443,45 +427,91 @@
   grid-area: modes;
 }
 
-.ligne-jeu__meta {
-  grid-area: meta;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  white-space: nowrap;
-}
-
 .ligne-jeu__temps {
+  grid-area: temps;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 56px;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
   text-align: right;
+  white-space: nowrap;
 }
 
 .ligne-jeu__temps strong {
   color: var(--couleur-texte-fort);
-  font-size: 0.86rem;
+  font-size: 0.95rem;
   font-weight: 650;
 }
 
 .ligne-jeu__temps span {
-  color: var(--couleur-texte-doux);
-  font-size: 0.66rem;
+  color: var(--couleur-texte);
+  font-size: 0.95rem;
 }
 
 .ligne-jeu__dernier {
-  color: var(--couleur-texte-doux);
-  font-size: 0.72rem;
-  min-width: 74px;
+  grid-area: dernier;
+  color: var(--couleur-texte);
+  font-size: 0.95rem;
   text-align: right;
+  white-space: nowrap;
 }
 
-.ligne-jeu__fin {
+.ligne-jeu__dernier--jamais {
+  color: var(--couleur-danger);
+  font-weight: 600;
+}
+
+.ligne-jeu__manette {
+  grid-area: manette;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+}
+
+.manette-icone {
+  position: relative;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  color: var(--couleur-texte-doux);
+}
+
+.manette-icone svg {
+  width: 20px;
+  height: 20px;
+}
+
+.manette-icone--full {
+  color: var(--couleur-accent);
+}
+
+.manette-icone--partial {
+  color: var(--couleur-alerte);
+}
+
+.manette-icone--none::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: var(--couleur-danger);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.ligne-jeu__succes {
+  grid-area: succes;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ligne-jeu__vide {
+  color: var(--couleur-texte-doux);
+  font-size: 0.9rem;
 }
 
 /* Fondu pendant un changement de filtre : la liste reste affichée. */
@@ -608,18 +638,47 @@
 }
 
 /* --- Responsive --- */
+@media (max-width: 1399px) {
+  .ligne-jeu {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+  }
+
+  .ligne-jeu__media {
+    flex: 0 0 96px;
+    width: 96px;
+  }
+
+  .ligne-jeu__principal {
+    flex: 0 1 220px;
+  }
+
+  .ligne-jeu__genres,
+  .ligne-jeu__modes {
+    flex: 1 1 45%;
+  }
+
+  .ligne-jeu__temps,
+  .ligne-jeu__dernier {
+    flex: 0 0 auto;
+    text-align: left;
+  }
+
+  .ligne-jeu__manette {
+    flex: 0 0 auto;
+  }
+
+  .ligne-jeu__succes {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+}
+
 @media (max-width: 1200px) {
   .biblio-grille {
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  }
-
-  .ligne-jeu {
-    grid-template-columns: 100px minmax(0, 1.6fr) minmax(110px, 0.9fr) auto;
-    grid-template-areas: 'media principal genres meta';
-  }
-
-  .ligne-jeu__modes {
-    display: none;
   }
 }
 
@@ -630,32 +689,18 @@
 }
 
 @media (max-width: 900px) {
-  .ligne-jeu {
-    grid-template-columns: 92px minmax(0, 1fr);
-    grid-template-areas:
-      'media principal'
-      'media meta'
-      'genres genres';
-    gap: 8px 14px;
-    padding: 10px 12px;
+  .ligne-jeu__media {
+    flex-basis: 84px;
+    width: 84px;
   }
 
-  .ligne-jeu__meta {
-    justify-content: flex-start;
-    gap: 12px;
+  .ligne-jeu__principal {
+    flex-basis: 140px;
   }
 
-  .ligne-jeu__temps,
-  .ligne-jeu__dernier {
-    text-align: left;
-  }
-
-  .ligne-jeu__genres {
-    padding-top: 2px;
-  }
-
+  .ligne-jeu__genres,
   .ligne-jeu__modes {
-    display: none;
+    flex-basis: 100%;
   }
 }
 
@@ -666,17 +711,13 @@
 }
 
 @media (max-width: 480px) {
-  .ligne-jeu {
-    grid-template-columns: 78px minmax(0, 1fr);
+  .ligne-jeu__media {
+    flex-basis: 72px;
+    width: 72px;
   }
 
-  .ligne-jeu__meta {
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .ligne-jeu__fin {
-    display: none;
+  .ligne-jeu__succes {
+    margin-left: 0;
   }
 }
 

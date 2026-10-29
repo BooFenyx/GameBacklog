@@ -6,6 +6,7 @@ import {
   libelleMode,
   metaJeu,
   succesAffiche,
+  succesComplet,
 } from './affichage'
 
 function jeu(overrides: Partial<JeuBibliotheque> = {}): JeuBibliotheque {
@@ -73,6 +74,19 @@ describe('affichage — compteur de succès', () => {
   it('masque le compteur quand le total est inconnu ou nul', () => {
     expect(succesAffiche(jeu({ achievementsTotal: null }))).toBeNull()
     expect(succesAffiche(jeu({ achievementsTotal: 0 }))).toBeNull()
+  })
+
+  it('signale un jeu avec tous les succès débloqués', () => {
+    expect(succesComplet(jeu())).toBe(false)
+    expect(
+      succesComplet(jeu({ achievementsUnlocked: 51 })),
+    ).toBe(true)
+    expect(
+      succesComplet(jeu({ achievementsUnlocked: null })),
+    ).toBe(false)
+    expect(
+      succesComplet(jeu({ achievementsTotal: 0, achievementsUnlocked: 0 })),
+    ).toBe(false)
   })
 })
 

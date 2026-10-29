@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { JeuBibliotheque } from '../../library'
 import Etiquette from '../ui/Etiquette'
+import { IconeCouronne } from '../ui/Icones'
 import ImageJeu from './ImageJeu'
 import {
   GENRES_VISIBLES,
@@ -9,6 +10,7 @@ import {
   libelleMode,
   metaJeu,
   succesAffiche,
+  succesComplet,
 } from './affichage'
 
 type Props = {
@@ -20,6 +22,7 @@ export default function CarteJeu({ jeu }: Props) {
   const etat = etatJeu(jeu)
   const meta = metaJeu(jeu)
   const succes = succesAffiche(jeu)
+  const complet = succesComplet(jeu)
   const genres = jeu.genres.slice(0, GENRES_VISIBLES)
   const genresRestants = jeu.genres.length - genres.length
 
@@ -34,13 +37,6 @@ export default function CarteJeu({ jeu }: Props) {
       <div className="carte-jeu__media">
         <ImageJeu src={jeu.headerImageUrl} nom={jeu.name} />
       </div>
-
-      <Etiquette
-        variante={etat.recent ? 'etat-recent' : 'etat'}
-        className="carte-jeu__etat"
-      >
-        {etat.label}
-      </Etiquette>
 
       <div className="carte-jeu__corps">
         <h2 className="carte-jeu__titre">{jeu.name}</h2>
@@ -93,7 +89,10 @@ export default function CarteJeu({ jeu }: Props) {
               <Etiquette variante="manette">Manette</Etiquette>
             )}
             {succes !== null && (
-              <Etiquette variante="succes">{succes}</Etiquette>
+              <Etiquette variante={complet ? 'succes-complet' : 'succes'}>
+                {complet && <IconeCouronne />}
+                {succes}
+              </Etiquette>
             )}
           </div>
         )}

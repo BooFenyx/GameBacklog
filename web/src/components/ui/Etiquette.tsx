@@ -6,8 +6,7 @@ export type VarianteEtiquette =
   | 'solo'
   | 'manette'
   | 'succes'
-  | 'etat'
-  | 'etat-recent'
+  | 'succes-complet'
 
 type Props = {
   variante?: VarianteEtiquette
@@ -24,8 +23,8 @@ export default function Etiquette({
   children,
 }: Props) {
   const classes = ['etiquette']
-  if (variante === 'etat-recent') {
-    classes.push('etiquette--etat', 'etiquette--etat-recent')
+  if (variante === 'succes-complet') {
+    classes.push('etiquette--succes', 'etiquette--succes-complet')
   } else {
     classes.push(`etiquette--${variante}`)
   }

@@ -1,14 +1,16 @@
 import { Link } from 'react-router-dom'
 import type { JeuBibliotheque } from '../../library'
 import Etiquette from '../ui/Etiquette'
+import { IconeCouronne, IconeManette } from '../ui/Icones'
 import ImageJeu from './ImageJeu'
 import {
-  GENRES_VISIBLES,
+  LIBELLE_MANETTE,
   contexteCarte,
   etatJeu,
   libelleMode,
   metaJeu,
   succesAffiche,
+  succesComplet,
 } from './affichage'
 
 type Props = {
@@ -20,8 +22,9 @@ export default function LigneJeu({ jeu }: Props) {
   const etat = etatJeu(jeu)
   const meta = metaJeu(jeu)
   const succes = succesAffiche(jeu)
-  const genres = jeu.genres.slice(0, GENRES_VISIBLES)
-  const genresRestants = jeu.genres.length - genres.length
+  const complet = succesComplet(jeu)
+  const dernierJamais = meta.dernier === null
+  const genres = jeu.genres
 
   return (
     <li className="ligne-jeu">
@@ -38,9 +41,6 @@ export default function LigneJeu({ jeu }: Props) {
       <div className="ligne-jeu__principal">
         <div className="ligne-jeu__titre">
           <span>{jeu.name}</span>
-          <Etiquette variante={etat.recent ? 'etat-recent' : 'etat'}>
-            {etat.label}
-          </Etiquette>
         </div>
       </div>
 
@@ -50,15 +50,6 @@ export default function LigneJeu({ jeu }: Props) {
             {genre}
           </Etiquette>
         ))}
-        {genresRestants > 0 && (
-          <Etiquette
-            variante="genre"
-            className="etiquette--plus"
-            title={jeu.genres.slice(GENRES_VISIBLES).join(', ')}
-          >
-            +{genresRestants}
-          </Etiquette>
-        )}
       </div>
 
       <div className="ligne-jeu__modes">
@@ -69,23 +60,42 @@ export default function LigneJeu({ jeu }: Props) {
         ))}
       </div>
 
-      <div className="ligne-jeu__meta">
-        <div className="ligne-jeu__temps">
-          <strong>{meta.temps ?? '—'}</strong>
-          <span>{meta.temps ? 'de jeu' : 'jamais'}</span>
-        </div>
-        <div className="ligne-jeu__dernier">
-          {meta.dernier ?? 'jamais lancé'}
-        </div>
-        {(jeu.controllerSupport === 'full' || succes !== null) && (
-          <div className="ligne-jeu__fin">
-            {jeu.controllerSupport === 'full' && (
-              <Etiquette variante="manette">Manette</Etiquette>
-            )}
-            {succes !== null && (
-              <Etiquette variante="succes">{succes}</Etiquette>
-            )}
-          </div>
+      <div className="ligne-jeu__temps">
+        <strong>{meta.temps ?? '—'}</strong>
+        {meta.temps && <span>de jeu</span>}
+      </div>
+
+      <div
+        className={
+          dernierJamais
+            ? 'ligne-jeu__dernier ligne-jeu__dernier--jamais'
+            : 'ligne-jeu__dernier'
+        }
+      >
+        {meta.dernier ?? 'jamais lancé'}
+      </div>
+
+      <div className="ligne-jeu__manette">
+        <span
+          className={`manette-icone manette-icone--${jeu.controllerSupport}`}
+          title={LIBELLE_MANETTE[jeu.controllerSupport]}
+          role="img"
+          aria-label={LIBELLE_MANETTE[jeu.controllerSupport]}
+        >
+          <IconeManette />
+        </span>
+      </div>
+
+      <div className="ligne-jeu__succes">
+        {succes !== null ? (
+          <Etiquette variante={complet ? 'succes-complet' : 'succes'}>
+            {complet && <IconeCouronne />}
+            {succes}
+          </Etiquette>
+        ) : (
+          <span className="ligne-jeu__vide" aria-hidden="true">
+            —
+          </span>
         )}
       </div>
     </li>

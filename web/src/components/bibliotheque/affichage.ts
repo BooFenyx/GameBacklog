@@ -7,6 +7,15 @@ export const GENRES_VISIBLES = 2
 
 export type EtatCarte = { label: string; recent: boolean }
 
+export const LIBELLE_MANETTE: Record<
+  JeuBibliotheque['controllerSupport'],
+  string
+> = {
+  none: 'Manette non supportée',
+  partial: 'Manette partielle',
+  full: 'Manette complète',
+}
+
 /** Badge d'état affiché sur l'image : jamais lancé, récent ou joué. */
 export function etatJeu(jeu: JeuBibliotheque): EtatCarte {
   if (jeu.playtimeForever === 0) {
@@ -64,4 +73,13 @@ export function succesAffiche(jeu: JeuBibliotheque): string | null {
     return `— / ${jeu.achievementsTotal}`
   }
   return `${jeu.achievementsUnlocked} / ${jeu.achievementsTotal}`
+}
+
+/** Vrai quand le joueur a débloqué tous les succès du jeu. */
+export function succesComplet(jeu: JeuBibliotheque): boolean {
+  return (
+    jeu.achievementsTotal !== null &&
+    jeu.achievementsTotal > 0 &&
+    jeu.achievementsUnlocked === jeu.achievementsTotal
+  )
 }

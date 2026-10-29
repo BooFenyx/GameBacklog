@@ -40,6 +40,24 @@
   --couleur-sur-accent: #120f1c;
   --couleur-succes: #7ef0b2;
   --couleur-alerte: #ffbd7a;
+  --couleur-danger: #ff6b7a;
+  --couleur-danger-doux: color-mix(
+    in oklab,
+    var(--couleur-danger) 14%,
+    transparent
+  );
+  --couleur-danger-bordure: color-mix(
+    in oklab,
+    var(--couleur-danger) 55%,
+    var(--couleur-bordure)
+  );
+  --couleur-or: #f6c453;
+  --couleur-or-doux: color-mix(in oklab, var(--couleur-or) 14%, transparent);
+  --couleur-or-bordure: color-mix(
+    in oklab,
+    var(--couleur-or) 60%,
+    var(--couleur-bordure)
+  );
 
   /* --- Rayons --- */
   --rayon-sm: 8px;
