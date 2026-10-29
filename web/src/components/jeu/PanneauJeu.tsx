@@ -22,6 +22,7 @@ export default function PanneauJeu({ jeu, succes }: Props) {
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const totalSucces = succes?.total ?? jeu.achievementsTotal ?? 0
   const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked ?? 0
+  const complet = totalSucces > 0 && debloquesSucces === totalSucces
   const pourcentage =
     totalSucces > 0
       ? Math.round((debloquesSucces / totalSucces) * 100)
@@ -153,7 +154,13 @@ export default function PanneauJeu({ jeu, succes }: Props) {
 
         {totalSucces > 0 && (
           <>
-            <div className="progression-texte">
+            <div
+              className={
+                complet
+                  ? 'progression-texte progression-texte--complete'
+                  : 'progression-texte'
+              }
+            >
               <span>Succès</span>
               <span>
                 <strong>
@@ -166,6 +173,9 @@ export default function PanneauJeu({ jeu, succes }: Props) {
               valeur={debloquesSucces}
               max={totalSucces}
               label="Progression des succès"
+              className={
+                complet ? 'barre-progression--complete' : undefined
+              }
             />
           </>
         )}

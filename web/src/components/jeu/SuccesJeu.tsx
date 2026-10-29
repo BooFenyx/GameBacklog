@@ -52,6 +52,7 @@ export default function SuccesJeu({ succes }: Props) {
     succes.total > 0
       ? Math.round((succes.unlocked / succes.total) * 100)
       : 0
+  const complet = succes.total > 0 && succes.unlocked === succes.total
 
   const visibles = useMemo(() => {
     if (filtre === 'debloque') {
@@ -84,6 +85,9 @@ export default function SuccesJeu({ succes }: Props) {
               valeur={succes.unlocked}
               max={succes.total}
               label="Progression des succès"
+              className={
+                complet ? 'barre-progression--complete' : undefined
+              }
             />
             <span className="texte-doux">
               {succes.unlocked} sur {succes.total} · {pourcentage} %

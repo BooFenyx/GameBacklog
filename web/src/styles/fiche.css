@@ -450,6 +450,20 @@
     color-mix(in oklab, var(--couleur-accent) 55%, transparent);
 }
 
+.barre-progression--complete > span {
+  background: linear-gradient(
+    135deg,
+    var(--couleur-or) 0%,
+    color-mix(in oklab, var(--couleur-or) 55%, var(--couleur-accent-2)) 100%
+  );
+  box-shadow: 0 0 18px color-mix(in oklab, var(--couleur-or) 55%, transparent);
+}
+
+.progression-texte--complete,
+.progression-texte--complete strong {
+  color: var(--couleur-or);
+}
+
 .panneau-actions {
   display: flex;
   flex-direction: column;

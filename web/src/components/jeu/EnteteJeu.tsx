@@ -6,6 +6,7 @@ import {
   type SuccesDetail,
 } from '../../games'
 import Etiquette from '../ui/Etiquette'
+import { IconeCouronne } from '../ui/Icones'
 
 type Props = {
   jeu: FicheJeu
@@ -28,6 +29,10 @@ export default function EnteteJeu({ jeu, succes }: Props) {
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const totalSucces = succes?.total ?? jeu.achievementsTotal
   const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
+  const complet =
+    totalSucces !== null &&
+    totalSucces > 0 &&
+    debloquesSucces === totalSucces
 
   return (
     <header
@@ -63,7 +68,8 @@ export default function EnteteJeu({ jeu, succes }: Props) {
             </Etiquette>
           )}
           {totalSucces !== null && totalSucces > 0 && (
-            <Etiquette variante="succes">
+            <Etiquette variante={complet ? 'succes-complet' : 'succes'}>
+              {complet && <IconeCouronne />}
               {debloquesSucces ?? '—'} / {totalSucces} succès
             </Etiquette>
           )}
