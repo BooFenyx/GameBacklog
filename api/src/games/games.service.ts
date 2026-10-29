@@ -458,7 +458,10 @@ export interface UserGameDetail {
   playtimeForever: number;
   playtimeLast2Weeks: number;
   lastPlayedAt: Date | null;
-  achievementsUnlocked: number;
+  /** `null` tant que le schéma Steam n'a pas été récupéré. */
+  achievementsTotal: number | null;
+  /** `null` tant que la progression du joueur n'a pas été récupérée. */
+  achievementsUnlocked: number | null;
 }
 
 @Injectable()
@@ -618,17 +621,31 @@ export class GamesService {
         playtimeForever: libraryEntries.playtimeForever,
         playtimeLast2Weeks: libraryEntries.playtimeLast2Weeks,
         lastPlayedAt: libraryEntries.lastPlayedAt,
+        achievementsTotal: games.achievementsTotal,
+        gameAchievementsFetchedAt: games.achievementsFetchedAt,
         achievementsUnlocked: libraryEntries.achievementsUnlocked,
+        progressFetchedAt: libraryEntries.achievementsFetchedAt,
       })
       .from(libraryEntries)
       .innerJoin(games, eq(libraryEntries.gameId, games.id))
       .where(and(eq(games.appId, appId), eq(libraryEntries.userId, userId)))
       .limit(1);
     if (!row) return null;
+    const {
+      gameAchievementsFetchedAt,
+      progressFetchedAt,
+      ...reste
+    } = row;
     return {
-      ...row,
+      ...reste,
       website: row.website || null,
       platforms: row.platforms as Plateforme[],
+      achievementsTotal: gameAchievementsFetchedAt
+        ? row.achievementsTotal
+        : null,
+      achievementsUnlocked: progressFetchedAt
+        ? row.achievementsUnlocked
+        : null,
     };
   }
 }
