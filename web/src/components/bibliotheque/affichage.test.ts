@@ -5,6 +5,7 @@ import {
   etatJeu,
   libelleMode,
   metaJeu,
+  succesAffiche,
 } from './affichage'
 
 function jeu(overrides: Partial<JeuBibliotheque> = {}): JeuBibliotheque {
@@ -19,6 +20,7 @@ function jeu(overrides: Partial<JeuBibliotheque> = {}): JeuBibliotheque {
     playtimeLast2Weeks: 0,
     lastPlayedAt: new Date(Date.now() - 8 * 86_400_000).toISOString(),
     achievementsUnlocked: 12,
+    achievementsTotal: 51,
     ...overrides,
   }
 }
@@ -56,6 +58,21 @@ describe('affichage — état et méta', () => {
       dernier: null,
       jamais: true,
     })
+  })
+})
+
+describe('affichage — compteur de succès', () => {
+  it('affiche débloqués / total', () => {
+    expect(succesAffiche(jeu())).toBe('12 / 51')
+  })
+
+  it('affiche un tiret quand la progression est inconnue', () => {
+    expect(succesAffiche(jeu({ achievementsUnlocked: null }))).toBe('— / 51')
+  })
+
+  it('masque le compteur quand le total est inconnu ou nul', () => {
+    expect(succesAffiche(jeu({ achievementsTotal: null }))).toBeNull()
+    expect(succesAffiche(jeu({ achievementsTotal: 0 }))).toBeNull()
   })
 })
 

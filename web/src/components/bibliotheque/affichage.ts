@@ -51,3 +51,17 @@ export function contexteCarte(
     .filter(Boolean)
     .join(', ')
 }
+
+/**
+ * Libellé du compteur de succès : `12 / 51`, `— / 51` si la progression du
+ * joueur n'est pas encore connue, ou `null` si le total n'est pas récupéré.
+ */
+export function succesAffiche(jeu: JeuBibliotheque): string | null {
+  if (jeu.achievementsTotal === null || jeu.achievementsTotal <= 0) {
+    return null
+  }
+  if (jeu.achievementsUnlocked === null) {
+    return `— / ${jeu.achievementsTotal}`
+  }
+  return `${jeu.achievementsUnlocked} / ${jeu.achievementsTotal}`
+}

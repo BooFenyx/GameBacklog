@@ -8,6 +8,7 @@ import {
   etatJeu,
   libelleMode,
   metaJeu,
+  succesAffiche,
 } from './affichage'
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
 export default function CarteJeu({ jeu }: Props) {
   const etat = etatJeu(jeu)
   const meta = metaJeu(jeu)
+  const succes = succesAffiche(jeu)
   const genres = jeu.genres.slice(0, GENRES_VISIBLES)
   const genresRestants = jeu.genres.length - genres.length
 
@@ -77,7 +79,7 @@ export default function CarteJeu({ jeu }: Props) {
 
         {(jeu.modes.length > 0 ||
           jeu.controllerSupport === 'full' ||
-          jeu.achievementsUnlocked > 0) && (
+          succes !== null) && (
           <div className="carte-jeu__badges">
             {jeu.modes.map((mode) => (
               <Etiquette
@@ -90,10 +92,8 @@ export default function CarteJeu({ jeu }: Props) {
             {jeu.controllerSupport === 'full' && (
               <Etiquette variante="manette">Manette</Etiquette>
             )}
-            {jeu.achievementsUnlocked > 0 && (
-              <Etiquette variante="succes">
-                {jeu.achievementsUnlocked} succès
-              </Etiquette>
+            {succes !== null && (
+              <Etiquette variante="succes">{succes}</Etiquette>
             )}
           </div>
         )}

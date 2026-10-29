@@ -8,6 +8,7 @@ import {
   etatJeu,
   libelleMode,
   metaJeu,
+  succesAffiche,
 } from './affichage'
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
 export default function LigneJeu({ jeu }: Props) {
   const etat = etatJeu(jeu)
   const meta = metaJeu(jeu)
+  const succes = succesAffiche(jeu)
   const genres = jeu.genres.slice(0, GENRES_VISIBLES)
   const genresRestants = jeu.genres.length - genres.length
 
@@ -75,16 +77,13 @@ export default function LigneJeu({ jeu }: Props) {
         <div className="ligne-jeu__dernier">
           {meta.dernier ?? 'jamais lancé'}
         </div>
-        {(jeu.controllerSupport === 'full' ||
-          jeu.achievementsUnlocked > 0) && (
+        {(jeu.controllerSupport === 'full' || succes !== null) && (
           <div className="ligne-jeu__fin">
             {jeu.controllerSupport === 'full' && (
               <Etiquette variante="manette">Manette</Etiquette>
             )}
-            {jeu.achievementsUnlocked > 0 && (
-              <Etiquette variante="succes">
-                {jeu.achievementsUnlocked} succès
-              </Etiquette>
+            {succes !== null && (
+              <Etiquette variante="succes">{succes}</Etiquette>
             )}
           </div>
         )}
