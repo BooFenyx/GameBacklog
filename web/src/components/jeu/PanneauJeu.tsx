@@ -7,22 +7,24 @@ import {
   LIBELLE_MANETTE,
   LIBELLE_PLATEFORME,
   type FicheJeu,
+  type SuccesDetail,
 } from '../../games'
 import BarreProgression from '../ui/BarreProgression'
 import Etiquette from '../ui/Etiquette'
 
 type Props = {
   jeu: FicheJeu
+  succes?: SuccesDetail
 }
 
 /** Colonne latérale : informations, activité et actions. */
-export default function PanneauJeu({ jeu }: Props) {
+export default function PanneauJeu({ jeu, succes }: Props) {
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
+  const totalSucces = succes?.total ?? jeu.achievementsTotal ?? 0
+  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked ?? 0
   const pourcentage =
-    jeu.achievements.total > 0
-      ? Math.round(
-          (jeu.achievements.unlocked / jeu.achievements.total) * 100,
-        )
+    totalSucces > 0
+      ? Math.round((debloquesSucces / totalSucces) * 100)
       : 0
 
   return (
@@ -149,20 +151,20 @@ export default function PanneauJeu({ jeu }: Props) {
           </div>
         </div>
 
-        {jeu.achievements.total > 0 && (
+        {totalSucces > 0 && (
           <>
             <div className="progression-texte">
               <span>Succès</span>
               <span>
                 <strong>
-                  {jeu.achievements.unlocked} / {jeu.achievements.total}
+                  {jeu.achievementsUnlocked ?? '—'} / {jeu.achievementsTotal}
                 </strong>{' '}
                 · {pourcentage} %
               </span>
             </div>
             <BarreProgression
-              valeur={jeu.achievements.unlocked}
-              max={jeu.achievements.total}
+              valeur={debloquesSucces}
+              max={totalSucces}
               label="Progression des succès"
             />
           </>

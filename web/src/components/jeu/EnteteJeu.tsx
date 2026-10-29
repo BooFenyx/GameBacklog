@@ -3,11 +3,13 @@ import { formaterDuree } from '../../format'
 import {
   LIBELLE_MANETTE,
   type FicheJeu,
+  type SuccesDetail,
 } from '../../games'
 import Etiquette from '../ui/Etiquette'
 
 type Props = {
   jeu: FicheJeu
+  succes?: SuccesDetail
 }
 
 function anneeSortie(iso: string | null): number | null {
@@ -17,13 +19,15 @@ function anneeSortie(iso: string | null): number | null {
 }
 
 /** En-tête immersif de la fiche : fond, titre, méta et actions. */
-export default function EnteteJeu({ jeu }: Props) {
+export default function EnteteJeu({ jeu, succes }: Props) {
   const image =
     jeu.screenshots[0]?.pleine ??
     jeu.backgroundImageUrl ??
     jeu.headerImageUrl
   const annee = anneeSortie(jeu.releaseDate)
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
+  const totalSucces = succes?.total ?? jeu.achievementsTotal
+  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
 
   return (
     <header
@@ -58,9 +62,9 @@ export default function EnteteJeu({ jeu }: Props) {
               {formaterDuree(jeu.playtimeForever)} de jeu
             </Etiquette>
           )}
-          {jeu.achievements.total > 0 && (
+          {totalSucces !== null && totalSucces > 0 && (
             <Etiquette variante="succes">
-              {jeu.achievements.unlocked} / {jeu.achievements.total} succès
+              {debloquesSucces ?? '—'} / {totalSucces} succès
             </Etiquette>
           )}
         </div>

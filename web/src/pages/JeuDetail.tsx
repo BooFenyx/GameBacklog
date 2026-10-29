@@ -10,22 +10,31 @@ import { IconeAlerte } from '../components/ui/Icones'
 import {
   ErreurFiche,
   chargerFicheJeu,
+  chargerSuccesJeu,
   type FicheJeu,
+  type SuccesDetail,
 } from '../games'
 
-type Etat =
+type EtatFiche =
   | { statut: 'chargement' }
   | { statut: 'erreur'; message: string; introuvable: boolean }
   | { statut: 'pret'; jeu: FicheJeu }
 
+type EtatSucces =
+  | { statut: 'chargement' }
+  | { statut: 'erreur'; message: string }
+  | { statut: 'pret'; succes: SuccesDetail }
+
 const MESSAGE_INTROUVABLE =
   "Ce jeu n'est pas dans ta bibliothèque, ou sa fiche n'est plus disponible."
 
-/** Page détail d'un jeu : fiche `GET /api/games/:appId`, succès et galerie. */
+/** Page détail d'un jeu : fiche et succès sont chargés séparément. */
 export default function JeuDetail() {
   const { appId } = useParams<{ appId: string }>()
-  const [etat, setEtat] = useState<Etat>({ statut: 'chargement' })
-  const [recharger, setRecharger] = useState(0)
+  const [fiche, setFiche] = useState<EtatFiche>({ statut: 'chargement' })
+  const [succes, setSucces] = useState<EtatSucces>({ statut: 'chargement' })
+  const [rechargerFiche, setRechargerFiche] = useState(0)
+  const [rechargerSucces, setRechargerSucces] = useState(0)
 
   useEffect(() => {
     if (!appId) return
@@ -34,19 +43,19 @@ export default function JeuDetail() {
 
     void chargerFicheJeu(appId, controller.signal)
       .then((jeu) => {
-        if (actif) setEtat({ statut: 'pret', jeu })
+        if (actif) setFiche({ statut: 'pret', jeu })
       })
       .catch((error: unknown) => {
         if (!actif || controller.signal.aborted) return
         if (error instanceof ErreurFiche && error.statut === 404) {
-          setEtat({
+          setFiche({
             statut: 'erreur',
             message: MESSAGE_INTROUVABLE,
             introuvable: true,
           })
           return
         }
-        setEtat({
+        setFiche({
           statut: 'erreur',
           message:
             error instanceof Error
@@ -60,7 +69,37 @@ export default function JeuDetail() {
       actif = false
       controller.abort()
     }
-  }, [appId, recharger])
+  }, [appId, rechargerFiche])
+
+  useEffect(() => {
+    if (!appId) return
+    const controller = new AbortController()
+    let actif = true
+
+    void chargerSuccesJeu(appId, controller.signal)
+      .then((detail) => {
+        if (actif) setSucces({ statut: 'pret', succes: detail })
+      })
+      .catch((error: unknown) => {
+        if (!actif || controller.signal.aborted) return
+        if (error instanceof ErreurFiche && error.statut === 404) {
+          setSucces({ statut: 'erreur', message: MESSAGE_INTROUVABLE })
+          return
+        }
+        setSucces({
+          statut: 'erreur',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Impossible de récupérer les succès.',
+        })
+      })
+
+    return () => {
+      actif = false
+      controller.abort()
+    }
+  }, [appId, rechargerSucces])
 
   if (!appId) {
     return (
@@ -78,7 +117,7 @@ export default function JeuDetail() {
     )
   }
 
-  if (etat.statut === 'chargement') {
+  if (fiche.statut === 'chargement') {
     return (
       <>
         <p className="sr-only" role="status">
@@ -89,22 +128,24 @@ export default function JeuDetail() {
     )
   }
 
-  if (etat.statut === 'erreur') {
+  if (fiche.statut === 'erreur') {
     return (
       <section className="detail detail--erreur">
         <div className="etat-biblio" role="alert">
           <span className="etat-biblio__icone" aria-hidden="true">
             <IconeAlerte />
           </span>
-          <p>{etat.message}</p>
+          <p>{fiche.message}</p>
           <div className="etat-erreur-actions">
-            {!etat.introuvable && (
+            {!fiche.introuvable && (
               <button
                 type="button"
                 className="btn"
                 onClick={() => {
-                  setEtat({ statut: 'chargement' })
-                  setRecharger((valeur) => valeur + 1)
+                  setFiche({ statut: 'chargement' })
+                  setSucces({ statut: 'chargement' })
+                  setRechargerFiche((valeur) => valeur + 1)
+                  setRechargerSucces((valeur) => valeur + 1)
                 }}
               >
                 Réessayer
@@ -119,21 +160,53 @@ export default function JeuDetail() {
     )
   }
 
-  const { jeu } = etat
+  const detailSucces = succes.statut === 'pret' ? succes.succes : undefined
 
   return (
     <article className="fiche">
-      <EnteteJeu jeu={jeu} />
+      <EnteteJeu jeu={fiche.jeu} succes={detailSucces} />
       <div className="fiche-layout">
         <div className="fiche-principale">
           <DescriptionJeu
-            blocs={jeu.descriptionBlocks}
-            descriptionCourte={jeu.shortDescription}
+            blocs={fiche.jeu.descriptionBlocks}
+            descriptionCourte={fiche.jeu.shortDescription}
           />
-          <GalerieJeu captures={jeu.screenshots} nom={jeu.name} />
-          <SuccesJeu succes={jeu.achievements} />
+          <GalerieJeu
+            captures={fiche.jeu.screenshots}
+            nom={fiche.jeu.name}
+          />
+
+          {succes.statut === 'chargement' && (
+            <section className="fiche-section" aria-busy="true">
+              <h2 className="titre-section">Succès</h2>
+              <p className="succes-vide">Chargement des succès…</p>
+            </section>
+          )}
+
+          {succes.statut === 'erreur' && (
+            <section className="fiche-section" role="alert">
+              <h2 className="titre-section">Succès</h2>
+              <p className="succes-vide">{succes.message}</p>
+              <div className="succes-plus">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setSucces({ statut: 'chargement' })
+                    setRechargerSucces((valeur) => valeur + 1)
+                  }}
+                >
+                  Réessayer
+                </button>
+              </div>
+            </section>
+          )}
+
+          {succes.statut === 'pret' && (
+            <SuccesJeu succes={succes.succes} />
+          )}
         </div>
-        <PanneauJeu jeu={jeu} />
+        <PanneauJeu jeu={fiche.jeu} succes={detailSucces} />
       </div>
     </article>
   )

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ErreurFiche, chargerFicheJeu } from './games'
+import {
+  ErreurFiche,
+  chargerFicheJeu,
+  chargerSuccesJeu,
+} from './games'
 
 describe('chargerFicheJeu', () => {
   afterEach(() => {
@@ -52,6 +56,31 @@ describe('chargerFicheJeu', () => {
     await expect(chargerFicheJeu('abc')).rejects.toMatchObject({
       statut: 400,
       message: 'appId doit être un nombre',
+    })
+  })
+})
+
+describe('chargerSuccesJeu', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('appelle l’endpoint dédié et renvoie les succès', async () => {
+    const detail = {
+      total: 51,
+      unlocked: 12,
+      list: [],
+    }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => detail,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(chargerSuccesJeu(620)).resolves.toEqual(detail)
+    expect(fetchMock).toHaveBeenCalledWith('/api/games/620/achievements', {
+      credentials: 'include',
+      signal: undefined,
     })
   })
 })

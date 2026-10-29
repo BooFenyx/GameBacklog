@@ -43,13 +43,15 @@ export type FicheJeu = {
   playtimeForever: number
   playtimeLast2Weeks: number
   lastPlayedAt: string | null
-  achievementsUnlocked: number
-  achievements: {
-    total: number
-    unlocked: number
-    list: Succes[]
-  }
+  achievementsTotal: number | null
+  achievementsUnlocked: number | null
   steamUrl: string
+}
+
+export type SuccesDetail = {
+  total: number
+  unlocked: number
+  list: Succes[]
 }
 
 export const LIBELLE_MANETTE: Record<FicheJeu['controllerSupport'], string> = {
@@ -98,4 +100,20 @@ export async function chargerFicheJeu(
     throw new ErreurFiche(messageErreur(corps, res.status), res.status)
   }
   return (await res.json()) as FicheJeu
+}
+
+/** `GET /api/games/:appId/achievements` — liste détaillée des succès. */
+export async function chargerSuccesJeu(
+  appId: number | string,
+  signal?: AbortSignal,
+): Promise<SuccesDetail> {
+  const res = await fetch(urlApi(`/api/games/${appId}/achievements`), {
+    credentials: 'include',
+    signal,
+  })
+  if (!res.ok) {
+    const corps = await res.json().catch(() => null)
+    throw new ErreurFiche(messageErreur(corps, res.status), res.status)
+  }
+  return (await res.json()) as SuccesDetail
 }
