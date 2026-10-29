@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import BasculeVue from '../components/bibliotheque/BasculeVue'
+import CarteJeu from '../components/bibliotheque/CarteJeu'
+import LigneJeu from '../components/bibliotheque/LigneJeu'
+import SqueletteCarte from '../components/bibliotheque/SqueletteCarte'
+import { useVueBibliotheque } from '../components/bibliotheque/useVueBibliotheque'
 import BarreFiltres from '../components/filtres/BarreFiltres'
 import SidebarFiltres from '../components/filtres/SidebarFiltres'
+import { IconeAlerte, IconeBoite } from '../components/ui/Icones'
 import {
-  MODES,
   cleFiltres,
   compterFiltresActifs,
   ecrireFiltres,
   lireFiltres,
   type Filtres,
 } from '../filters'
-import { formaterDepuis, formaterDuree } from '../format'
 import {
   chargerBibliotheque,
   chargerFacettes,
   type Facettes,
-  type JeuBibliotheque,
   type ReponseBibliotheque,
 } from '../library'
 import {
@@ -39,40 +42,6 @@ function messageErreur(erreur: unknown): string {
     return 'Quota d’embedding atteint (Google Gemini) : l’import reprendra plus tard.'
   }
   return texte
-}
-
-/** Nombre de genres affichés sur une carte avant le « +N ». */
-const GENRES_VISIBLES = 2
-
-type EtatCarte = { label: string; recent: boolean }
-
-/** Badge d'état affiché sur l'image : jamais lancé, récent ou joué. */
-function etatJeu(jeu: JeuBibliotheque): EtatCarte {
-  if (jeu.playtimeForever === 0) {
-    return { label: 'Jamais lancé', recent: false }
-  }
-  if (jeu.playtimeLast2Weeks > 0) {
-    return { label: 'Joué cette semaine', recent: true }
-  }
-  return { label: 'Joué', recent: false }
-}
-
-/** Ligne compacte sous le titre : temps de jeu, dernière partie, succès. */
-function metaJeu(jeu: JeuBibliotheque): string {
-  const morceaux = [
-    jeu.playtimeForever > 0
-      ? `${formaterDuree(jeu.playtimeForever)} de jeu`
-      : null,
-    jeu.lastPlayedAt ? `joué ${formaterDepuis(jeu.lastPlayedAt)}` : null,
-    jeu.achievementsUnlocked > 0 ? `${jeu.achievementsUnlocked} succès` : null,
-  ].filter((valeur): valeur is string => Boolean(valeur))
-
-  return morceaux.length > 0 ? morceaux.join(' · ') : 'Jamais lancé'
-}
-
-/** Libellé lisible d'un mode de jeu, tel qu'affiché dans les filtres. */
-function libelleMode(valeur: string): string {
-  return MODES.find((mode) => mode.value === valeur)?.label ?? valeur
 }
 
 /**
@@ -103,6 +72,8 @@ export default function Bibliotheque() {
   const [job, setJob] = useState<JobSync | null>(null)
   const [version, setVersion] = useState(0)
   const [relance, setRelance] = useState(0)
+  const [recharger, setRecharger] = useState(0)
+  const [vue, changerVue] = useVueBibliotheque()
   const [filtresOuverts, setFiltresOuverts] = useState(true)
   const [ongletVisible, setOngletVisible] = useState(false)
   const plusController = useRef<AbortController | null>(null)
@@ -165,7 +136,7 @@ export default function Bibliotheque() {
       })
 
     return () => controller.abort()
-  }, [cleListe])
+  }, [cleListe, recharger])
 
   // Suivi de l'import : on sonde tant qu'un job tourne, puis on rafraîchit la
   // page et les facettes une seule fois quand il se termine.
@@ -262,6 +233,11 @@ export default function Bibliotheque() {
     setSearchParams(new URLSearchParams(), { replace: false })
     window.scrollTo({ top: 0 })
   }, [setSearchParams])
+
+  const reessayerListe = useCallback(() => {
+    setErreurListe(null)
+    setRecharger((valeur) => valeur + 1)
+  }, [])
 
   const relancer = async (): Promise<void> => {
     setErreur(null)
@@ -367,6 +343,7 @@ export default function Bibliotheque() {
             filtresEnSidebar
             afficherCompte={false}
             afficherToutEffacer={false}
+            actions={<BasculeVue vue={vue} onChanger={changerVue} />}
             onChanger={changerFiltres}
             onEffacer={effacerFiltres}
           />
@@ -387,12 +364,40 @@ export default function Bibliotheque() {
             </div>
           )}
 
-          {(erreurCourante || erreur) && (
-            <p className="message-erreur">{erreurCourante ?? erreur}</p>
+          {erreurCourante && (
+            <div className="etat-erreur" role="alert">
+              <p className="message-erreur">{erreurCourante}</p>
+              <button
+                type="button"
+                className="btn"
+                onClick={reessayerListe}
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
+
+          {erreur && !erreurCourante && (
+            <p className="message-erreur">{erreur}</p>
           )}
 
           {chargement && (
-            <p className="chargement">Chargement de la bibliothèque…</p>
+            <>
+              <p className="sr-only" role="status">
+                Chargement de la bibliothèque…
+              </p>
+              <ul
+                className={
+                  vue === 'grille' ? 'biblio-grille' : 'biblio-liste'
+                }
+              >
+                {Array.from({
+                  length: vue === 'grille' ? 6 : 5,
+                }).map((_, index) => (
+                  <SqueletteCarte key={index} variante={vue} />
+                ))}
+              </ul>
+            </>
           )}
 
           {page && (
@@ -402,7 +407,10 @@ export default function Bibliotheque() {
           )}
 
           {!chargement && !enRafraichissement && page && total === 0 && (
-            <div className="bibliotheque-vide">
+            <div className="etat-biblio">
+              <span className="etat-biblio__icone" aria-hidden="true">
+                {aDesFiltres ? <IconeAlerte /> : <IconeBoite />}
+              </span>
               {aDesFiltres ? (
                 <>
                   <p>Aucun jeu ne correspond à ces filtres.</p>
@@ -415,95 +423,38 @@ export default function Bibliotheque() {
                   </button>
                 </>
               ) : (
-                <p>
-                  Aucun jeu importé. Clique sur « Synchroniser » pour lancer
-                  l’import de ta bibliothèque Steam.
-                </p>
+                <>
+                  <p>
+                    Aucun jeu importé. Lance un import Steam pour commencer.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-principal"
+                    disabled={enCours}
+                    onClick={() => void relancer()}
+                  >
+                    {enCours ? 'Synchronisation…' : 'Synchroniser'}
+                  </button>
+                </>
               )}
             </div>
           )}
 
           {page && page.items.length > 0 && (
             <>
-              <ul className="liste-jeux">
-                {page.items.map((jeu) => {
-                  const etat = etatJeu(jeu)
-                  const genresVus = jeu.genres.slice(0, GENRES_VISIBLES)
-                  const genresRestants =
-                    jeu.genres.length - genresVus.length
-
-                  return (
-                    <li key={jeu.appId} className="jeu-carte">
-                      <Link
-                        to={`/jeu/${jeu.appId}`}
-                        className="jeu-lien"
-                        aria-label={`Ouvrir la fiche de ${jeu.name} — ${etat.label}`}
-                      />
-                      <div className="jeu-media">
-                        {jeu.headerImageUrl ? (
-                          <img
-                            className="jeu-image"
-                            src={jeu.headerImageUrl}
-                            alt=""
-                            width="460"
-                            height="215"
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        ) : (
-                          <span
-                            className="jeu-image jeu-image-vide"
-                            aria-hidden="true"
-                          >
-                            {jeu.name.slice(0, 1).toUpperCase()}
-                          </span>
-                        )}
-                        <span
-                          className={`jeu-etat${etat.recent ? ' jeu-etat-recent' : ''}`}
-                        >
-                          {etat.label}
-                        </span>
-                      </div>
-                      <div className="jeu-corps">
-                        <span className="jeu-nom">{jeu.name}</span>
-                        {genresVus.length > 0 && (
-                          <span className="jeu-genres">
-                            {genresVus.map((genre) => (
-                              <span key={genre} className="jeu-genre">
-                                {genre}
-                              </span>
-                            ))}
-                            {genresRestants > 0 && (
-                              <span className="jeu-genre jeu-genre-plus">
-                                +{genresRestants}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                        <span className="jeu-meta">{metaJeu(jeu)}</span>
-                        {(jeu.modes.length > 0 ||
-                          jeu.controllerSupport === 'full') && (
-                          <span className="jeu-badges">
-                            {jeu.modes.map((mode) => (
-                              <span
-                                key={mode}
-                                className={`jeu-badge${mode === 'solo' ? ' jeu-badge-solo' : ''}`}
-                              >
-                                {libelleMode(mode)}
-                              </span>
-                            ))}
-                            {jeu.controllerSupport === 'full' && (
-                              <span className="jeu-badge jeu-badge-manette">
-                                Manette
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
+              {vue === 'grille' ? (
+                <ul className="biblio-grille">
+                  {page.items.map((jeu) => (
+                    <CarteJeu key={jeu.appId} jeu={jeu} />
+                  ))}
+                </ul>
+              ) : (
+                <ul className="biblio-liste">
+                  {page.items.map((jeu) => (
+                    <LigneJeu key={jeu.appId} jeu={jeu} />
+                  ))}
+                </ul>
+              )}
 
               {page.hasMore && (
                 <div className="biblio-plus">

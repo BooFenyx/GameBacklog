@@ -55,7 +55,7 @@ export const DUREES: { value: DureeJeu; label: string }[] = [
 ]
 
 export const TRIS: { value: TriBibliotheque; label: string }[] = [
-  { value: 'nom', label: 'Nom' },
+  { value: 'nom', label: 'Nom (A → Z)' },
   { value: 'temps', label: 'Temps de jeu' },
   { value: 'recent', label: 'Dernière partie' },
 ]

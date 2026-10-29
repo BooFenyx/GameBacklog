@@ -15,7 +15,6 @@ import Connexion from './pages/Connexion'
 import JeuDetail from './pages/JeuDetail'
 import NotFound from './pages/NotFound'
 import Recherche from './pages/Recherche'
-import './App.css'
 
 function Chargement() {
   return <p className="chargement">Chargement de la session…</p>

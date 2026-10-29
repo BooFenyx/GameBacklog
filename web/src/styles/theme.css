@@ -1,0 +1,114 @@
+/**
+ * Socle de design de GameBacklog.
+ *
+ * Les composants ne doivent consommer que les tokens sémantiques
+ * (`--couleur-*`, `--espace-*`, `--rayon-*`, `--typo-*`, `--ombre-*`).
+ * Les primitives de marque sont regroupées en haut : changer la DA revient
+ * à modifier ce fichier, sans repasser sur les composants.
+ */
+
+:root {
+  /* --- Primitives de marque (DA actuelle) --- */
+  --primaire-400: #b89bff;
+  --primaire-500: #9d7bff;
+  --secondaire-400: #3df5ff;
+  --neutre-950: #050308;
+  --neutre-900: #0b0812;
+  --neutre-850: #14101f;
+  --neutre-800: #1c162b;
+  --neutre-750: #241c36;
+  --neutre-700: #32284a;
+  --neutre-600: #4a3d68;
+  --neutre-300: #c7c2d3;
+  --neutre-200: #ddd9e8;
+  --neutre-50: #f5f3ff;
+
+  /* --- Tokens sémantiques --- */
+  --couleur-fond: var(--neutre-950);
+  --couleur-surface-1: var(--neutre-850);
+  --couleur-surface-2: var(--neutre-800);
+  --couleur-surface-3: var(--neutre-750);
+  --couleur-texte: var(--neutre-300);
+  --couleur-texte-fort: var(--neutre-50);
+  --couleur-texte-doux: color-mix(in oklab, var(--neutre-300) 68%, transparent);
+  --couleur-bordure: var(--neutre-700);
+  --couleur-bordure-douce: color-mix(in oklab, var(--neutre-700) 58%, transparent);
+  --couleur-accent: var(--primaire-400);
+  --couleur-accent-2: var(--secondaire-400);
+  --couleur-accent-doux: color-mix(in oklab, var(--couleur-accent) 16%, transparent);
+  --couleur-accent-bordure: color-mix(in oklab, var(--couleur-accent) 55%, transparent);
+  --couleur-sur-accent: #120f1c;
+  --couleur-succes: #7ef0b2;
+  --couleur-alerte: #ffbd7a;
+
+  /* --- Rayons --- */
+  --rayon-sm: 8px;
+  --rayon-md: 12px;
+  --rayon-lg: 18px;
+  --rayon-xl: 24px;
+  --rayon-pilule: 999px;
+
+  /* --- Espacement (échelle de 4 px) --- */
+  --espace-1: 4px;
+  --espace-2: 8px;
+  --espace-3: 12px;
+  --espace-4: 16px;
+  --espace-5: 24px;
+  --espace-6: 32px;
+  --espace-7: 48px;
+  --espace-8: 64px;
+
+  /* --- Typographie --- */
+  --typo-titre-1: clamp(2.2rem, 1.4rem + 2.4vw, 3.6rem);
+  --typo-titre-2: 1.5rem;
+  --typo-titre-3: 1.125rem;
+  --typo-texte: 1rem;
+  --typo-petit: 0.8125rem;
+  --typo-micro: 0.6875rem;
+
+  /* --- Ombres et focus --- */
+  --ombre-carte: 0 18px 40px -28px rgba(0, 0, 0, 0.9);
+  --ombre-survol:
+    0 24px 60px -30px color-mix(in oklab, var(--couleur-accent) 42%, transparent),
+    0 18px 40px -30px color-mix(in oklab, var(--couleur-accent-2) 32%, transparent);
+  --ombre-panneau: 0 24px 70px -48px rgba(0, 0, 0, 0.95);
+  --anneau-focus: 0 0 0 2px var(--couleur-fond), 0 0 0 4px var(--couleur-accent);
+
+  /* --- Dégradés --- */
+  --degrade-accent: linear-gradient(
+    135deg,
+    var(--couleur-accent) 0%,
+    var(--couleur-accent-2) 100%
+  );
+  --degrade-surface: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--couleur-surface-2) 72%, transparent) 0%,
+    var(--couleur-surface-1) 100%
+  );
+
+  /* --- Familles et hauteur de coquille --- */
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+  --topbar-hauteur: 68px;
+
+  /* --- Alias de compatibilité avec l'existant ---
+     Les anciens noms restent valides pendant la migration ; les nouveaux
+     composants doivent utiliser les tokens sémantiques ci-dessus. */
+  --bg: var(--couleur-fond);
+  --bg-surface: var(--couleur-surface-1);
+  --bg-elev: var(--couleur-surface-2);
+  --border: var(--couleur-bordure);
+  --text: var(--couleur-texte);
+  --text-h: var(--couleur-texte-fort);
+  --accent: var(--couleur-accent);
+  --accent-2: var(--couleur-accent-2);
+  --accent-bg: var(--couleur-accent-doux);
+  --accent-border: var(--couleur-accent-bordure);
+  --accent-border-2: color-mix(in oklab, var(--couleur-accent-2) 55%, transparent);
+  --accent-glow: color-mix(in oklab, var(--couleur-accent) 45%, transparent);
+  --accent-glow-2: color-mix(in oklab, var(--couleur-accent-2) 40%, transparent);
+  --social-bg: color-mix(in oklab, var(--couleur-surface-1) 92%, transparent);
+  --shadow: var(--ombre-survol);
+  --code-bg: color-mix(in oklab, var(--couleur-surface-2) 76%, transparent);
+}

@@ -218,6 +218,12 @@ Ajouter uniquement **la bascule grille/liste** à droite, via un slot
 `actions?: ReactNode` optionnel sur `BarreFiltres` (comportement inchangé pour
 la page de recherche).
 
+Le bouton **Filtres** reste à gauche : il est le premier contrôle de la barre
+sur mobile et tablette, là où la colonne latérale est remplacée par le panneau.
+Sur desktop, la colonne de filtres reste à gauche et le bouton est masqué.
+
+Le tri par nom s'affiche **`Nom (A → Z)`**, pour rendre l'ordre explicite.
+
 La barre **n'est pas collante** : le fond semi-opaque se découpait sur le
 dégradé et laissait voir les images au travers. Elle reste dans le flux.
 
@@ -486,6 +492,9 @@ npm run build
 - Un changement de filtre ne vide plus la grille : l'ancienne liste reste
   affichée, estompée, le temps de la requête.
 - La vue par défaut est la grille ; le choix est mémorisé dans `localStorage`.
+- Le bouton **Filtres** reste à gauche : premier contrôle sur mobile/tablette,
+  colonne latérale à gauche sur desktop.
+- Le tri par nom affiche **`Nom (A → Z)`**.
 - La DA finale est hors PR2 : `theme.css` est le seul point à modifier.
 - La fiche de jeu part sur `feature/refonte-fiche-jeu` et sa propre fiche.
 

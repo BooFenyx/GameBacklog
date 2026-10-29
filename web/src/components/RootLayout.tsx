@@ -32,6 +32,12 @@ export default function RootLayout() {
     notice = 'La connexion Steam a échoué. Réessaie.'
   }
 
+  // La fiche d'un jeu est une sous-page de la bibliothèque : le lien reste
+  // actif pour que la navigation reflète le contexte.
+  const surBibliotheque =
+    location.pathname === '/bibliotheque' ||
+    location.pathname.startsWith('/jeu/')
+
   return (
     <div className="app">
       <header className="topbar">
@@ -42,7 +48,13 @@ export default function RootLayout() {
 
           <nav className="nav">
             <NavLink to="/accueil">Accueil</NavLink>
-            <NavLink to="/bibliotheque">Bibliothèque</NavLink>
+            <Link
+              to="/bibliotheque"
+              className={surBibliotheque ? 'active' : undefined}
+              aria-current={surBibliotheque ? 'page' : undefined}
+            >
+              Bibliothèque
+            </Link>
           </nav>
 
           {user && (
