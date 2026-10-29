@@ -79,14 +79,21 @@ renvoie aujourd'hui `Action + Free-to-play`). Les ids restent stables.
 | Groupe | Paramètre | Valeurs | Règle |
 |---|---|---|---|
 | Texte | `q` | ≤ 100 (bibliothèque) / ≤ 300 (recherche) | Sous-chaîne, casse ignorée |
-| Genres | `genres` | ids CSV, max 8 | **OR** dans le groupe |
-| Modes | `modes` | `solo,multi,coop,pvp,local,crossplay` | OR dans le groupe |
+| Genres | `genres` | ids CSV, max 8 | **ET exclusif** dans le groupe |
+| Modes | `modes` | `solo,multi,coop,pvp,local,crossplay` | **ET exclusif** dans le groupe |
 | Manette | `manette` | `full` | Support complet uniquement ; le partiel est affiché sur la fiche du jeu |
 | État | `etat` | `jamais`, `joue` | Une valeur |
 | Durée | `duree` | `0-2,2-10,10-50,50plus` | OR dans le groupe |
 | Tri | `tri` | `nom`, `temps`, `recent` | Défaut `nom` |
 
-- **OR intra-groupe, AND inter-groupes.**
+- **Genres et modes : ET exclusif intra-groupe.** Sélectionner Action + RPG
+  ne garde que les jeux qui portent les deux genres ; Solo + Coop ne garde que
+  les jeux qui supportent les deux modes.
+- **Durées : OR intra-groupe.** Les tranches sont mutuellement exclusives.
+- **AND inter-groupes.**
+- Correctif : l'ancien comportement d'intersection (`&&`, donc OR) a été
+  remplacé par `@>` pour les genres et par une condition d'intersection par
+  mode pour les modes.
 - `50plus` et non `50+` : le `+` serait décodé en espace dans une query string.
 - Le filtre « Joué récemment » a été retiré : peu utile et souvent vide.
 - Le support **partiel** n'est pas filtrable : le compteur exact est souvent nul et le

@@ -226,7 +226,7 @@ describe('Bibliothèque (e2e)', () => {
     expect(res.body.items[0]).not.toHaveProperty('shortDescription');
   });
 
-  it('filtre par genre et par mode (OR dans le groupe)', async () => {
+  it('filtre par genre et par mode (ET dans le groupe)', async () => {
     const agent = request.agent(app.getHttpServer());
     await agent
       .get(`/api/auth/steam/return?${RETURN_QUERY}`)
@@ -240,6 +240,25 @@ describe('Bibliothèque (e2e)', () => {
     const parMode = await agent.get('/api/library?modes=coop').expect(200);
     expect(parMode.body.total).toBe(1);
     expect(parMode.body.items[0].name).toBe('Jeu Coop');
+
+    // Deux genres distincts ne se cumulent pas : aucun jeu ne porte les deux.
+    const deuxGenres = await agent
+      .get('/api/library?genres=1,25')
+      .expect(200);
+    expect(deuxGenres.body.total).toBe(0);
+
+    // Deux modes compatibles se cumulent en ET : Jeu Coop est multi + coop.
+    const deuxModes = await agent
+      .get('/api/library?modes=multi,coop')
+      .expect(200);
+    expect(deuxModes.body.total).toBe(1);
+    expect(deuxModes.body.items[0].name).toBe('Jeu Coop');
+
+    // Solo + Coop ne doivent pas renvoyer Jeu Coop, qui n'est pas solo.
+    const modesIncompatibles = await agent
+      .get('/api/library?modes=solo,coop')
+      .expect(200);
+    expect(modesIncompatibles.body.total).toBe(0);
   });
 
   it('combine q, manette et état', async () => {

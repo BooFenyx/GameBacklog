@@ -235,7 +235,7 @@ describe('SearchService — recherche par nom', () => {
     const reponse = await service.searchByName(7, dto({ genres: [25] }));
 
     const [sql, params] = query.mock.calls[1] as [string, unknown[]];
-    expect(sql).toContain('g.genre_ids && $3::int[]');
+    expect(sql).toContain('g.genre_ids @> $3::int[]');
     expect(params[2]).toEqual([25]);
     expect(reponse.results[0]?.criteria).toEqual(['Genre : Aventure']);
   });
