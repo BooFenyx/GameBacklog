@@ -97,7 +97,8 @@ la fiche ne doit consommer que des tokens.
   - `FILTERS_VERSION = 1` sert de version de mapping ; `stepDetails` refait les
     fiches dont la version est inférieure.
 - `api/src/games/games.controller.ts` :
-  - `GameDetailResponse` ajoute `achievements` et `steamUrl` ;
+  - `GameDetailResponse` ajoute `steamUrl` ; les succès détaillés sont servis
+    par un endpoint dédié ;
   - les succès sont chargés à la demande par `AchievementsService`.
 - `api/src/db/schema.ts` : `games` ne possédait pas les colonnes riches avant la
   migration `0005`.
@@ -222,7 +223,8 @@ n'est ajoutée : le front ne reçoit que des chaînes.
 ### 4.7 Réponse `GET /api/games/:appId`
 
 `UserGameDetail` porte les nouveaux champs issus de `games` ; `GameDetailResponse`
-ajoute les succès et le lien de lancement :
+ajoute le lien de lancement, tandis que la liste détaillée des succès est servie
+par un endpoint dédié :
 
 ```ts
 export interface UserGameDetail {
@@ -247,14 +249,24 @@ export interface UserGameDetail {
   playtimeForever: number
   playtimeLast2Weeks: number
   lastPlayedAt: Date | null
-  achievementsUnlocked: number
+  achievementsTotal: number | null
+  achievementsUnlocked: number | null
 }
 
 export interface GameDetailResponse extends UserGameDetail {
-  achievements: { total: number; unlocked: number; list: AchievementDto[] }
   steamUrl: string
 }
+
+export interface SuccesDetail {
+  total: number
+  unlocked: number
+  list: AchievementDto[]
+}
 ```
+
+`GET /api/games/:appId/achievements` renvoie `SuccesDetail`. La fiche
+`GET /api/games/:appId` ne charge plus la liste : elle lit les compteurs en base
+et reste rapide, même si Steam est lent ou indisponible.
 
 - Le score Metacritic est stocké en deux colonnes (`metacritic_score`,
   `metacritic_url`) : le front construit l'objet d'affichage.
@@ -264,7 +276,8 @@ export interface GameDetailResponse extends UserGameDetail {
 - Le front construit le lien Store
   (`https://store.steampowered.com/app/${appId}`) à partir de `appId` : pas de
   champ API supplémentaire.
-- Les succès restent chargés à la demande et renvoyés en une seule fois.
+- Les succès détaillés sont chargés à la demande par l'endpoint dédié, avec le
+  cache et le TTL de l'étape `achievements` du sync.
 
 ### 4.8 Sécurité
 
@@ -342,6 +355,9 @@ rester : identité → description → galerie → infos/activité → succès.
 
 ### 5.6 Succès
 
+- La fiche affiche d'abord les compteurs ; la liste se charge indépendamment via
+  `GET /api/games/:appId/achievements`.
+- En cas d'échec, la section propose `Réessayer` sans recharger la fiche.
 - En-tête : `Succès — N/M` et pourcentage.
 - Barre de progression accessible (`role="progressbar"`, `aria-valuenow`,
   `aria-valuemin`, `aria-valuemax`).
@@ -409,14 +425,17 @@ rester : identité → description → galerie → infos/activité → succès.
 - `api/drizzle/0005_*.sql` — migration générée.
 - `api/src/games/games.service.ts` — types, `htmlToBlocks`, mapping,
   `upsertFromDetails`, `userGameDetail`, `FILTERS_VERSION`.
-- `api/src/games/games.controller.ts` — `GameDetailResponse`.
+- `api/src/games/games.controller.ts` — `GameDetailResponse` et
+  `GET /api/games/:appId/achievements`.
 - `api/src/games/games.service.spec.ts` — tests de mapping et de conversion.
 
 **Web**
 
-- `web/src/games.ts` — types `FicheJeu`, `DescriptionBlock`, `CaptureEcran`,
-  `Plateforme`, `ErreurFiche`, `chargerFicheJeu`.
-- `web/src/pages/JeuDetail.tsx` — orchestration et états.
+- `web/src/games.ts` — types `FicheJeu`, `SuccesDetail`, `DescriptionBlock`,
+  `CaptureEcran`, `Plateforme`, `ErreurFiche`, `chargerFicheJeu`,
+  `chargerSuccesJeu`.
+- `web/src/pages/JeuDetail.tsx` — orchestration, fiche et succès chargés
+  séparément.
 - `web/src/components/jeu/EnteteJeu.tsx` — hero.
 - `web/src/components/jeu/DescriptionJeu.tsx` — blocs de description.
 - `web/src/components/jeu/GalerieJeu.tsx` — vignettes + dialogue.
@@ -497,9 +516,9 @@ npm test
 npm run build
 ```
 
-- Tests purs pour `chargerFicheJeu` si un mock `fetch` est simple à mettre en
-  place ; sinon, garder les tests sur les helpers de rendu (filtre des succès,
-  pourcentage).
+- Tests purs pour `chargerFicheJeu` et `chargerSuccesJeu` avec un mock
+  `fetch` (déjà en place) ; sinon, garder les tests sur les helpers de rendu
+  (filtre des succès, pourcentage).
 - `tsc -b` exclut déjà les fichiers de test : vérifier que le build reste vert.
 
 **Manuel**
