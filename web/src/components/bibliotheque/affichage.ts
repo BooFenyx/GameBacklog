@@ -1,5 +1,10 @@
+import {
+  TITRE_ACTIVITE_INDISPONIBLE,
+  libelleActiviteCourte,
+  titreActivite,
+} from '../../activite'
 import { MODES } from '../../filters'
-import { formaterDepuis, formaterDuree } from '../../format'
+import { formaterDuree } from '../../format'
 import type { JeuBibliotheque } from '../../library'
 
 /** Nombre de genres affichés sur une carte avant le « +N ». */
@@ -34,15 +39,20 @@ export function libelleMode(valeur: string): string {
 
 export type MetaJeu = {
   temps: string | null
-  dernier: string | null
+  activite: string | null
+  activiteTitre: string | null
   jamais: boolean
 }
 
-/** Méta d'une carte : temps de jeu et dernière partie, séparés. */
+/** Méta d'une carte : temps de jeu et activité dérivée, séparés. */
 export function metaJeu(jeu: JeuBibliotheque): MetaJeu {
+  const activite = libelleActiviteCourte(jeu)
   return {
     temps: jeu.playtimeForever > 0 ? formaterDuree(jeu.playtimeForever) : null,
-    dernier: jeu.lastPlayedAt ? formaterDepuis(jeu.lastPlayedAt) : null,
+    activite,
+    activiteTitre: activite
+      ? (titreActivite(jeu) ?? null)
+      : TITRE_ACTIVITE_INDISPONIBLE,
     jamais: jeu.playtimeForever === 0,
   }
 }

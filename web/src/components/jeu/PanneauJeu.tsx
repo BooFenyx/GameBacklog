@@ -1,8 +1,5 @@
-import {
-  formaterDate,
-  formaterDepuis,
-  formaterDuree,
-} from '../../format'
+import { libelleActivite, titreActivite } from '../../activite'
+import { formaterDate, formaterDuree } from '../../format'
 import {
   LIBELLE_MANETTE,
   LIBELLE_PLATEFORME,
@@ -20,13 +17,18 @@ type Props = {
 /** Colonne latérale : informations, activité et actions. */
 export default function PanneauJeu({ jeu, succes }: Props) {
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
-  const totalSucces = succes?.total ?? jeu.achievementsTotal ?? 0
-  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked ?? 0
-  const complet = totalSucces > 0 && debloquesSucces === totalSucces
+  const activite = libelleActivite(jeu)
+  const totalSucces = succes?.total ?? jeu.achievementsTotal
+  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
+  const aDesCompteurs = totalSucces !== null && totalSucces > 0
+  const complet =
+    aDesCompteurs &&
+    debloquesSucces !== null &&
+    debloquesSucces === totalSucces
   const pourcentage =
-    totalSucces > 0
+    aDesCompteurs && debloquesSucces !== null
       ? Math.round((debloquesSucces / totalSucces) * 100)
-      : 0
+      : null
 
   return (
     <aside className="fiche-laterale" aria-label="Informations et activité">
@@ -142,17 +144,19 @@ export default function PanneauJeu({ jeu, succes }: Props) {
             </strong>
             <span>temps total</span>
           </div>
+          {jeu.playtimeLast2Weeks > 0 && (
+            <div className="stat">
+              <strong>{formaterDuree(jeu.playtimeLast2Weeks)}</strong>
+              <span>2 dernières sem.</span>
+            </div>
+          )}
           <div className="stat">
-            <strong>{formaterDuree(jeu.playtimeLast2Weeks)}</strong>
-            <span>2 dernières sem.</span>
-          </div>
-          <div className="stat">
-            <strong>{formaterDepuis(jeu.lastPlayedAt) ?? 'jamais'}</strong>
-            <span>dernière partie</span>
+            <strong title={titreActivite(jeu)}>{activite ?? '—'}</strong>
+            <span>activité</span>
           </div>
         </div>
 
-        {totalSucces > 0 && (
+        {aDesCompteurs && (
           <>
             <div
               className={
@@ -164,19 +168,23 @@ export default function PanneauJeu({ jeu, succes }: Props) {
               <span>Succès</span>
               <span>
                 <strong>
-                  {jeu.achievementsUnlocked ?? '—'} / {jeu.achievementsTotal}
-                </strong>{' '}
-                · {pourcentage} %
+                  {debloquesSucces ?? '—'} / {totalSucces}
+                </strong>
+                {pourcentage !== null && pourcentage > 0 && (
+                  <> · {pourcentage} %</>
+                )}
               </span>
             </div>
-            <BarreProgression
-              valeur={debloquesSucces}
-              max={totalSucces}
-              label="Progression des succès"
-              className={
-                complet ? 'barre-progression--complete' : undefined
-              }
-            />
+            {debloquesSucces !== null && totalSucces !== null && (
+              <BarreProgression
+                valeur={debloquesSucces}
+                max={totalSucces}
+                label="Progression des succès"
+                className={
+                  complet ? 'barre-progression--complete' : undefined
+                }
+              />
+            )}
           </>
         )}
       </section>

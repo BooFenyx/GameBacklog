@@ -244,11 +244,15 @@ export interface UserGameDetail {
   genres: string[]
   categories: string[]
   controllerSupport: 'none' | 'partial' | 'full'
-  releaseDate: Date | null
+  /** Date seule `YYYY-MM-DD`, sans conversion de fuseau côté client. */
+  releaseDate: string | null
   headerImageUrl: string | null
   playtimeForever: number
   playtimeLast2Weeks: number
-  lastPlayedAt: Date | null
+  /** Activité dérivée : jamais une date exacte de dernière partie. */
+  lastActivityAt: Date | null
+  lastActivitySource: 'sync_delta' | 'recent_window' | 'achievement' | null
+  lastActivityPrecision: 'upper_bound' | 'lower_bound' | null
   achievementsTotal: number | null
   achievementsUnlocked: number | null
 }
@@ -278,6 +282,10 @@ et reste rapide, même si Steam est lent ou indisponible.
   champ API supplémentaire.
 - Les succès détaillés sont chargés à la demande par l'endpoint dédié, avec le
   cache et le TTL de l'étape `achievements` du sync.
+
+> **Limite Steam** : `rtime_last_played` n'est renvoyé qu'au propriétaire de la
+> clé Web API. `lastPlayedAt` n'existe plus ; l'activité est dérivée et reste
+> approximative. Voir `docs/analyse-donnees-steam.md`.
 
 ### 4.8 Sécurité
 
@@ -347,8 +355,15 @@ rester : identité → description → galerie → infos/activité → succès.
 
 **Mon activité**
 
-- Temps de jeu total, temps sur les 2 dernières semaines, dernière partie.
-- Succès : `N/M` et pourcentage, avec barre de progression.
+- Temps de jeu total, temps sur les 2 dernières semaines (masqué si nul).
+- Activité dérivée, avec les libellés de `docs/analyse-donnees-steam.md` :
+  `sync_delta` → « Joué depuis la dernière synchronisation » ;
+  `recent_window` → « Joué dans les 14 derniers jours » (ou « dans les 14 jours
+  avant le <date> » si la détection est ancienne) ; `achievement` → « Dernier
+  succès le <date> » ; `null` → « — » + infobulle. **Jamais** « dernière
+  partie » ni une date exacte.
+- Succès : `N/M` et pourcentage, avec barre de progression ; une seule source
+  pour les compteurs (`succes` sinon `jeu`), jamais `— / null`.
 - Si `playtimeForever = 0` : « Jamais lancé » mis en avant.
 - Le partiel manette affiche l'avertissement : « Certaines actions peuvent
   nécessiter le clavier ou la souris. »
@@ -526,7 +541,7 @@ npm run build
 - Jeu avec captures / sans captures.
 - Jeu avec description longue / sans description longue.
 - Développeurs, éditeurs, site, Metacritic, plateformes présents ou absents.
-- Jeu jamais lancé, joué récemment, joué il y a longtemps.
+- Jeu jamais lancé, joué récemment, activité inconnue (`—` + infobulle).
 - 0 succès, 1 succès, dizaines de succès, succès tous débloqués / tous
   verrouillés / mélangés.
 - Profil Steam privé ou `STEAM_API_KEY` absente : message de succès adapté.

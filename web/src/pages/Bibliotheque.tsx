@@ -234,6 +234,18 @@ export default function Bibliotheque() {
     window.scrollTo({ top: 0 })
   }, [setSearchParams])
 
+  // Un lien `?tri=recent` peut arriver sur un compte sans activité dérivée :
+  // on retombe silencieusement sur le tri par nom, l'option étant masquée.
+  useEffect(() => {
+    if (
+      facettes &&
+      facettes.lastActivityDisponible === false &&
+      filtres.tri === 'recent'
+    ) {
+      changerFiltres({ ...filtres, tri: 'nom' })
+    }
+  }, [facettes, filtres, changerFiltres])
+
   const reessayerListe = useCallback(() => {
     setErreurListe(null)
     setRecharger((valeur) => valeur + 1)
@@ -343,6 +355,7 @@ export default function Bibliotheque() {
             filtresEnSidebar
             afficherCompte={false}
             afficherToutEffacer={false}
+            activiteDisponible={facettes?.lastActivityDisponible ?? true}
             actions={<BasculeVue vue={vue} onChanger={changerVue} />}
             onChanger={changerFiltres}
             onEffacer={effacerFiltres}

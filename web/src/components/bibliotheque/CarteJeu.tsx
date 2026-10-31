@@ -49,8 +49,10 @@ export default function CarteJeu({ jeu }: Props) {
           ) : (
             <span className="jamais">Jamais lancé</span>
           )}
-          {meta.dernier && (
-            <span className="dernier">joué {meta.dernier}</span>
+          {meta.activite && (
+            <span className="dernier" title={meta.activiteTitre ?? undefined}>
+              {meta.activite}
+            </span>
           )}
         </p>
 

@@ -71,8 +71,8 @@ modifier l'API ni la colonne de filtres livrée en PR1. La PR2 pose aussi le
   - colonne `SidebarFiltres` + résultats ;
   - toolbar `BarreFiltres` avec recherche, tri, puces actives, compteur ;
   - grille `.liste-jeux` et carte `.jeu-carte` ;
-  - `metaJeu()` concatène temps de jeu, dernière partie et succès dans une
-    seule chaîne ;
+  - `metaJeu()` renvoie séparément le temps de jeu, l'activité dérivée
+    (`sync_delta`, `recent_window`, `achievement`, `null`) et son infobulle ;
   - `etatJeu()` et `libelleMode()` sont des helpers locaux non testés.
 - La coquille est déjà corrigée : `#root` pleine largeur, `.topbar-inner` et
   `.contenu` en padding seul, `box-sizing: border-box` global.
@@ -84,10 +84,15 @@ modifier l'API ni la colonne de filtres livrée en PR1. La PR2 pose aussi le
   1200 px. Elle gagne des colonnes au lieu d'étirer des cartes géantes.
 - Champs disponibles par jeu : `appId`, `name`, `headerImageUrl`, `genres`,
   `modes`, `controllerSupport`, `playtimeForever`, `playtimeLast2Weeks`,
-  `lastPlayedAt`, `achievementsTotal`, `achievementsUnlocked`.
+  `lastActivityAt`, `lastActivitySource`, `lastActivityPrecision`,
+  `achievementsTotal`, `achievementsUnlocked`.
 - `achievementsTotal` et `achievementsUnlocked` peuvent être `null` tant que
   l'étape `achievements` du sync n'a pas récupéré la donnée. Le compteur est
   alors masqué ou affiché `— / total`, jamais inventé.
+- **Limite Steam** : `rtime_last_played` n'est renvoyé qu'au propriétaire de la
+  clé Web API. L'application ne l'utilise pas et dérive une activité
+  approximative (`sync_delta`, `recent_window`, `achievement`). Voir
+  `docs/analyse-donnees-steam.md` pour la règle, les preuves et les libellés.
 - `web/src/App.css` contient encore :
   - des classes mortes : `.nav-avenir`, `.bibliotheque-barre`,
     `.bibliotheque-recherche`, `.bibliotheque-tri`, `.carte-vide`,
@@ -238,8 +243,9 @@ Ordre visuel :
 2. **Badge d'état** en overlay : `Jamais lancé`, `Joué cette semaine` ou
    `Joué`.
 3. **Titre** sur 2 lignes maximum.
-4. **Méta** : `20 h de jeu` en valeur forte, puis `joué il y a 8 j` en valeur
-   secondaire ; `Jamais lancé` si le temps de jeu est nul.
+4. **Méta** : `20 h de jeu` en valeur forte, puis l'activité dérivée en valeur
+   secondaire (`depuis la sync`, `14 derniers jours`, `dernier succès`) ;
+   `Jamais lancé` si le temps de jeu est nul.
 5. **Chips de genres** : 2 visibles + `+N` (avec `title` ou libellé accessible).
 6. **Badges de mode** : `Solo`, `Multi en ligne`, `Multi Local`, `Coop`, `PvP`,
    `CrossPlay` (uniquement les modes présents).
@@ -262,11 +268,13 @@ carte ne dépasse jamais ~400 px.
 Une ligne compacte, alignée en colonnes sur desktop :
 
 ```text
-[image 120×68] Portal 2   [Action][Aventure]   [Solo][Coop]   20 h   il y a 8 j   🎮   12 succès
+[image 120×68] Portal 2   [Action][Aventure]   [Solo][Coop]   20 h   depuis la sync   🎮   12 succès
 ```
 
-- Image, titre, chips de genres, badges de mode, temps de jeu, dernière partie,
-  succès, manette.
+- Image, titre, chips de genres, badges de mode, temps de jeu, activité dérivée,
+  succès, manette. La colonne affiche `—` (avec une infobulle expliquant la
+  limite Steam) quand aucune activité n'est connue ; « jamais lancé » reste
+  réservé à `playtimeForever === 0`.
 - La ligne entière est cliquable ; le survol ajoute une barre d'accent à gauche
   et un léger fond.
 - Sur mobile, la ligne redevient une carte compacte : image à gauche, titre et
@@ -486,7 +494,7 @@ npm run build
 
 - 0 jeu, 1 jeu, 8 jeux, 130 jeux.
 - Jeu sans image, sans genre, sans mode.
-- Jamais lancé, joué récemment, joué il y a longtemps.
+- Jamais lancé, joué récemment, activité inconnue (`—` + infobulle).
 - Compteur de succès : `12 / 51`, `— / 51` avant la progression, masqué
   avant le schéma ou pour un jeu sans succès.
 - Sync : l'étape « Récupération des succès » progresse, plafonne à 200 jeux et

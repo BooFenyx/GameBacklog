@@ -31,6 +31,8 @@ type Props = {
   filtresEnSidebar?: boolean
   /** Masque « Tout effacer » quand la colonne latérale le propose déjà. */
   afficherToutEffacer?: boolean
+  /** Masque le tri « Activité récente » quand le compte n'a aucune donnée. */
+  activiteDisponible?: boolean
   /** Contenu optionnel à droite de la barre (bascule grille/liste). */
   actions?: ReactNode
   onChanger: (filtres: Filtres, remplacer?: boolean) => void
@@ -54,6 +56,7 @@ export default function BarreFiltres({
   libelleRecherche = 'Rechercher dans ta bibliothèque',
   filtresEnSidebar = false,
   afficherToutEffacer = true,
+  activiteDisponible = true,
   actions,
   onChanger,
   onEffacer,
@@ -136,7 +139,9 @@ export default function BarreFiltres({
                 })
               }
             >
-              {TRIS.map((tri) => (
+              {TRIS.filter(
+                (tri) => tri.value !== 'recent' || activiteDisponible,
+              ).map((tri) => (
                 <option key={tri.value} value={tri.value}>
                   {tri.label}
                 </option>

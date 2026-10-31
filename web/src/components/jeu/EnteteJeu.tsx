@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { formaterDuree } from '../../format'
+import { formaterAnnee, formaterDuree } from '../../format'
 import {
   LIBELLE_MANETTE,
   type FicheJeu,
@@ -13,19 +13,13 @@ type Props = {
   succes?: SuccesDetail
 }
 
-function anneeSortie(iso: string | null): number | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? null : date.getFullYear()
-}
-
 /** En-tête immersif de la fiche : fond, titre, méta et actions. */
 export default function EnteteJeu({ jeu, succes }: Props) {
   const image =
     jeu.screenshots[0]?.pleine ??
     jeu.backgroundImageUrl ??
     jeu.headerImageUrl
-  const annee = anneeSortie(jeu.releaseDate)
+  const annee = formaterAnnee(jeu.releaseDate)
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const totalSucces = succes?.total ?? jeu.achievementsTotal
   const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked

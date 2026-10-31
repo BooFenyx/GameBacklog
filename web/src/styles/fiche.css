@@ -408,9 +408,11 @@
 
 .stat strong {
   color: var(--couleur-texte-fort);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 650;
   letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .stat span {

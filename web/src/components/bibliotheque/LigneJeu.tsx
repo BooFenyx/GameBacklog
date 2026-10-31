@@ -23,7 +23,6 @@ export default function LigneJeu({ jeu }: Props) {
   const meta = metaJeu(jeu)
   const succes = succesAffiche(jeu)
   const complet = succesComplet(jeu)
-  const dernierJamais = meta.dernier === null
   const genres = jeu.genres
 
   return (
@@ -67,12 +66,13 @@ export default function LigneJeu({ jeu }: Props) {
 
       <div
         className={
-          dernierJamais
+          meta.jamais
             ? 'ligne-jeu__dernier ligne-jeu__dernier--jamais'
             : 'ligne-jeu__dernier'
         }
+        title={meta.activiteTitre ?? undefined}
       >
-        {meta.dernier ?? 'jamais lancé'}
+        {meta.jamais ? 'jamais lancé' : (meta.activite ?? '—')}
       </div>
 
       <div className="ligne-jeu__manette">

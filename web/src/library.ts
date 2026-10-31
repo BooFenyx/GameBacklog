@@ -1,3 +1,7 @@
+import type {
+  LastActivityPrecision,
+  LastActivitySource,
+} from './activite'
 import { urlApi } from './api'
 import {
   ecrireFiltres,
@@ -20,7 +24,9 @@ export type JeuBibliotheque = {
   controllerSupport: 'none' | 'partial' | 'full'
   playtimeForever: number
   playtimeLast2Weeks: number
-  lastPlayedAt: string | null
+  lastActivityAt: string | null
+  lastActivitySource: LastActivitySource | null
+  lastActivityPrecision: LastActivityPrecision | null
   /** `null` tant que le schéma Steam n'a pas été récupéré. */
   achievementsTotal: number | null
   /** `null` tant que la progression du joueur n'a pas été récupérée. */
@@ -54,6 +60,8 @@ export type Facettes = {
   manettes: FacetteValeur<FiltreManette>[]
   etats: FacetteValeur<EtatJeu>[]
   durees: FacetteValeur<DureeJeu>[]
+  /** Faux quand aucune entrée n'a d'activité dérivée : le tri « récent » est masqué. */
+  lastActivityDisponible: boolean
 }
 
 async function messageErreur(res: Response): Promise<string> {

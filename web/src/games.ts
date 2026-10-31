@@ -1,3 +1,7 @@
+import type {
+  LastActivityPrecision,
+  LastActivitySource,
+} from './activite'
 import { urlApi } from './api'
 
 /** Bloc de description longue renvoyé par l'API. */
@@ -42,7 +46,9 @@ export type FicheJeu = {
   headerImageUrl: string | null
   playtimeForever: number
   playtimeLast2Weeks: number
-  lastPlayedAt: string | null
+  lastActivityAt: string | null
+  lastActivitySource: LastActivitySource | null
+  lastActivityPrecision: LastActivityPrecision | null
   achievementsTotal: number | null
   achievementsUnlocked: number | null
   steamUrl: string

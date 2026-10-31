@@ -13,8 +13,8 @@ Aujourd'hui, le joueur parcourt sa bibliothèque Steam à la main : tri par nom,
 **Connexion Steam → import de la bibliothèque → accueil → recherche selon ses envies → fiche du jeu.**
 
 1. **Connexion** : authentification via Steam (OpenID), puis import de la bibliothèque avec suivi de progression. Message d'aide si le profil est privé.
-2. **Accueil** : jeux à relancer ou à découvrir dans sa propre bibliothèque (jamais lancés, laissés en cours, proches de ses derniers jeux).
-3. **Bibliothèque** : liste des jeux avec temps de jeu, dernière utilisation, genres, filtres et tri classiques.
+2. **Accueil** : jeux à relancer ou à découvrir dans sa propre bibliothèque (jamais lancés, joués récemment via `playtime_2weeks` ou l'activité dérivée, proches de ses derniers jeux).
+3. **Bibliothèque** : liste des jeux avec temps de jeu, **activité récente (approximative)**, genres, filtres et tri classiques.
 4. **Recherche** : saisie libre (« un jeu calme avec des énigmes, jouable à la manette ») et résultats classés.
 5. **Détail d'un jeu** : description, genres, support manette, temps de jeu, succès obtenus, lien pour lancer le jeu dans Steam.
 
@@ -24,9 +24,11 @@ Aujourd'hui, le joueur parcourt sa bibliothèque Steam à la main : tri par nom,
 |---|---|---|
 | **User** | `id`, `steamId` (unique), `displayName`, `avatarUrl`, `lastSyncAt`, `syncStatus` (`pending` / `running` / `done` / `error`), `createdAt` | Steam OpenID + `GetPlayerSummaries` |
 | **Game** *(partagé entre tous les utilisateurs)* | `id`, `appId` (unique), `name`, `shortDescription`, `genres[]`, `categories[]`, `controllerSupport` (`none` / `partial` / `full`), `releaseDate`, `headerImageUrl`, `embedding` (`vector(N)`), `embeddingModel`, `detailsFetchedAt` | Store `appdetails` |
-| **LibraryEntry** | `id`, `userId`, `gameId`, `playtimeForever` (min), `playtimeLast2Weeks` (min), `lastPlayedAt`, `achievementsUnlocked`. Contrainte unique (`userId`, `gameId`) | `GetOwnedGames` |
+| **LibraryEntry** | `id`, `userId`, `gameId`, `playtimeForever` (min), `playtimeLast2Weeks` (min), `lastActivityAt`, `lastActivitySource` (`sync_delta` / `recent_window` / `achievement`), `lastActivityPrecision` (`upper_bound` / `lower_bound`), `lastSeenAt`, `achievementsUnlocked`. Contrainte unique (`userId`, `gameId`) | `GetOwnedGames` + succès + synchronisations |
 | **Achievement** | `id`, `gameId`, `apiName`, `displayName`, `description`, `iconUrl` | `GetSchemaForGame` |
 | **UserAchievement** | `userId`, `achievementId`, `unlockedAt`. Contrainte unique (`userId`, `achievementId`) | `GetPlayerAchievements` |
+
+> **Limite Steam** : Steam ne fournit `rtime_last_played` qu'au propriétaire de la clé Web API. La date exacte de dernière partie n'est donc pas disponible pour les utilisateurs ; l'app dérive une activité approximative (fenêtre de 14 jours, delta de temps de jeu, dernier succès) et ne prétend jamais à une date exacte.
 
 **Relations**
 * `User 1 ── N LibraryEntry N ── 1 Game`
@@ -45,7 +47,7 @@ Aujourd'hui, le joueur parcourt sa bibliothèque Steam à la main : tri par nom,
 * **Traitement** : embedding de la requête, puis SQL unique combinant **filtres stricts** (support manette, dans la bibliothèque de l'utilisateur) et **tri par similarité cosinus**.
 * **Sortie** : liste de 10 jeux de la bibliothèque de l'utilisateur, avec le score de similarité et les critères respectés.
 * **Repli si échec** (erreur, quota 429, latence excessive) : recherche classique par filtres (genre, manette, temps de jeu) et recherche textuelle sur le nom, avec un message d'information à l'utilisateur.
-* **Accueil** : proximité vectorielle avec les jeux récemment lancés, sans appel supplémentaire à un modèle.
+* **Accueil** : proximité vectorielle avec les jeux récemment joués (`playtime_2weeks` / `recent_window`), sans appel supplémentaire à un modèle.
 
 ## Stack
 | Partie | Choix |

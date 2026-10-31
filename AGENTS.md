@@ -67,6 +67,19 @@ boot. L'étape `achievements` traite au plus 200 jeux par synchronisation, en
 priorisant les jeux récemment lancés ; `needsAchievements` relance la sync au
 login s'il reste des compteurs manquants.
 
+**Activité dérivée.** `library_entries` ne stocke plus `last_played_at` : elle expose
+`last_activity_at`, `last_activity_source` (`sync_delta` / `recent_window` /
+`achievement`), `last_activity_precision` (`upper_bound` / `lower_bound`) et
+`last_seen_at`. `deriverActivite` (`api/src/sync/activite.ts`) s'exécute à l'étape
+`library` : une hausse de `playtime_forever` entre deux syncs datées donne `sync_delta`,
+`playtime_2weeks > 0` donne `recent_window`, le dernier succès donne `achievement` (borne
+basse). Pas de `sync_delta` sans `last_seen_at` ni en cas de baisse de `playtime_forever`.
+`GET /api/library`, `/api/search` et `/api/games/:appId` renvoient les trois champs
+d'activité et plus `lastPlayedAt` ; `/api/library/facets` renvoie `lastActivityDisponible`.
+`releaseDate` est une chaîne `YYYY-MM-DD`. **Limite Steam** : `rtime_last_played` n'est
+fourni qu'au propriétaire de la clé Web API ; il n'est jamais lu, même pour ce compte, donc
+mêmes données pour tous.
+
 **Succès et compteurs.** L'étape `achievements` précharge
 `games.achievements_total` / `games.achievements_fetched_at` et
 `library_entries.achievements_unlocked` / `library_entries.achievements_fetched_at`.
@@ -85,12 +98,15 @@ et s'affiche dès que l'étape `library` est passée. Sur desktop, une **colonne
 repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
 vertical permet de la rouvrir. La carte et la vue liste utilisent les tokens de
 `web/src/styles/theme.css` ; le bouton Filtres reste à gauche sur mobile/tablette.
-La vue liste a des **colonnes fixes** (image, titre, tags, modes, temps, dernière partie,
+La vue liste a des **colonnes fixes** (image, titre, tags, modes, temps, activité,
 manette, succès) : les lignes restent alignées, le titre passe sur deux lignes si besoin,
 tous les genres sont affichés et la manette non supportée est barrée. Les tags d'état
 « Joué » / « Jamais lancé » sont retirés (la méta porte l'information), « jamais lancé »
 reste en rouge et un jeu à 100 % de succès affiche un badge doré avec couronne. La grille
-garde `2 tags + N`.
+garde `2 tags + N`. L'activité dérivée est affichée via `web/src/activite.ts`
+(libellés courts sur carte/liste, longs sur la fiche et la recherche) ; le tri
+« Activité récente » est masqué quand `lastActivityDisponible` est faux, avec repli
+silencieux sur `nom`.
 
 **Filtres et facettes.** `GET /api/library` (`api/src/library/`) accepte `q`, `genres`,
 `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`, et renvoie une enveloppe
@@ -123,13 +139,16 @@ en mode nom, **aucun Gemini à la frappe**, bouton-icône intégré) et page pro
 `Referrer-Policy`). Rate limiting en place sur `GET /api/search` par `steamId` (voir
 Écart 10) ; les autres routes ne sont pas limitées.
 
-**Non implémenté :** accueil calculé (à relancer / à découvrir / proches), purge du
-CSS mort et stabilisation des champs exacts des cartes/listes, mise en ligne (socle et
-déploiement continu front prêts, rien n'est encore réellement déployé).
+**Non implémenté :** accueil calculé (sources autorisées : `playtime_forever`,
+`playtime_2weeks`, `last_activity_source` ; dates exactes interdites), amélioration des
+embeddings (piste à étudier séparément, sans modifier le code de ce lot), purge du CSS mort
+et stabilisation des champs exacts des cartes/listes, mise en ligne (socle et déploiement
+continu front prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
 - `api/src/sync/` — pipeline d'import (4 étapes, reprise, progression, backfill `filters_version`, compteurs de succès)
+- `api/src/sync/activite.ts` — dérivation pure de l'activité (`sync_delta`, `recent_window`, `achievement`)
 - `api/src/library/` — `ownedGames` (Steam, à l'import), `savedLibrary` (lecture filtrée/triée/paginée) et `facets`
 - `api/src/catalog/` — modes Steam, durées, conditions SQL des filtres (ET genres/modes, OR durées), libellés de genres, agrégation des facettes
 - `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId` et `/achievements`
@@ -138,7 +157,8 @@ déploiement continu front prêts, rien n'est encore réellement déployé).
 - `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j)
 - `api/src/search/` — `GET /api/search` (nom/sémantique/série), filtres partagés, limite par `steamId`, cache d'embeddings de requête, DTO
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
-- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0006 ; 0005 compteurs de succès, 0006 champs de fiche)
+- `api/src/db/pg-utc.ts` — lecture UTC des `timestamp` sans fuseau (OID 1114)
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0009 ; 0005 compteurs de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité + drop `last_played_at`)
 - `render.yaml` — blueprint Render (API seule)
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
@@ -146,6 +166,7 @@ déploiement continu front prêts, rien n'est encore réellement déployé).
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
 - `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
+- `web/src/activite.ts` — types et libellés de l'activité dérivée
 - `web/src/filters.ts` — types, libellés et sérialisation URL des filtres
 - `web/src/library.ts` — client `/api/library` et `/api/library/facets`
 - `web/src/games.ts` — client de la fiche (`chargerFicheJeu`) et des succès (`chargerSuccesJeu`)
@@ -271,6 +292,14 @@ nodenext`, donc `import { AppController } from './app.controller'` ne se résout
 Écris toujours `'./app.controller.js'`, même si le fichier est un `.ts`. Ne transpose pas
 cette règle à `web/` : là, la résolution est de type *bundler* et les imports se font sans
 extension.
+
+**L'activité dérivée remplace `lastPlayedAt`.** Ne jamais réintroduire `lastPlayedAt`,
+`last_played_at` ou `rtime_last_played` : Steam ne fournit `rtime_last_played` qu'au
+propriétaire de la clé Web API, et le lot du 31/10/2026 a supprimé l'asymétrie. Les dates
+d'activité sont en `timestamptz` ; `unlocked_at` reste un `timestamp` sans fuseau et exige
+`AT TIME ZONE 'UTC'` pour alimenter `last_activity_at`. Pas de `sync_delta` sans
+`last_seen_at` (première sync) ni si `playtime_forever` baisse. Le champ lu dans
+`GetOwnedGames` est `playtime_2weeks`, la colonne DB garde `playtime_last_2_weeks`.
 
 **Deux cultures de lint/format différentes — ne les mélange pas.**
 - `api/` : géré par Prettier. Guillemets simples, points-virgules, virgules finales.
@@ -400,7 +429,7 @@ reste à corriger).
 |---|---|
 | **Spec** | « Accueil : jeux à relancer ou à découvrir dans sa propre bibliothèque (jamais lancés, laissés en cours, proches de ses derniers jeux). » (`fiche_projet.md:16`) — « proximité vectorielle avec les jeux récemment lancés, sans appel supplémentaire à un modèle. » (`fiche_projet.md:48`) |
 | **Code réel** | `web/src/pages/Accueil.tsx:4-20` : trois sections vides avec messages fixes — « Aucun jeu importé pour le moment. » / « Arrive avec la recherche par similarité. » Aucune donnée réelle n'est affichée. |
-| **Correction** | Implémenter trois requêtes SQL : (1) jeux avec `playtimeLast2Weeks > 0` mais `playtimeForever` faible (à relancer), (2) jeux avec `playtimeForever = 0` (à découvrir), (3) jeux dont l'embedding est proche des derniers joués (proximité vectorielle). |
+| **Correction** | « À relancer » = `playtime_2weeks > 0` ou `last_activity_source = 'recent_window'` ; « à découvrir » = `playtime_forever = 0` ; « proches » = embeddings des jeux `recent_window`/`playtime_2weeks`. **Jamais** de date exacte de dernière partie. Réaccord hors lot (voir `docs/analyse-donnees-steam.md` §6.7). |
 
 #### Écart 5 — Page de détail d'un jeu — ✅ Résolu
 
@@ -429,8 +458,8 @@ reste à corriger).
 
 | | Détail |
 |---|---|
-| **Spec** | « Bibliothèque : liste des jeux avec **temps de jeu, dernière utilisation, genres, filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastPlayedAt`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs. Le front (`web/src/pages/Bibliotheque.tsx`) affiche une colonne de filtres repliable sur desktop, la barre de résultats, les filtres actifs, le tri, la pagination et les états vides/erreur. La colonne se ferme en glissant à gauche ; un onglet vertical la rouvre et la grille gagne une colonne. Sur mobile, le panneau `<dialog>` est utilisé. La refonte visuelle des cartes est prévue en PR2. |
+| **Spec** | « Bibliothèque : liste des jeux avec **temps de jeu, activité récente (approximative), genres, filtres et tri classiques**. » (`fiche_projet.md:17`) |
+| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastActivityAt`, `lastActivitySource`, `lastActivityPrecision`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs et `lastActivityDisponible`. Le tri `recent` utilise `last_activity_at DESC NULLS LAST, playtime_last_2_weeks DESC` ; l'option est masquée quand `lastActivityDisponible` est faux, avec repli sur `nom`. Le front (`web/src/pages/Bibliotheque.tsx`) affiche une colonne de filtres repliable sur desktop, la barre de résultats, les filtres actifs, le tri, la pagination et les états vides/erreur. La colonne se ferme en glissant à gauche ; un onglet vertical la rouvre et la grille gagne une colonne. Sur mobile, le panneau `<dialog>` est utilisé. La refonte visuelle des cartes est prévue en PR2. |
 
 #### Écart 6 — Succès à la demande — ✅ Résolu
 
@@ -527,7 +556,7 @@ reste à corriger).
 |---|---|
 | **Spec** | « Accueil : jeux à relancer ou à découvrir dans sa propre bibliothèque (jamais lancés, laissés en cours, proches de ses derniers jeux). » (`fiche_projet.md:16`) |
 | **Code réel** | `web/src/pages/Accueil.tsx:4-20` : sections vides avec messages fixes. |
-| **Correction** | Implémenter les trois requêtes SQL décrites dans l'Écart 3. |
+| **Correction** | Mêmes sources que l'Écart 3 : `playtime_2weeks` / `last_activity_source = 'recent_window'` pour « à relancer », `playtime_forever = 0` pour « à découvrir », embeddings des jeux récents pour « proches ». Aucune date exacte. Réaccord hors lot. |
 
 ### Priorités d'implémentation
 
@@ -550,14 +579,15 @@ classique — la spécification exige une recherche par similarité vectorielle 
 `Game.embedding`.
 
 Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
-`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0006 ; 0005 compteurs
-de succès, 0006 champs de fiche). `npm run db:migrate`
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0009 ; 0005 compteurs
+de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité
++ drop `last_played_at`). `npm run db:migrate`
 applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
 manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
 démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée
 `CREATE EXTENSION IF NOT EXISTS vector` — obligatoire sur une base fraîche type Neon.
-Les 0005 et 0006 sont idempotentes (`IF NOT EXISTS`) pour les bases de dev
-partagées ; l'ordre reste 0005 puis 0006, la branche fiche empilant la 0006.
+Les 0005 à 0009 sont idempotentes (`IF NOT EXISTS`) pour les bases de dev
+partagées ; l'ordre reste 0005 → 0009, la branche fiche empilant la 0006.
 
 `DbModule` est global et **exige `DATABASE_URL` et une base joignable au boot** : la
 migration s'exécute immédiatement, la base doit donc être up avant l'API (c'est le cas
