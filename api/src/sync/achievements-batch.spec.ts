@@ -35,7 +35,7 @@ describe('traiterSuccesParLots', () => {
 
     expect(selectionner).toHaveBeenCalledTimes(2);
     expect(traiter).toHaveBeenCalledTimes(250);
-    expect(resultat).toEqual({ processed: 250, reussis: 250 });
+    expect(resultat).toEqual({ processed: 250, reussis: 250, paused: false });
     expect(progressions.at(-1)).toBe(250);
   });
 
@@ -53,7 +53,7 @@ describe('traiterSuccesParLots', () => {
 
     expect(selectionner).toHaveBeenCalledTimes(3);
     expect(traiter).toHaveBeenCalledTimes(500);
-    expect(resultat).toEqual({ processed: 500, reussis: 500 });
+    expect(resultat).toEqual({ processed: 500, reussis: 500, paused: false });
   });
 
   it('traite 1 000 jeux en cinq lots', async () => {
@@ -70,7 +70,7 @@ describe('traiterSuccesParLots', () => {
 
     expect(selectionner).toHaveBeenCalledTimes(5);
     expect(traiter).toHaveBeenCalledTimes(1000);
-    expect(resultat).toEqual({ processed: 1000, reussis: 1000 });
+    expect(resultat).toEqual({ processed: 1000, reussis: 1000, paused: false });
   });
 
   it('ne reprend pas un jeu en échec dans le même run', async () => {
@@ -89,7 +89,7 @@ describe('traiterSuccesParLots', () => {
       onEchec: (jeu) => echecs.push(jeu.gameId),
     });
 
-    expect(resultat).toEqual({ processed: 250, reussis: 249 });
+    expect(resultat).toEqual({ processed: 250, reussis: 249, paused: false });
     expect(echecs).toEqual([42]);
     expect(
       traiter.mock.calls.filter(([jeu]) => jeu.gameId === 42),
@@ -112,7 +112,7 @@ describe('traiterSuccesParLots', () => {
 
     expect(selectionner).toHaveBeenCalledTimes(1);
     expect(traiter).toHaveBeenCalledTimes(200);
-    expect(resultat).toEqual({ processed: 200, reussis: 0 });
+    expect(resultat).toEqual({ processed: 200, reussis: 0, paused: false });
   });
 
   it('ne sélectionne rien quand aucun jeu ne manque', async () => {
@@ -128,6 +128,43 @@ describe('traiterSuccesParLots', () => {
 
     expect(selectionner).not.toHaveBeenCalled();
     expect(traiter).not.toHaveBeenCalled();
-    expect(resultat).toEqual({ processed: 0, reussis: 0 });
+    expect(resultat).toEqual({ processed: 0, reussis: 0, paused: false });
+  });
+
+  it('met la passe en pause quand le budget est atteint après du progrès', async () => {
+    const pool = creerPool(500);
+    const selectionner = vi.fn(selectionneur(pool));
+    const traiter = vi.fn(async () => {});
+    let verifications = 0;
+
+    const resultat = await traiterSuccesParLots({
+      total: 500,
+      batchSize: 200,
+      selectionner,
+      traiter,
+      doitPause: () => {
+        verifications += 1;
+        return verifications > 3;
+      },
+    });
+
+    expect(resultat).toEqual({ processed: 3, reussis: 3, paused: true });
+    expect(traiter).toHaveBeenCalledTimes(3);
+  });
+
+  it('ne met pas en pause quand le budget est atteint sans progrès', async () => {
+    const selectionner = vi.fn(selectionneur(creerPool(10)));
+    const traiter = vi.fn(async () => {});
+
+    const resultat = await traiterSuccesParLots({
+      total: 10,
+      batchSize: 200,
+      selectionner,
+      traiter,
+      doitPause: () => true,
+    });
+
+    expect(resultat).toEqual({ processed: 0, reussis: 0, paused: false });
+    expect(traiter).not.toHaveBeenCalled();
   });
 });

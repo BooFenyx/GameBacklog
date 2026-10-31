@@ -48,6 +48,14 @@ const DEFAULT_ACHIEVEMENTS_BATCH_SIZE = 200;
  * une valeur > 0 reste possible comme garde-fou explicite.
  */
 const DEFAULT_ACHIEVEMENTS_MAX_GAMES = 0;
+/** Budget d'une passe d'étape : au-delà, le job est mis en pause et repris. */
+const DEFAULT_SYNC_STEP_MAX_MS = 900_000;
+
+/** Résultat d'une étape : budget atteint et progrès réalisé. */
+interface ResultatEtape {
+  paused: boolean;
+  progressed: boolean;
+}
 
 /** État d'un job renvoyé au front (suivi de progression). */
 export interface SyncJobResponse {
@@ -331,11 +339,46 @@ export class SyncService implements OnModuleInit {
 
     await this.markRunning(job.id);
     try {
-      const jeux = await this.library.ownedGames(user.steamId);
-      await this.syncLibrary(job.id, job.userId, jeux);
-      await this.stepDetails(job.id, job.userId);
-      await this.stepAchievements(job.id, job.userId, user.steamId);
-      await this.stepEmbeddings(job.id, job.userId);
+      // Un job repris repart de son étape courante ; les étapes terminées sont
+      // sautées. `done` + `pending` est un état anormal : on répare depuis le
+      // début.
+      let etape = job.step === 'done' ? 'library' : job.step;
+
+      if (etape === 'library') {
+        const jeux = await this.library.ownedGames(user.steamId);
+        await this.syncLibrary(job.id, job.userId, jeux);
+        etape = 'details';
+      }
+
+      if (etape === 'details') {
+        const resultat = await this.stepDetails(job.id, job.userId);
+        if (resultat.paused) {
+          await this.pauseJob(job.id, 'details');
+          return;
+        }
+        etape = 'achievements';
+      }
+
+      if (etape === 'achievements') {
+        const resultat = await this.stepAchievements(
+          job.id,
+          job.userId,
+          user.steamId,
+        );
+        if (resultat.paused) {
+          await this.pauseJob(job.id, 'achievements');
+          return;
+        }
+        etape = 'embeddings';
+      }
+
+      if (etape === 'embeddings') {
+        const resultat = await this.stepEmbeddings(job.id, job.userId);
+        if (resultat.paused) {
+          await this.pauseJob(job.id, 'embeddings');
+          return;
+        }
+      }
 
       await this.finish(job.id, 'done', 'done', null, new Date());
       await this.users.setStatus(job.userId, 'done', {
@@ -480,7 +523,10 @@ export class SyncService implements OnModuleInit {
    * La progression porte sur le nombre de fiches réellement à traiter, et non
    * sur la taille de la bibliothèque : la barre ne recule plus entre les étapes.
    */
-  private async stepDetails(jobId: number, userId: number): Promise<void> {
+  private async stepDetails(
+    jobId: number,
+    userId: number,
+  ): Promise<ResultatEtape> {
     const jeuxSansFiche = await this.appIdsSansDetails(userId);
     this.logger.log(
       `Étape fiches : ${jeuxSansFiche.length} fiche(s) à traiter`,
@@ -494,14 +540,21 @@ export class SyncService implements OnModuleInit {
       processedGames: 0,
     });
 
+    const deadline = this.creerDeadline();
     let processed = 0;
+    let progressed = false;
     for (const appId of jeuxSansFiche) {
+      // Budget vérifié entre deux jeux, jamais au milieu d'un appel HTTP.
+      if (this.budgetDepasse(deadline)) {
+        return { paused: progressed, progressed };
+      }
       if (processed > 0 && throttleMs > 0) {
         await sleep(throttleMs);
       }
       const details = await this.games.fetchAppDetails(appId);
       if (details) {
         await this.games.upsertFromDetails(details);
+        progressed = true;
       }
       processed += 1;
       await this.setProgress(jobId, 'details', {
@@ -509,6 +562,7 @@ export class SyncService implements OnModuleInit {
         processedGames: processed,
       });
     }
+    return { paused: false, progressed };
   }
 
   /**
@@ -524,7 +578,7 @@ export class SyncService implements OnModuleInit {
     jobId: number,
     userId: number,
     steamId: string,
-  ): Promise<void> {
+  ): Promise<ResultatEtape> {
     const batchSize = this.lireEntier(
       'ACHIEVEMENTS_BATCH_SIZE',
       DEFAULT_ACHIEVEMENTS_BATCH_SIZE,
@@ -556,9 +610,10 @@ export class SyncService implements OnModuleInit {
       0,
       60_000,
     );
+    const deadline = this.creerDeadline();
     let dejaTraite = false;
 
-    await traiterSuccesParLots({
+    const resultat = await traiterSuccesParLots({
       total,
       batchSize,
       selectionner: (dejaTentes, limite) =>
@@ -589,9 +644,15 @@ export class SyncService implements OnModuleInit {
           }`,
         );
       },
+      doitPause: () => this.budgetDepasse(deadline),
     });
 
     await this.marquerActiviteSucces(userId);
+
+    return {
+      paused: resultat.paused,
+      progressed: resultat.reussis > 0,
+    };
   }
 
   /**
@@ -622,7 +683,10 @@ export class SyncService implements OnModuleInit {
   }
 
   /** Étape 4 : génère et persiste les embeddings manquants. */
-  private async stepEmbeddings(jobId: number, userId: number): Promise<void> {
+  private async stepEmbeddings(
+    jobId: number,
+    userId: number,
+  ): Promise<ResultatEtape> {
     const appIds = await this.appIdsSansEmbedding(userId);
     this.logger.log(`Étape embeddings : ${appIds.length} jeu(x)`);
 
@@ -631,8 +695,13 @@ export class SyncService implements OnModuleInit {
       processedGames: 0,
     });
 
+    const deadline = this.creerDeadline();
     let processed = 0;
+    let progressed = false;
     for (const appId of appIds) {
+      if (this.budgetDepasse(deadline)) {
+        return { paused: progressed, progressed };
+      }
       const input = await this.games.embeddingInputFor(appId);
       if (!input) {
         processed += 1;
@@ -651,6 +720,7 @@ export class SyncService implements OnModuleInit {
             embeddingModel: this.embedding.modelName,
           })
           .where(eq(games.appId, appId));
+        progressed = true;
       }
       processed += 1;
       await this.setProgress(jobId, 'embeddings', {
@@ -658,6 +728,7 @@ export class SyncService implements OnModuleInit {
         processedGames: processed,
       });
     }
+    return { paused: false, progressed };
   }
 
   /** `appId` de la bibliothèque dont la fiche manque ou est à remapper. */
@@ -702,6 +773,36 @@ export class SyncService implements OnModuleInit {
     const valeur = brut === undefined || brut === '' ? defaut : Number(brut);
     if (!Number.isFinite(valeur)) return defaut;
     return Math.min(max, Math.max(min, Math.trunc(valeur)));
+  }
+
+  /** Budget d'une passe d'étape, ou `null` quand `SYNC_STEP_MAX_MS=0`. */
+  private creerDeadline(): number | null {
+    const budgetMs = this.lireEntier(
+      'SYNC_STEP_MAX_MS',
+      DEFAULT_SYNC_STEP_MAX_MS,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
+    return budgetMs > 0 ? Date.now() + budgetMs : null;
+  }
+
+  private budgetDepasse(deadline: number | null): boolean {
+    return deadline !== null && Date.now() >= deadline;
+  }
+
+  /**
+   * Remet le job en file à l'étape courante, sans le terminer. `rerun` arme la
+   * reprise immédiate par `drain` ; un redémarrage reprend aussi à `step`.
+   */
+  private async pauseJob(
+    jobId: number,
+    step: SyncJobRow['step'],
+  ): Promise<void> {
+    await this.db
+      .update(syncJobs)
+      .set({ status: 'pending', step, finishedAt: null })
+      .where(eq(syncJobs.id, jobId));
+    this.rerun = true;
   }
 
   private async markRunning(jobId: number): Promise<void> {

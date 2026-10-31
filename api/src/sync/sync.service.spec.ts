@@ -215,4 +215,375 @@ describe('SyncService', () => {
       '2025-08-13T12:21:48.000Z',
     );
   });
+
+  describe('reprise par étape', () => {
+    function jobRow(step: JobRow['step']): JobRow {
+      return {
+        id: 1,
+        userId: 1,
+        status: 'pending',
+        step,
+        totalGames: 0,
+        processedGames: 0,
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      };
+    }
+
+    function dbProcessJob() {
+      let appelsSelect = 0;
+      const updates: Array<Record<string, unknown>> = [];
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: () => {
+                appelsSelect += 1;
+                return Promise.resolve(
+                  appelsSelect === 1 ? [{ steamId: 'steam-1' }] : [],
+                );
+              },
+            }),
+          }),
+        }),
+        update: () => ({
+          set: (valeurs: Record<string, unknown>) => {
+            updates.push(valeurs);
+            return { where: () => Promise.resolve() };
+          },
+        }),
+      };
+      return { db, updates };
+    }
+
+    function serviceOrchestration(
+      db: unknown,
+      deps: {
+        ownedGames?: () => Promise<unknown[]>;
+        setStatus?: () => Promise<void>;
+      } = {},
+    ): SyncService {
+      return new SyncService(
+        db as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {
+          ownedGames: deps.ownedGames ?? (async () => []),
+        } as unknown as LibraryService,
+        {} as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        {
+          setStatus: deps.setStatus ?? (async () => {}),
+        } as unknown as UsersService,
+      );
+    }
+
+    function espionnerEtapes(service: SyncService) {
+      return {
+        syncLibrary: vi
+          .spyOn(service as never, 'syncLibrary')
+          .mockResolvedValue(undefined),
+        stepDetails: vi
+          .spyOn(service as never, 'stepDetails')
+          .mockResolvedValue({ paused: false, progressed: true }),
+        stepAchievements: vi
+          .spyOn(service as never, 'stepAchievements')
+          .mockResolvedValue({ paused: false, progressed: true }),
+        stepEmbeddings: vi
+          .spyOn(service as never, 'stepEmbeddings')
+          .mockResolvedValue({ paused: false, progressed: true }),
+      };
+    }
+
+    it('depuis library : exécute les quatre étapes', async () => {
+      const { db, updates } = dbProcessJob();
+      const ownedGames = vi.fn(async () => []);
+      const setStatus = vi.fn(async () => {});
+      const service = serviceOrchestration(db, { ownedGames, setStatus });
+      const etapes = espionnerEtapes(service);
+
+      await (service as never as { processJob: (j: JobRow) => Promise<void> })
+        .processJob(jobRow('library'));
+
+      expect(ownedGames).toHaveBeenCalledWith('steam-1');
+      expect(etapes.syncLibrary).toHaveBeenCalledTimes(1);
+      expect(etapes.stepDetails).toHaveBeenCalledTimes(1);
+      expect(etapes.stepAchievements).toHaveBeenCalledTimes(1);
+      expect(etapes.stepEmbeddings).toHaveBeenCalledTimes(1);
+      expect(setStatus).toHaveBeenCalledWith(1, 'done', expect.anything());
+      expect(updates.some((u) => u.status === 'done')).toBe(true);
+    });
+
+    it('depuis details : saute library', async () => {
+      const { db } = dbProcessJob();
+      const ownedGames = vi.fn(async () => []);
+      const service = serviceOrchestration(db, { ownedGames });
+      const etapes = espionnerEtapes(service);
+
+      await (service as never as { processJob: (j: JobRow) => Promise<void> })
+        .processJob(jobRow('details'));
+
+      expect(ownedGames).not.toHaveBeenCalled();
+      expect(etapes.syncLibrary).not.toHaveBeenCalled();
+      expect(etapes.stepDetails).toHaveBeenCalledTimes(1);
+      expect(etapes.stepAchievements).toHaveBeenCalledTimes(1);
+      expect(etapes.stepEmbeddings).toHaveBeenCalledTimes(1);
+    });
+
+    it('depuis achievements : saute details', async () => {
+      const { db } = dbProcessJob();
+      const service = serviceOrchestration(db);
+      const etapes = espionnerEtapes(service);
+
+      await (service as never as { processJob: (j: JobRow) => Promise<void> })
+        .processJob(jobRow('achievements'));
+
+      expect(etapes.stepDetails).not.toHaveBeenCalled();
+      expect(etapes.stepAchievements).toHaveBeenCalledTimes(1);
+      expect(etapes.stepEmbeddings).toHaveBeenCalledTimes(1);
+    });
+
+    it('depuis embeddings : ne lance que les embeddings', async () => {
+      const { db } = dbProcessJob();
+      const service = serviceOrchestration(db);
+      const etapes = espionnerEtapes(service);
+
+      await (service as never as { processJob: (j: JobRow) => Promise<void> })
+        .processJob(jobRow('embeddings'));
+
+      expect(etapes.stepDetails).not.toHaveBeenCalled();
+      expect(etapes.stepAchievements).not.toHaveBeenCalled();
+      expect(etapes.stepEmbeddings).toHaveBeenCalledTimes(1);
+    });
+
+    it('depuis done + pending : répare en repartant de library', async () => {
+      const { db } = dbProcessJob();
+      const ownedGames = vi.fn(async () => []);
+      const service = serviceOrchestration(db, { ownedGames });
+      const etapes = espionnerEtapes(service);
+
+      await (service as never as { processJob: (j: JobRow) => Promise<void> })
+        .processJob(jobRow('done'));
+
+      expect(ownedGames).toHaveBeenCalledWith('steam-1');
+      expect(etapes.syncLibrary).toHaveBeenCalledTimes(1);
+      expect(etapes.stepDetails).toHaveBeenCalledTimes(1);
+    });
+
+    it('une étape en pause remet le job en pending sans le terminer', async () => {
+      const { db, updates } = dbProcessJob();
+      const setStatus = vi.fn(async () => {});
+      const service = serviceOrchestration(db, { setStatus });
+      const etapes = espionnerEtapes(service);
+      etapes.stepDetails.mockResolvedValue({ paused: true, progressed: true });
+
+      await (service as never as { processJob: (j: JobRow) => Promise<void> })
+        .processJob(jobRow('details'));
+
+      expect(updates).toContainEqual({
+        status: 'pending',
+        step: 'details',
+        finishedAt: null,
+      });
+      expect(updates.some((u) => u.status === 'done')).toBe(false);
+      expect(setStatus).not.toHaveBeenCalled();
+      expect(etapes.stepAchievements).not.toHaveBeenCalled();
+      expect(etapes.stepEmbeddings).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('budget d’étape', () => {
+    function dbProgression() {
+      const updates: Array<Record<string, unknown>> = [];
+      return {
+        updates,
+        db: {
+          update: () => ({
+            set: (valeurs: Record<string, unknown>) => {
+              updates.push(valeurs);
+              return { where: () => Promise.resolve() };
+            },
+          }),
+        },
+      };
+    }
+
+    it('stepDetails : budget atteint avec progrès → pause', async () => {
+      const { db } = dbProgression();
+      const fetchAppDetails = vi.fn(async (appId: number) => ({
+        appId,
+        name: 'Jeu',
+      }));
+      const upsertFromDetails = vi.fn(async () => 1);
+      const service = new SyncService(
+        db as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        { fetchAppDetails, upsertFromDetails } as unknown as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        {} as UsersService,
+      );
+      vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
+        1, 2, 3,
+      ]);
+      let verifications = 0;
+      vi.spyOn(service as never, 'budgetDepasse').mockImplementation(() => {
+        verifications += 1;
+        return verifications > 1;
+      });
+
+      const resultat = await (
+        service as never as {
+          stepDetails: (j: number, u: number) => Promise<{
+            paused: boolean;
+            progressed: boolean;
+          }>;
+        }
+      ).stepDetails(1, 1);
+
+      expect(resultat).toEqual({ paused: true, progressed: true });
+      expect(fetchAppDetails).toHaveBeenCalledTimes(1);
+    });
+
+    it('stepDetails : budget atteint sans progrès → pas de pause', async () => {
+      const { db } = dbProgression();
+      const fetchAppDetails = vi.fn(async () => null);
+      const service = new SyncService(
+        db as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        { fetchAppDetails } as unknown as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        {} as UsersService,
+      );
+      vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
+        1, 2, 3,
+      ]);
+      vi.spyOn(service as never, 'budgetDepasse').mockReturnValue(true);
+
+      const resultat = await (
+        service as never as {
+          stepDetails: (j: number, u: number) => Promise<{
+            paused: boolean;
+            progressed: boolean;
+          }>;
+        }
+      ).stepDetails(1, 1);
+
+      expect(resultat).toEqual({ paused: false, progressed: false });
+      expect(fetchAppDetails).not.toHaveBeenCalled();
+    });
+
+    it('SYNC_STEP_MAX_MS=0 désactive le budget', () => {
+      const service = new SyncService(
+        {} as Db,
+        {
+          get: (cle: string) =>
+            cle === 'SYNC_STEP_MAX_MS' ? '0' : undefined,
+        } as unknown as ConfigService,
+        {} as LibraryService,
+        {} as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        {} as UsersService,
+      );
+
+      expect(
+        (service as never as { creerDeadline: () => number | null }).creerDeadline(),
+      ).toBeNull();
+    });
+
+    it('processJob : budget atteint avec progrès → job pending, étape conservée', async () => {
+      const updates: Array<Record<string, unknown>> = [];
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.resolve([{ steamId: 'steam-1' }]),
+            }),
+          }),
+        }),
+        update: () => ({
+          set: (valeurs: Record<string, unknown>) => {
+            updates.push(valeurs);
+            return { where: () => Promise.resolve() };
+          },
+        }),
+      };
+      const fetchAppDetails = vi.fn(async (appId: number) => ({
+        appId,
+        name: 'Jeu',
+      }));
+      const upsertFromDetails = vi.fn(async () => 1);
+      const setStatus = vi.fn(async () => {});
+      const service = new SyncService(
+        db as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        { fetchAppDetails, upsertFromDetails } as unknown as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        { setStatus } as unknown as UsersService,
+      );
+      vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
+        1, 2, 3,
+      ]);
+      let verifications = 0;
+      vi.spyOn(service as never, 'budgetDepasse').mockImplementation(() => {
+        verifications += 1;
+        return verifications > 1;
+      });
+
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob({
+        id: 1,
+        userId: 1,
+        status: 'pending',
+        step: 'details',
+        totalGames: 0,
+        processedGames: 0,
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      });
+
+      expect(updates).toContainEqual({
+        status: 'pending',
+        step: 'details',
+        finishedAt: null,
+      });
+      expect(updates.some((u) => u.status === 'done')).toBe(false);
+      expect(setStatus).not.toHaveBeenCalled();
+    });
+
+    it('pauseJob : remet le job en pending et arme la reprise', async () => {
+      const { db, updates } = dbProgression();
+      const service = new SyncService(
+        db as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        {} as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        {} as UsersService,
+      );
+
+      await (
+        service as never as {
+          pauseJob: (id: number, step: JobRow['step']) => Promise<void>;
+        }
+      ).pauseJob(5, 'details');
+
+      expect(updates[0]).toEqual({
+        status: 'pending',
+        step: 'details',
+        finishedAt: null,
+      });
+      expect((service as never as { rerun: boolean }).rerun).toBe(true);
+    });
+  });
 });

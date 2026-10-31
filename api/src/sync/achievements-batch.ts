@@ -23,6 +23,11 @@ export interface OptionsLotsSucces {
   onProgression?: (processed: number) => Promise<void> | void;
   /** Appelé quand `traiter` échoue (429, réseau, etc.). */
   onEchec?: (jeu: JeuSucces, error: unknown) => void;
+  /**
+   * Vérifié entre deux jeux (jamais au milieu d'un appel). Quand il renvoie
+   * `true`, la boucle s'arrête et signale une pause si du progrès a été fait.
+   */
+  doitPause?: () => boolean;
 }
 
 export interface ResultatLotsSucces {
@@ -30,6 +35,8 @@ export interface ResultatLotsSucces {
   processed: number;
   /** Jeux traités sans erreur. */
   reussis: number;
+  /** Budget atteint alors qu'au moins un jeu a été traité. */
+  paused: boolean;
 }
 
 /**
@@ -55,6 +62,9 @@ export async function traiterSuccesParLots(
     let progresLot = 0;
 
     for (const row of rows) {
+      if (options.doitPause?.()) {
+        return { processed, reussis, paused: reussis > 0 };
+      }
       tentes.add(row.gameId);
       try {
         await options.traiter(row);
@@ -70,5 +80,5 @@ export async function traiterSuccesParLots(
     if (progresLot === 0) break;
   }
 
-  return { processed, reussis };
+  return { processed, reussis, paused: false };
 }
