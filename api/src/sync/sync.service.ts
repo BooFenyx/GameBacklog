@@ -6,7 +6,17 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, desc, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  lt,
+  max,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import {
   achievements,
@@ -25,7 +35,7 @@ import {
   type BibliothequeGame,
 } from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
-import { deriverActivite } from './activite.js';
+import { deriverActivite, normaliserDernierSucces } from './activite.js';
 
 const DEFAULT_APPDETAILS_THROTTLE_MS = 300;
 const DEFAULT_ACHIEVEMENTS_THROTTLE_MS = 200;
@@ -340,7 +350,7 @@ export class SyncService implements OnModuleInit {
     const succes = await this.db
       .select({
         gameId: achievements.gameId,
-        dernier: sql<Date>`max(${userAchievements.unlockedAt})`,
+        dernier: max(userAchievements.unlockedAt),
       })
       .from(userAchievements)
       .innerJoin(
@@ -349,7 +359,9 @@ export class SyncService implements OnModuleInit {
       )
       .where(eq(userAchievements.userId, userId))
       .groupBy(achievements.gameId);
-    const succesParJeu = new Map(succes.map((s) => [s.gameId, s.dernier]));
+    const succesParJeu = new Map(
+      succes.map((s) => [s.gameId, normaliserDernierSucces(s.dernier)]),
+    );
 
     for (const jeu of jeux) {
       const gameId = await this.games.upsertBasic(jeu.appId, jeu.name);

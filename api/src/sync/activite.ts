@@ -2,6 +2,7 @@ import type {
   LastActivityPrecision,
   LastActivitySource,
 } from '../db/schema.js';
+import { parseTimestampUtc } from '../db/pg-utc.js';
 
 /** Observation issue de `GetOwnedGames` (données accessibles à tous). */
 export interface ObservationJeu {
@@ -22,6 +23,37 @@ export interface ActiviteCalculee {
   at: Date;
   source: LastActivitySource;
   precision: LastActivityPrecision;
+}
+
+/**
+ * Normalise la date du dernier succès lue en base.
+ *
+ * Drizzle mappe normalement `max(timestamp)` en `Date`, mais un driver brut ou
+ * une requête SQL manuelle peut renvoyer une chaîne. Cette chaîne est un mur
+ * UTC : elle doit être lue avec `parseTimestampUtc`, jamais avec `new Date`
+ * (qui l'interpréterait en heure locale). Toute autre valeur est une erreur
+ * explicite, pour ne jamais laisser un `toISOString is not a function` opaque.
+ */
+export function normaliserDernierSucces(
+  valeur: Date | string | null | undefined,
+): Date | null {
+  if (valeur === null || valeur === undefined) return null;
+  if (valeur instanceof Date) {
+    if (Number.isNaN(valeur.getTime())) {
+      throw new Error('dernierSuccesAt est une Date invalide');
+    }
+    return valeur;
+  }
+  if (typeof valeur === 'string') {
+    const date = parseTimestampUtc(valeur);
+    if (Number.isNaN(date.getTime())) {
+      throw new Error(`dernierSuccesAt doit être une Date (reçu: ${valeur})`);
+    }
+    return date;
+  }
+  throw new Error(
+    `dernierSuccesAt doit être une Date (reçu: ${typeof valeur})`,
+  );
 }
 
 /**

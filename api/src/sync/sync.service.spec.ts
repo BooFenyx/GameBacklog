@@ -3,7 +3,7 @@ import type { Db } from '../db/db.module.js';
 import { AchievementsService } from '../achievements/achievements.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
 import { GamesService } from '../games/games.service.js';
-import { LibraryService } from '../library/library.service.js';
+import { LibraryService, type BibliothequeGame } from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
 import { SyncService } from './sync.service.js';
 
@@ -143,5 +143,76 @@ describe('SyncService', () => {
       processedGames: 4,
     });
     expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('syncLibrary : convertit une chaîne de dernier succès en Date', async () => {
+    const ecrits: Array<Record<string, unknown>> = [];
+    let selectAppels = 0;
+    const db = {
+      select: () => {
+        selectAppels += 1;
+        // 1er select : précédents (aucun) ; 2e : derniers succès, renvoyés en
+        // chaîne comme le faisait Drizzle avec `sql<Date>`.
+        const resultat =
+          selectAppels === 1
+            ? []
+            : [{ gameId: 7, dernier: '2025-08-13 12:21:48' }];
+        return {
+          from: () => ({
+            where: () => Promise.resolve(resultat),
+            innerJoin: () => ({
+              where: () => ({
+                groupBy: () => Promise.resolve(resultat),
+              }),
+            }),
+          }),
+        };
+      },
+      insert: () => ({
+        values: (valeurs: Record<string, unknown>) => {
+          ecrits.push(valeurs);
+          return { onConflictDoUpdate: () => Promise.resolve() };
+        },
+      }),
+      update: () => ({
+        set: () => ({ where: () => Promise.resolve() }),
+      }),
+    };
+    const games = {
+      upsertBasic: async () => 7,
+    } as unknown as GamesService;
+    const service = new SyncService(
+      db as unknown as Db,
+      { get: () => undefined } as unknown as ConfigService,
+      {} as LibraryService,
+      games,
+      {} as AchievementsService,
+      {} as EmbeddingService,
+      {} as UsersService,
+    );
+
+    await (
+      service as unknown as {
+        syncLibrary: (
+          jobId: number,
+          userId: number,
+          jeux: BibliothequeGame[],
+        ) => Promise<void>;
+      }
+    ).syncLibrary(1, 1, [
+      {
+        appId: 10,
+        name: 'Jeu',
+        playtimeForever: 120,
+        playtimeLast2Weeks: 0,
+      },
+    ]);
+
+    expect(ecrits).toHaveLength(1);
+    const ecrit = ecrits[0] as { lastActivityAt?: unknown };
+    expect(ecrit.lastActivityAt).toBeInstanceOf(Date);
+    expect((ecrit.lastActivityAt as Date).toISOString()).toBe(
+      '2025-08-13T12:21:48.000Z',
+    );
   });
 });

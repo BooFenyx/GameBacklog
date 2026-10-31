@@ -1,5 +1,5 @@
 import type { EntreePrecedente } from './activite.js';
-import { deriverActivite } from './activite.js';
+import { deriverActivite, normaliserDernierSucces } from './activite.js';
 
 const MAINTENANT = new Date('2024-06-01T12:00:00.000Z');
 const SUCCES = new Date('2024-05-20T08:00:00.000Z');
@@ -17,6 +17,35 @@ function precedent(
     ...overrides,
   };
 }
+
+describe('normaliserDernierSucces', () => {
+  it('renvoie null quand aucun succès n’est connu', () => {
+    expect(normaliserDernierSucces(null)).toBeNull();
+    expect(normaliserDernierSucces(undefined)).toBeNull();
+  });
+
+  it('conserve une Date déjà typée', () => {
+    expect(normaliserDernierSucces(SUCCES)).toBe(SUCCES);
+  });
+
+  it('convertit une chaîne de type timestamp UTC', () => {
+    expect(normaliserDernierSucces('2025-08-13 12:21:48')).toEqual(
+      new Date('2025-08-13T12:21:48.000Z'),
+    );
+  });
+
+  it('lève une erreur explicite pour une chaîne invalide', () => {
+    expect(() => normaliserDernierSucces('pas une date')).toThrow(
+      'dernierSuccesAt doit être une Date',
+    );
+  });
+
+  it('lève une erreur explicite pour un type inattendu', () => {
+    expect(() =>
+      normaliserDernierSucces(42 as unknown as Date),
+    ).toThrow('dernierSuccesAt doit être une Date (reçu: number)');
+  });
+});
 
 describe('deriverActivite', () => {
   it('ne dérive rien à la première synchronisation sans signal', () => {
