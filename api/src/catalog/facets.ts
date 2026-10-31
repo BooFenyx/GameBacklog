@@ -14,6 +14,7 @@ export interface FacetRow {
   categoryIds: number[] | null;
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
+  lastActivityAt: Date | null;
 }
 
 export interface FacetteGenre {
@@ -35,6 +36,8 @@ export interface FacettesBibliotheque {
   manettes: FacetteValeur<'full'>[];
   etats: FacetteValeur<'jamais' | 'joue'>[];
   durees: FacetteValeur<DureeJeu>[];
+  /** Faux quand aucune entrée n'a d'activité dérivée : le tri « récent » est masqué. */
+  lastActivityDisponible: boolean;
 }
 
 /** Tranche de durée d'un temps de jeu total, en minutes. */
@@ -80,6 +83,10 @@ export function agregerFacettes(rows: FacetRow[]): FacettesBibliotheque {
     compteDurees.set(tranche, (compteDurees.get(tranche) ?? 0) + 1);
   }
 
+  const lastActivityDisponible = rows.some(
+    (row) => row.lastActivityAt !== null,
+  );
+
   const libelles = libellesDepuisLignes(rows);
   const genres = [...compteGenres.entries()]
     .map(([id, count]) => ({
@@ -111,5 +118,6 @@ export function agregerFacettes(rows: FacetRow[]): FacettesBibliotheque {
       label: DUREE_LABELS[duree],
       count: compteDurees.get(duree) ?? 0,
     })),
+    lastActivityDisponible,
   };
 }

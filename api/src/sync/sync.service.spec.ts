@@ -89,6 +89,30 @@ describe('SyncService', () => {
     await expect(makeService(db).needsAchievements(1)).resolves.toBe(false);
   });
 
+  it('needsLibraryActivity : vrai quand une entrée n’a jamais été vue', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([{ count: '1' }]),
+        }),
+      }),
+    };
+
+    await expect(makeService(db).needsLibraryActivity(1)).resolves.toBe(true);
+  });
+
+  it('needsLibraryActivity : faux quand toutes les entrées ont un last_seen_at', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([{ count: '0' }]),
+        }),
+      }),
+    };
+
+    await expect(makeService(db).needsLibraryActivity(1)).resolves.toBe(false);
+  });
+
   it('enqueue : renvoie le job en cours sans réinitialiser sa progression', async () => {
     const job: JobRow = {
       id: 42,

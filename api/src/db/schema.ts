@@ -24,6 +24,12 @@ export type CaptureEcran = {
 
 export type Plateforme = 'windows' | 'mac' | 'linux';
 
+/** Source de l'activité dérivée d'un jeu (données accessibles à tous). */
+export type LastActivitySource = 'sync_delta' | 'recent_window' | 'achievement';
+
+/** Précision de la date d'activité : borne haute ou basse, jamais exacte. */
+export type LastActivityPrecision = 'upper_bound' | 'lower_bound';
+
 export const users = pgTable(
   'users',
   {
@@ -120,7 +126,16 @@ export const libraryEntries = pgTable(
       .references(() => games.id, { onDelete: 'cascade' }),
     playtimeForever: integer('playtime_forever').notNull().default(0),
     playtimeLast2Weeks: integer('playtime_last_2_weeks').notNull().default(0),
-    lastPlayedAt: timestamp('last_played_at'),
+    /** Estimation d'activité dérivée (tri + affichage), jamais une date exacte. */
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
+    lastActivitySource: text('last_activity_source', {
+      enum: ['sync_delta', 'recent_window', 'achievement'],
+    }),
+    lastActivityPrecision: text('last_activity_precision', {
+      enum: ['upper_bound', 'lower_bound'],
+    }),
+    /** Dernière synchronisation réussie : point de départ du prochain `sync_delta`. */
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     achievementsUnlocked: integer('achievements_unlocked').notNull().default(0),
     /** Date de la dernière récupération des succès du joueur pour ce jeu. */
     achievementsFetchedAt: timestamp('achievements_fetched_at'),
@@ -135,9 +150,9 @@ export const libraryEntries = pgTable(
       table.userId,
       table.playtimeForever.desc(),
     ),
-    userLastPlayedIdx: index('library_entries_user_last_played_idx').on(
+    userLastActivityIdx: index('library_entries_user_last_activity_idx').on(
       table.userId,
-      table.lastPlayedAt.desc(),
+      table.lastActivityAt.desc(),
     ),
   }),
 );

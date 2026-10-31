@@ -8,7 +8,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { and, desc, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
-import { games, libraryEntries, syncJobs, users } from '../db/schema.js';
+import {
+  achievements,
+  games,
+  libraryEntries,
+  syncJobs,
+  userAchievements,
+  users,
+} from '../db/schema.js';
 import { AchievementsService } from '../achievements/achievements.service.js';
 import { QuotaReachedError } from '../embedding/rate-limiter.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
@@ -18,6 +25,7 @@ import {
   type BibliothequeGame,
 } from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
+import { deriverActivite } from './activite.js';
 
 const DEFAULT_APPDETAILS_THROTTLE_MS = 300;
 const DEFAULT_ACHIEVEMENTS_THROTTLE_MS = 200;
@@ -157,13 +165,32 @@ export class SyncService implements OnModuleInit {
             isNull(games.achievementsFetchedAt),
             isNull(libraryEntries.achievementsFetchedAt),
             and(
-              isNotNull(libraryEntries.lastPlayedAt),
+              eq(libraryEntries.lastActivitySource, 'sync_delta'),
+              isNotNull(libraryEntries.lastActivityAt),
               lt(
                 libraryEntries.achievementsFetchedAt,
-                libraryEntries.lastPlayedAt,
+                libraryEntries.lastActivityAt,
               ),
             ),
           ),
+        ),
+      );
+    return Number(row?.count ?? 0) > 0;
+  }
+
+  /**
+   * Vrai si au moins une entrée n'a jamais été vue par une sync terminée.
+   * Déclenche la première re-synchronisation après déploiement : elle remplit
+   * `last_seen_at` (et dérive l'activité), puis la condition redevient fausse.
+   */
+  async needsLibraryActivity(userId: number): Promise<boolean> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(libraryEntries)
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          isNull(libraryEntries.lastSeenAt),
         ),
       );
     return Number(row?.count ?? 0) > 0;
@@ -290,29 +317,98 @@ export class SyncService implements OnModuleInit {
       totalGames: jeux.length,
       processedGames: 0,
     });
+
+    const maintenant = new Date();
+
+    // Les précédents sont lus **avant** la boucle : comparer le temps de jeu à
+    // une sync datée est la seule façon de détecter une partie entre deux
+    // imports. `last_seen_at` est ensuite écrit après la boucle.
+    const precedents = await this.db
+      .select({
+        gameId: libraryEntries.gameId,
+        playtimeForever: libraryEntries.playtimeForever,
+        lastActivityAt: libraryEntries.lastActivityAt,
+        lastActivitySource: libraryEntries.lastActivitySource,
+        lastActivityPrecision: libraryEntries.lastActivityPrecision,
+        lastSeenAt: libraryEntries.lastSeenAt,
+      })
+      .from(libraryEntries)
+      .where(eq(libraryEntries.userId, userId));
+    const parJeu = new Map(precedents.map((p) => [p.gameId, p]));
+
+    // Dernier succès par jeu, en une seule requête : il sert de borne basse.
+    const succes = await this.db
+      .select({
+        gameId: achievements.gameId,
+        dernier: sql<Date>`max(${userAchievements.unlockedAt})`,
+      })
+      .from(userAchievements)
+      .innerJoin(
+        achievements,
+        eq(userAchievements.achievementId, achievements.id),
+      )
+      .where(eq(userAchievements.userId, userId))
+      .groupBy(achievements.gameId);
+    const succesParJeu = new Map(succes.map((s) => [s.gameId, s.dernier]));
+
     for (const jeu of jeux) {
       const gameId = await this.games.upsertBasic(jeu.appId, jeu.name);
+      const precedent = parJeu.get(gameId) ?? null;
+      const activite = deriverActivite(
+        {
+          playtimeForever: jeu.playtimeForever,
+          playtime2Weeks: jeu.playtimeLast2Weeks,
+        },
+        precedent,
+        succesParJeu.get(gameId) ?? null,
+        maintenant,
+      );
+
+      const valeurs = {
+        userId,
+        gameId,
+        playtimeForever: jeu.playtimeForever,
+        playtimeLast2Weeks: jeu.playtimeLast2Weeks,
+        lastSeenAt: maintenant,
+        ...(activite
+          ? {
+              lastActivityAt: activite.at,
+              lastActivitySource: activite.source,
+              lastActivityPrecision: activite.precision,
+            }
+          : {}),
+      };
+
+      const miseAJour = {
+        playtimeForever: jeu.playtimeForever,
+        playtimeLast2Weeks: jeu.playtimeLast2Weeks,
+        ...(activite
+          ? {
+              lastActivityAt: activite.at,
+              lastActivitySource: activite.source,
+              lastActivityPrecision: activite.precision,
+            }
+          : {}),
+      };
+
       await this.db
         .insert(libraryEntries)
-        .values({
-          userId,
-          gameId,
-          playtimeForever: jeu.playtimeForever,
-          playtimeLast2Weeks: jeu.playtimeLast2Weeks,
-          lastPlayedAt: jeu.lastPlayedAt,
-        })
+        .values(valeurs)
         .onConflictDoUpdate({
           target: [libraryEntries.userId, libraryEntries.gameId],
-          set: {
-            playtimeForever: jeu.playtimeForever,
-            playtimeLast2Weeks: jeu.playtimeLast2Weeks,
-            lastPlayedAt: jeu.lastPlayedAt,
-          },
+          set: miseAJour,
         });
     }
     await this.setProgress(jobId, 'details', {
       processedGames: jeux.length,
     });
+
+    // Couvre les entrées qui ne sont plus dans la réponse Steam : la prochaine
+    // sync a un point de départ même pour un jeu retiré de la bibliothèque.
+    await this.db
+      .update(libraryEntries)
+      .set({ lastSeenAt: maintenant })
+      .where(eq(libraryEntries.userId, userId));
   }
 
   /**
@@ -385,17 +481,18 @@ export class SyncService implements OnModuleInit {
             isNull(games.achievementsFetchedAt),
             isNull(libraryEntries.achievementsFetchedAt),
             and(
-              isNotNull(libraryEntries.lastPlayedAt),
+              eq(libraryEntries.lastActivitySource, 'sync_delta'),
+              isNotNull(libraryEntries.lastActivityAt),
               lt(
                 libraryEntries.achievementsFetchedAt,
-                libraryEntries.lastPlayedAt,
+                libraryEntries.lastActivityAt,
               ),
             ),
           ),
         ),
       )
       .orderBy(
-        sql`${libraryEntries.lastPlayedAt} DESC NULLS LAST`,
+        sql`${libraryEntries.lastActivityAt} DESC NULLS LAST`,
         desc(libraryEntries.playtimeForever),
         games.name,
       )
@@ -441,6 +538,35 @@ export class SyncService implements OnModuleInit {
         processedGames: processed,
       });
     }
+
+    await this.marquerActiviteSucces(userId);
+  }
+
+  /**
+   * Remplit l'activité des jeux qui n'en ont aucune avec la date du dernier
+   * succès (borne basse). Ne remplace jamais `sync_delta` ni `recent_window`.
+   *
+   * `unlocked_at` est un `timestamp` sans fuseau qui stocke un mur UTC, et la
+   * cible est `timestamptz` : `AT TIME ZONE 'UTC'` est indispensable.
+   */
+  private async marquerActiviteSucces(userId: number): Promise<void> {
+    await this.db.$client.query(
+      `UPDATE library_entries le
+       SET last_activity_at = a.dernier AT TIME ZONE 'UTC',
+           last_activity_source = 'achievement',
+           last_activity_precision = 'lower_bound'
+       FROM (
+         SELECT ach.game_id, MAX(ua.unlocked_at) AS dernier
+         FROM user_achievements ua
+         JOIN achievements ach ON ach.id = ua.achievement_id
+         WHERE ua.user_id = $1
+         GROUP BY ach.game_id
+       ) a
+       WHERE le.user_id = $1
+         AND le.game_id = a.game_id
+         AND le.last_activity_at IS NULL`,
+      [userId],
+    );
   }
 
   /** Étape 4 : génère et persiste les embeddings manquants. */

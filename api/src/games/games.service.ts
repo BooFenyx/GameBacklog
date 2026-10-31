@@ -6,6 +6,8 @@ import {
   libraryEntries,
   type CaptureEcran,
   type DescriptionBlock,
+  type LastActivityPrecision,
+  type LastActivitySource,
   type Plateforme,
 } from '../db/schema.js';
 import type { EmbeddingInput } from '../embedding/embedding.service.js';
@@ -97,8 +99,18 @@ export function parseReleaseDate(raw: string | undefined): Date | null {
   if (!trimmed) return null;
   if (/coming|bientôt|bientot/i.test(trimmed)) return null;
 
+  // Défensif : si Steam renvoie déjà une date ISO, la garder telle quelle.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return new Date(`${trimmed}T00:00:00.000Z`);
+  }
+
+  // "26 Oct, 2023" : V8 le parse en heure locale ; on ne garde que le jour.
   const native = new Date(trimmed);
-  if (!Number.isNaN(native.getTime())) return native;
+  if (!Number.isNaN(native.getTime())) {
+    return new Date(
+      Date.UTC(native.getFullYear(), native.getMonth(), native.getDate()),
+    );
+  }
 
   const match = trimmed.match(
     /^(\d{1,2})\s+([a-zàâäéèêëîïôöùûüç]+)\.?,?\s*,?\s*(\d{4})$/i,
@@ -108,7 +120,7 @@ export function parseReleaseDate(raw: string | undefined): Date | null {
   const month = FRENCH_MONTHS.find(([regex]) => regex.test(match[2]));
   if (!month) return null;
 
-  const date = new Date(Number(match[3]), month[1], Number(match[1]));
+  const date = new Date(Date.UTC(Number(match[3]), month[1], Number(match[1])));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -120,15 +132,13 @@ export function mapControllerSupport(
   if (direct === 'full' || direct === 'partial' || direct === 'none') {
     return direct;
   }
-  const categories = (data.categories ?? []).map(
-    (category) => category.description?.toLowerCase() ?? '',
+  // Ids stables même quand `l=french` traduit les libellés :
+  // 28 = Full controller support, 18 = Partial Controller Support.
+  const ids = new Set(
+    (data.categories ?? []).map((categorie) => Number(categorie.id)),
   );
-  if (categories.some((c) => c.includes('full controller support'))) {
-    return 'full';
-  }
-  if (categories.some((c) => c.includes('partial controller'))) {
-    return 'partial';
-  }
+  if (ids.has(28)) return 'full';
+  if (ids.has(18)) return 'partial';
   return 'none';
 }
 
@@ -408,6 +418,7 @@ export function mapAppDetails(
   const metacritic = mapMetacritic(data.metacritic);
   const background = (data.background_raw ?? data.background)?.trim();
   const website = data.website?.trim();
+  const header = data.header_image?.trim();
 
   return {
     appId,
@@ -431,7 +442,7 @@ export function mapAppDetails(
     categoryIds: categories.ids,
     controllerSupport: mapControllerSupport(data),
     releaseDate: parseReleaseDate(data.release_date?.date),
-    headerImageUrl: data.header_image ?? null,
+    headerImageUrl: header && estUrlHttp(header) ? header : null,
   };
 }
 
@@ -453,11 +464,15 @@ export interface UserGameDetail {
   genres: string[];
   categories: string[];
   controllerSupport: 'none' | 'partial' | 'full';
-  releaseDate: Date | null;
+  /** Date seule `YYYY-MM-DD`, à minuit UTC côté base. */
+  releaseDate: string | null;
   headerImageUrl: string | null;
   playtimeForever: number;
   playtimeLast2Weeks: number;
-  lastPlayedAt: Date | null;
+  /** Estimation d'activité dérivée, jamais une date exacte de partie. */
+  lastActivityAt: Date | null;
+  lastActivitySource: LastActivitySource | null;
+  lastActivityPrecision: LastActivityPrecision | null;
   /** `null` tant que le schéma Steam n'a pas été récupéré. */
   achievementsTotal: number | null;
   /** `null` tant que la progression du joueur n'a pas été récupérée. */
@@ -620,7 +635,9 @@ export class GamesService {
         headerImageUrl: games.headerImageUrl,
         playtimeForever: libraryEntries.playtimeForever,
         playtimeLast2Weeks: libraryEntries.playtimeLast2Weeks,
-        lastPlayedAt: libraryEntries.lastPlayedAt,
+        lastActivityAt: libraryEntries.lastActivityAt,
+        lastActivitySource: libraryEntries.lastActivitySource,
+        lastActivityPrecision: libraryEntries.lastActivityPrecision,
         achievementsTotal: games.achievementsTotal,
         gameAchievementsFetchedAt: games.achievementsFetchedAt,
         achievementsUnlocked: libraryEntries.achievementsUnlocked,
@@ -634,10 +651,12 @@ export class GamesService {
     const {
       gameAchievementsFetchedAt,
       progressFetchedAt,
+      releaseDate,
       ...reste
     } = row;
     return {
       ...reste,
+      releaseDate: releaseDate ? releaseDate.toISOString().slice(0, 10) : null,
       website: row.website || null,
       platforms: row.platforms as Plateforme[],
       achievementsTotal: gameAchievementsFetchedAt

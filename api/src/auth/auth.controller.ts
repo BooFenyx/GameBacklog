@@ -97,11 +97,18 @@ export class AuthController {
       // succès manquent encore (`needsAchievements`). Le front peut aussi
       // relancer à la main via `POST /api/sync`.
       const statut = await this.usersService.syncStatusOf(userId);
-      const [aRemapper, succesAMettreAJour] = await Promise.all([
-        this.syncService.needsFilters(userId),
-        this.syncService.needsAchievements(userId),
-      ]);
-      if (statut !== 'done' || aRemapper || succesAMettreAJour) {
+      const [aRemapper, succesAMettreAJour, activiteAMettreAJour] =
+        await Promise.all([
+          this.syncService.needsFilters(userId),
+          this.syncService.needsAchievements(userId),
+          this.syncService.needsLibraryActivity(userId),
+        ]);
+      if (
+        statut !== 'done' ||
+        aRemapper ||
+        succesAMettreAJour ||
+        activiteAMettreAJour
+      ) {
         void this.syncService.enqueue(userId);
       }
 

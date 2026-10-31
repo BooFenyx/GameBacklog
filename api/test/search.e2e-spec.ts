@@ -2,13 +2,14 @@ import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { DB, type Db } from '../src/db/db.module.js';
 import { games, libraryEntries, users } from '../src/db/schema.js';
 import { EmbeddingService } from '../src/embedding/embedding.service.js';
+import { FILTERS_VERSION } from '../src/games/games.service.js';
 import { SearchRateLimitService } from '../src/search/search-rate-limit.service.js';
 
 const STEAM_ID = '76561199000000003';
@@ -64,7 +65,7 @@ async function semerJeu(
       genreIds,
       categories,
       categoryIds,
-      filtersVersion: 1,
+      filtersVersion: FILTERS_VERSION,
       controllerSupport,
       headerImageUrl: `https://cdn/${appId}.jpg`,
       embedding,
@@ -79,7 +80,7 @@ async function semerJeu(
         genreIds,
         categories,
         categoryIds,
-        filtersVersion: 1,
+        filtersVersion: FILTERS_VERSION,
         controllerSupport,
         embedding,
         embeddingModel: 'test',
@@ -99,6 +100,7 @@ async function semerJeu(
 describe('Recherche (e2e)', () => {
   let app: NestExpressApplication;
   let moduleFixture: TestingModule;
+  let db: Db;
   let embedMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -167,9 +169,16 @@ describe('Recherche (e2e)', () => {
     configureApp(expressApp, FRONTEND_URL, 'test-session-secret');
     await expressApp.init();
     app = expressApp;
+    db = moduleFixture.get<Db>(DB);
   });
 
   afterEach(async () => {
+    if (db) {
+      // Supprime les jeux semés par ce test (et, par cascade, leurs entrées).
+      await db
+        .delete(games)
+        .where(inArray(games.appId, [930001, 930002, 930003, 930004, 930005]));
+    }
     await app.close();
     vi.unstubAllGlobals();
     delete process.env.STEAM_API_KEY;

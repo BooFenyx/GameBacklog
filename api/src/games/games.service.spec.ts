@@ -21,6 +21,7 @@ function fakeDb(returnedId = 7) {
   const onConflictDoUpdate = vi.fn();
   const returning = vi.fn();
   const from = vi.fn();
+  const innerJoin = vi.fn();
   const whereChain = vi.fn();
   const limit = vi.fn();
 
@@ -29,7 +30,8 @@ function fakeDb(returnedId = 7) {
   onConflictDoUpdate.mockReturnValue({ returning });
   returning.mockResolvedValue([{ id: returnedId }]);
   select.mockReturnValue({ from });
-  from.mockReturnValue({ where: whereChain });
+  from.mockReturnValue({ where: whereChain, innerJoin });
+  innerJoin.mockReturnValue({ where: whereChain });
   whereChain.mockReturnValue({ limit });
   limit.mockResolvedValue([]);
 
@@ -75,22 +77,41 @@ const DATA_FULL = {
 };
 
 describe('parseReleaseDate', () => {
-  it('parse une date anglaise', () => {
+  it('parse une date anglaise à minuit UTC', () => {
     const date = parseReleaseDate('26 Oct, 2023');
-    expect(date?.getFullYear()).toBe(2023);
-    expect(date?.getMonth()).toBe(9);
+    expect(date?.getUTCFullYear()).toBe(2023);
+    expect(date?.getUTCMonth()).toBe(9);
+    expect(date?.getUTCDate()).toBe(26);
+    expect(date?.toISOString()).toBe('2023-10-26T00:00:00.000Z');
   });
 
-  it('parse une date française', () => {
+  it('parse une date française à minuit UTC', () => {
     const date = parseReleaseDate('26 oct. 2023');
-    expect(date?.getFullYear()).toBe(2023);
-    expect(date?.getMonth()).toBe(9);
+    expect(date?.getUTCFullYear()).toBe(2023);
+    expect(date?.getUTCMonth()).toBe(9);
+    expect(date?.getUTCDate()).toBe(26);
+  });
+
+  it('parse les dates françaises abrégées', () => {
+    expect(parseReleaseDate('18 avr. 2011')?.toISOString()).toBe(
+      '2011-04-18T00:00:00.000Z',
+    );
+    expect(parseReleaseDate('4 sept. 2025')?.toISOString()).toBe(
+      '2025-09-04T00:00:00.000Z',
+    );
+  });
+
+  it('accepte déjà une date ISO', () => {
+    expect(parseReleaseDate('2011-04-18')?.toISOString()).toBe(
+      '2011-04-18T00:00:00.000Z',
+    );
   });
 
   it('renvoie null pour une date inconnue ou à venir', () => {
     expect(parseReleaseDate(undefined)).toBeNull();
     expect(parseReleaseDate('')).toBeNull();
     expect(parseReleaseDate('Coming soon')).toBeNull();
+    expect(parseReleaseDate('Bientôt disponible')).toBeNull();
     expect(parseReleaseDate('à venir')).toBeNull();
   });
 });
@@ -108,20 +129,39 @@ describe('mapControllerSupport', () => {
     );
   });
 
-  it('se replie sur les catégories', () => {
+  it('se replie sur les ids de catégories traduites', () => {
     expect(
       mapControllerSupport({
-        categories: [{ description: 'Full controller support' }],
+        categories: [
+          { id: 28, description: 'Compat. contrôleurs complète' },
+        ],
       } as never),
     ).toBe('full');
     expect(
       mapControllerSupport({
-        categories: [{ description: 'Partial Controller Support' }],
+        categories: [
+          { id: 18, description: 'Compat. partielle des contrôleurs' },
+        ],
       } as never),
     ).toBe('partial');
+  });
+
+  it('privilégie le support complet quand les deux ids sont présents', () => {
     expect(
       mapControllerSupport({
-        categories: [{ description: 'Single-player' }],
+        categories: [
+          { id: 18, description: 'Compat. partielle des contrôleurs' },
+          { id: 28, description: 'Compat. contrôleurs complète' },
+        ],
+      } as never),
+    ).toBe('full');
+  });
+
+  it('renvoie none sans catégorie ou avec un libellé anglais sans id', () => {
+    expect(mapControllerSupport({} as never)).toBe('none');
+    expect(
+      mapControllerSupport({
+        categories: [{ description: 'Full controller support' }],
       } as never),
     ).toBe('none');
   });
@@ -229,6 +269,29 @@ describe('mapAppDetails', () => {
     expect(details.backgroundImageUrl).toBe(
       'https://cdn.example/background.jpg',
     );
+    expect(details.releaseDate?.toISOString()).toBe('2023-10-26T00:00:00.000Z');
+  });
+
+  it('conserve une image d’en-tête HTTP(S) valide', () => {
+    const details = mapAppDetails(620, {
+      name: 'Portal 2',
+      header_image: 'https://cdn/header.jpg',
+    });
+    expect(details.headerImageUrl).toBe('https://cdn/header.jpg');
+  });
+
+  it('rejette une image d’en-tête vide ou non HTTP(S)', () => {
+    expect(
+      mapAppDetails(620, { name: 'Vide', header_image: '' }).headerImageUrl,
+    ).toBeNull();
+    expect(
+      mapAppDetails(620, { name: 'Blanche', header_image: '   ' })
+        .headerImageUrl,
+    ).toBeNull();
+    expect(
+      mapAppDetails(620, { name: 'JS', header_image: 'javascript:alert(1)' })
+        .headerImageUrl,
+    ).toBeNull();
   });
 
   it('renvoie des valeurs vides quand les champs manquent', () => {
@@ -439,5 +502,61 @@ describe('GamesService', () => {
       shortDescription: 'Des énigmes.',
       genres: ['Puzzle'],
     });
+  });
+
+  it('userGameDetail renvoie la date de sortie en YYYY-MM-DD', async () => {
+    const { limit } = faireDbFake();
+    limit.mockResolvedValue([
+      {
+        id: 1,
+        appId: 620,
+        name: 'Portal 2',
+        shortDescription: 'Des énigmes.',
+        descriptionBlocks: [],
+        screenshots: [],
+        developers: ['Valve'],
+        publishers: ['Valve'],
+        website: '',
+        platforms: ['windows'],
+        metacriticScore: 95,
+        metacriticUrl: null,
+        backgroundImageUrl: null,
+        genres: ['Puzzle'],
+        categories: ['Solo'],
+        controllerSupport: 'full',
+        releaseDate: new Date('2011-04-18T00:00:00.000Z'),
+        headerImageUrl: null,
+        playtimeForever: 10,
+        playtimeLast2Weeks: 0,
+        lastActivityAt: new Date('2024-01-02T03:04:05.000Z'),
+        lastActivitySource: 'sync_delta',
+        lastActivityPrecision: 'upper_bound',
+        achievementsTotal: null,
+        gameAchievementsFetchedAt: null,
+        achievementsUnlocked: null,
+        progressFetchedAt: null,
+      },
+    ]);
+
+    const detail = await service.userGameDetail(620, 1);
+
+    expect(detail?.releaseDate).toBe('2011-04-18');
+    expect(detail?.shortDescription).toBe('Des énigmes.');
+    expect(detail?.lastActivitySource).toBe('sync_delta');
+  });
+
+  it('userGameDetail renvoie null sans date de sortie', async () => {
+    const { limit } = faireDbFake();
+    limit.mockResolvedValue([
+      {
+        releaseDate: null,
+        gameAchievementsFetchedAt: null,
+        progressFetchedAt: null,
+      },
+    ]);
+
+    const detail = await service.userGameDetail(621, 1);
+
+    expect(detail?.releaseDate).toBeNull();
   });
 });

@@ -13,6 +13,10 @@ import {
 } from '../catalog/facets.js';
 import { modesDepuisCategories, type ModeJeu } from '../catalog/modes.js';
 import { DB, type Db } from '../db/db.module.js';
+import type {
+  LastActivityPrecision,
+  LastActivitySource,
+} from '../db/schema.js';
 import type { TriBibliotheque } from './dto/library-query.dto.js';
 
 /** Base de la Steam Web API (authentifiée par `STEAM_API_KEY`). */
@@ -28,7 +32,6 @@ export interface BibliothequeGame {
   playtimeForever: number;
   /** Temps de jeu sur les deux dernières semaines, en minutes. */
   playtimeLast2Weeks: number;
-  lastPlayedAt: Date | null;
 }
 
 /** Jeu persisté en base (`library_entries ⋈ games`), enrichi pour la page. */
@@ -37,6 +40,10 @@ export interface BibliothequeGamePersiste extends BibliothequeGame {
   /** Modes dérivés des catégories Steam (solo, multi, coop…). */
   modes: ModeJeu[];
   controllerSupport: 'none' | 'partial' | 'full';
+  /** Estimation d'activité dérivée, jamais une date exacte de partie. */
+  lastActivityAt: Date | null;
+  lastActivitySource: LastActivitySource | null;
+  lastActivityPrecision: LastActivityPrecision | null;
   headerImageUrl: string | null;
   /** `null` tant que le schéma Steam n'a pas été récupéré. */
   achievementsTotal: number | null;
@@ -76,7 +83,9 @@ interface BibliothequeRow {
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
   playtimeLast2Weeks: number;
-  lastPlayedAt: Date | null;
+  lastActivityAt: Date | null;
+  lastActivitySource: LastActivitySource | null;
+  lastActivityPrecision: LastActivityPrecision | null;
   achievementsUnlocked: number | null;
   achievementsTotal: number | null;
   total: string | number;
@@ -90,8 +99,8 @@ interface GetOwnedGamesResponse {
       appid: number;
       name?: string;
       playtime_forever?: number;
-      playtime_last_2_weeks?: number;
-      rtime_last_played?: number;
+      /** Champ réel de l'API Steam (14 derniers jours). */
+      playtime_2weeks?: number;
     }>;
   };
 }
@@ -142,7 +151,9 @@ export class LibraryService {
         g.controller_support AS "controllerSupport",
         le.playtime_forever AS "playtimeForever",
         le.playtime_last_2_weeks AS "playtimeLast2Weeks",
-        le.last_played_at AS "lastPlayedAt",
+        le.last_activity_at AS "lastActivityAt",
+        le.last_activity_source AS "lastActivitySource",
+        le.last_activity_precision AS "lastActivityPrecision",
         CASE
           WHEN le.achievements_fetched_at IS NULL THEN NULL
           ELSE le.achievements_unlocked
@@ -175,7 +186,9 @@ export class LibraryService {
         controllerSupport: row.controllerSupport,
         playtimeForever: row.playtimeForever,
         playtimeLast2Weeks: row.playtimeLast2Weeks,
-        lastPlayedAt: row.lastPlayedAt,
+        lastActivityAt: row.lastActivityAt,
+        lastActivitySource: row.lastActivitySource,
+        lastActivityPrecision: row.lastActivityPrecision,
         achievementsUnlocked: row.achievementsUnlocked,
         achievementsTotal: row.achievementsTotal,
       })),
@@ -198,7 +211,8 @@ export class LibraryService {
           g.genres,
           g.category_ids AS "categoryIds",
           g.controller_support AS "controllerSupport",
-          le.playtime_forever AS "playtimeForever"
+          le.playtime_forever AS "playtimeForever",
+          le.last_activity_at AS "lastActivityAt"
         FROM library_entries le
         JOIN games g ON g.id = le.game_id
         WHERE le.user_id = $1
@@ -215,7 +229,7 @@ export class LibraryService {
       case 'temps':
         return 'le.playtime_forever DESC, lower(g.name), g.app_id';
       case 'recent':
-        return 'le.last_played_at DESC NULLS LAST, lower(g.name), g.app_id';
+        return 'le.last_activity_at DESC NULLS LAST, le.playtime_last_2_weeks DESC, lower(g.name), g.app_id';
       case 'nom':
       default:
         return 'lower(g.name), g.app_id';
@@ -265,10 +279,7 @@ export class LibraryService {
         appId: game.appid,
         name: game.name as string,
         playtimeForever: game.playtime_forever ?? 0,
-        playtimeLast2Weeks: game.playtime_last_2_weeks ?? 0,
-        lastPlayedAt: game.rtime_last_played
-          ? new Date(game.rtime_last_played * 1000)
-          : null,
+        playtimeLast2Weeks: game.playtime_2weeks ?? 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }

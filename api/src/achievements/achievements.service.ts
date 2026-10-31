@@ -12,6 +12,7 @@ import {
   games,
   libraryEntries,
   userAchievements,
+  type LastActivitySource,
 } from '../db/schema.js';
 
 /** Base de la Steam Web API (authentifiée par `STEAM_API_KEY`). */
@@ -49,7 +50,8 @@ interface AchievementRow {
 /** Ligne `library_entries` utile au calcul de progression. */
 interface EntreeProgression {
   playtimeForever: number;
-  lastPlayedAt: Date | null;
+  lastActivityAt: Date | null;
+  lastActivitySource: LastActivitySource | null;
   achievementsFetchedAt: Date | null;
 }
 
@@ -149,10 +151,15 @@ export class AchievementsService {
 
     const entree = await this.chargerEntree(userId, gameId);
     const dateProgression = entree?.achievementsFetchedAt ?? null;
+    // Une partie détectée après la dernière récupération force le rafraîchissement.
+    const activiteSync =
+      entree?.lastActivitySource === 'sync_delta'
+        ? entree.lastActivityAt
+        : null;
     const frais =
       dateProgression !== null &&
       Date.now() - dateProgression.getTime() < PROGRESS_TTL_MS &&
-      (!entree?.lastPlayedAt || entree.lastPlayedAt <= dateProgression);
+      (!activiteSync || activiteSync <= dateProgression);
 
     // Jeu jamais lancé : le débloqué vaut 0, inutile d'appeler
     // `GetPlayerAchievements`.
@@ -315,7 +322,8 @@ export class AchievementsService {
     const [entree] = await this.db
       .select({
         playtimeForever: libraryEntries.playtimeForever,
-        lastPlayedAt: libraryEntries.lastPlayedAt,
+        lastActivityAt: libraryEntries.lastActivityAt,
+        lastActivitySource: libraryEntries.lastActivitySource,
         achievementsFetchedAt: libraryEntries.achievementsFetchedAt,
       })
       .from(libraryEntries)

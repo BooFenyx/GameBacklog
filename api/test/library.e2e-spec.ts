@@ -1,11 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { DB, type Db } from '../src/db/db.module.js';
 import { games, libraryEntries, users } from '../src/db/schema.js';
+import { FILTERS_VERSION } from '../src/games/games.service.js';
 
 const STEAM_ID = '76561199123456789';
 const FRONTEND_URL = 'http://localhost:5173';
@@ -138,7 +139,7 @@ describe('Bibliothèque (e2e)', () => {
       .insert(games)
       .values({
         ...jeu,
-        filtersVersion: 1,
+        filtersVersion: FILTERS_VERSION,
         headerImageUrl: `http://img/${jeu.appId}.jpg`,
         detailsFetchedAt: new Date(),
         achievementsTotal: 5,
@@ -148,7 +149,7 @@ describe('Bibliothèque (e2e)', () => {
         target: games.appId,
         set: {
           ...jeu,
-          filtersVersion: 1,
+          filtersVersion: FILTERS_VERSION,
           headerImageUrl: `http://img/${jeu.appId}.jpg`,
           detailsFetchedAt: new Date(),
           achievementsTotal: 5,
@@ -157,15 +158,21 @@ describe('Bibliothèque (e2e)', () => {
       })
       .returning();
 
-    const lastPlayedAt =
+    const lastActivityAt =
       temps.playtimeForever > 0 ? new Date('2024-01-02T03:04:05.000Z') : null;
+    const lastActivitySource = lastActivityAt ? ('sync_delta' as const) : null;
+    const lastActivityPrecision = lastActivityAt
+      ? ('upper_bound' as const)
+      : null;
     await db
       .insert(libraryEntries)
       .values({
         userId,
         gameId: ligne.id,
         ...temps,
-        lastPlayedAt,
+        lastActivityAt,
+        lastActivitySource,
+        lastActivityPrecision,
         achievementsUnlocked: 3,
         achievementsFetchedAt: new Date(),
       })
@@ -173,7 +180,9 @@ describe('Bibliothèque (e2e)', () => {
         target: [libraryEntries.userId, libraryEntries.gameId],
         set: {
           ...temps,
-          lastPlayedAt,
+          lastActivityAt,
+          lastActivitySource,
+          lastActivityPrecision,
           achievementsUnlocked: 3,
           achievementsFetchedAt: new Date(),
         },
@@ -181,6 +190,12 @@ describe('Bibliothèque (e2e)', () => {
   }
 
   afterEach(async () => {
+    if (db) {
+      // 424242/424243 : semés directement ; 910001/910002 : mock GetOwnedGames.
+      await db
+        .delete(games)
+        .where(inArray(games.appId, [424242, 424243, 910001, 910002]));
+    }
     await app.close();
     vi.unstubAllGlobals();
     delete process.env.STEAM_API_KEY;
@@ -216,6 +231,9 @@ describe('Bibliothèque (e2e)', () => {
           modes: ['solo'],
           controllerSupport: 'full',
           headerImageUrl: 'http://img/424242.jpg',
+          lastActivityAt: '2024-01-02T03:04:05.000Z',
+          lastActivitySource: 'sync_delta',
+          lastActivityPrecision: 'upper_bound',
           achievementsUnlocked: 3,
           achievementsTotal: 5,
         }),
@@ -224,6 +242,7 @@ describe('Bibliothèque (e2e)', () => {
     // Les champs lourds inutilisés par la liste ne sont plus renvoyés.
     expect(res.body.items[0]).not.toHaveProperty('categories');
     expect(res.body.items[0]).not.toHaveProperty('shortDescription');
+    expect(res.body.items[0]).not.toHaveProperty('lastPlayedAt');
   });
 
   it('filtre par genre et par mode (ET dans le groupe)', async () => {
@@ -297,6 +316,38 @@ describe('Bibliothèque (e2e)', () => {
     expect(suivante.body.items[0].name).not.toBe('Jeu Coop');
   });
 
+  it('trie par activité dérivée avec tri=recent', async () => {
+    const [coop] = await db
+      .select()
+      .from(games)
+      .where(eq(games.appId, 424243))
+      .limit(1);
+    if (!coop) throw new Error('Jeu Coop non semé');
+    await db
+      .update(libraryEntries)
+      .set({
+        lastActivityAt: null,
+        lastActivitySource: null,
+        lastActivityPrecision: null,
+      })
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          eq(libraryEntries.gameId, coop.id),
+        ),
+      );
+
+    const agent = request.agent(app.getHttpServer());
+    await agent
+      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
+      .redirects(0)
+      .expect(302);
+
+    const res = await agent.get('/api/library?tri=recent').expect(200);
+
+    expect(res.body.items[0].name).toBe('Jeu Semé');
+  });
+
   it('refuse un filtre invalide', async () => {
     const agent = request.agent(app.getHttpServer());
     await agent
@@ -320,6 +371,7 @@ describe('Bibliothèque (e2e)', () => {
     const res = await agent.get('/api/library/facets').expect(200);
 
     expect(res.body.total).toBeGreaterThanOrEqual(2);
+    expect(res.body.lastActivityDisponible).toBe(true);
     expect(res.body.genres).toEqual(
       expect.arrayContaining([
         { id: 1, label: 'Action', count: 1 },
