@@ -14,6 +14,7 @@ import {
   isNull,
   lt,
   max,
+  notInArray,
   or,
   sql,
 } from 'drizzle-orm';
@@ -36,11 +37,17 @@ import {
 } from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
 import { deriverActivite, normaliserDernierSucces } from './activite.js';
+import { traiterSuccesParLots } from './achievements-batch.js';
 
 const DEFAULT_APPDETAILS_THROTTLE_MS = 300;
 const DEFAULT_ACHIEVEMENTS_THROTTLE_MS = 200;
-/** Plafond de jeux traités pour les succès lors d'une synchronisation. */
-const DEFAULT_ACHIEVEMENTS_MAX_GAMES = 200;
+/** Taille d'un lot de succès : borne une requête, pas le total de la passe. */
+const DEFAULT_ACHIEVEMENTS_BATCH_SIZE = 200;
+/**
+ * Ancien plafond total, déprécié. `0` (défaut) signifie « aucun plafond » ;
+ * une valeur > 0 reste possible comme garde-fou explicite.
+ */
+const DEFAULT_ACHIEVEMENTS_MAX_GAMES = 0;
 
 /** État d'un job renvoyé au front (suivi de progression). */
 export interface SyncJobResponse {
@@ -163,29 +170,72 @@ export class SyncService implements OnModuleInit {
    * login, sans dépendre de l'ouverture d'une fiche.
    */
   async needsAchievements(userId: number): Promise<boolean> {
+    return (await this.compterSuccesManquants(userId)) > 0;
+  }
+
+  /**
+   * Conditions SQL des jeux dont les compteurs de succès manquent. Partagées
+   * par `needsAchievements`, le comptage et la sélection des lots.
+   */
+  private conditionsSuccesManquants(userId: number) {
+    return and(
+      eq(libraryEntries.userId, userId),
+      isNotNull(games.detailsFetchedAt),
+      or(
+        isNull(games.achievementsFetchedAt),
+        isNull(libraryEntries.achievementsFetchedAt),
+        and(
+          eq(libraryEntries.lastActivitySource, 'sync_delta'),
+          isNotNull(libraryEntries.lastActivityAt),
+          lt(
+            libraryEntries.achievementsFetchedAt,
+            libraryEntries.lastActivityAt,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /** Nombre de jeux à traiter pour les succès au début d'une passe. */
+  private async compterSuccesManquants(userId: number): Promise<number> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)` })
       .from(libraryEntries)
       .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(this.conditionsSuccesManquants(userId));
+    return Number(row?.count ?? 0);
+  }
+
+  /**
+   * Sélectionne un lot de jeux manquants, en excluant ceux déjà tentés dans le
+   * run courant (`notInArray`) pour ne pas boucler sur un échec.
+   */
+  private async selectionnerSuccesManquants(
+    userId: number,
+    dejaTentes: number[],
+    limite: number,
+  ): Promise<Array<{ gameId: number; appId: number }>> {
+    return this.db
+      .select({
+        gameId: games.id,
+        appId: games.appId,
+      })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
       .where(
         and(
-          eq(libraryEntries.userId, userId),
-          isNotNull(games.detailsFetchedAt),
-          or(
-            isNull(games.achievementsFetchedAt),
-            isNull(libraryEntries.achievementsFetchedAt),
-            and(
-              eq(libraryEntries.lastActivitySource, 'sync_delta'),
-              isNotNull(libraryEntries.lastActivityAt),
-              lt(
-                libraryEntries.achievementsFetchedAt,
-                libraryEntries.lastActivityAt,
-              ),
-            ),
-          ),
+          this.conditionsSuccesManquants(userId),
+          dejaTentes.length > 0
+            ? notInArray(games.id, dejaTentes)
+            : undefined,
         ),
-      );
-    return Number(row?.count ?? 0) > 0;
+      )
+      .orderBy(
+        sql`${libraryEntries.lastActivityAt} DESC NULLS LAST`,
+        desc(libraryEntries.playtimeForever),
+        games.name,
+      )
+      .limit(limite);
   }
 
   /**
@@ -465,77 +515,72 @@ export class SyncService implements OnModuleInit {
    * Étape 3 : précharge les compteurs de succès pour la bibliothèque.
    *
    * Le schéma Steam est global (une fois par jeu) et les déblocages sont
-   * propres au joueur. On traite au plus `ACHIEVEMENTS_MAX_GAMES_PER_SYNC`
-   * jeux par synchronisation, en priorisant les jeux récemment lancés : les
-   * suivants seront repris à la prochaine synchronisation. Les jeux jamais
-   * lancés n'appellent pas `GetPlayerAchievements`.
+   * propres au joueur. Les jeux manquants sont traités par lots de
+   * `ACHIEVEMENTS_BATCH_SIZE`, jusqu'à épuisement : il n'y a plus de plafond
+   * total. Les lots suivants excluent les jeux déjà tentés, pour ne pas boucler
+   * sur un échec. Les jeux jamais lancés n'appellent pas `GetPlayerAchievements`.
    */
   private async stepAchievements(
     jobId: number,
     userId: number,
     steamId: string,
   ): Promise<void> {
-    const max =
-      this.config.get<number>('ACHIEVEMENTS_MAX_GAMES_PER_SYNC') ??
-      DEFAULT_ACHIEVEMENTS_MAX_GAMES;
-    const rows = await this.db
-      .select({
-        gameId: games.id,
-        appId: games.appId,
-      })
-      .from(libraryEntries)
-      .innerJoin(games, eq(libraryEntries.gameId, games.id))
-      .where(
-        and(
-          eq(libraryEntries.userId, userId),
-          isNotNull(games.detailsFetchedAt),
-          or(
-            isNull(games.achievementsFetchedAt),
-            isNull(libraryEntries.achievementsFetchedAt),
-            and(
-              eq(libraryEntries.lastActivitySource, 'sync_delta'),
-              isNotNull(libraryEntries.lastActivityAt),
-              lt(
-                libraryEntries.achievementsFetchedAt,
-                libraryEntries.lastActivityAt,
-              ),
-            ),
-          ),
-        ),
-      )
-      .orderBy(
-        sql`${libraryEntries.lastActivityAt} DESC NULLS LAST`,
-        desc(libraryEntries.playtimeForever),
-        games.name,
-      )
-      .limit(max);
+    const batchSize = this.lireEntier(
+      'ACHIEVEMENTS_BATCH_SIZE',
+      DEFAULT_ACHIEVEMENTS_BATCH_SIZE,
+      1,
+      1000,
+    );
+    const maxTotal = this.lireEntier(
+      'ACHIEVEMENTS_MAX_GAMES_PER_SYNC',
+      DEFAULT_ACHIEVEMENTS_MAX_GAMES,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
+    const manquants = await this.compterSuccesManquants(userId);
+    const total =
+      maxTotal > 0 ? Math.min(manquants, maxTotal) : manquants;
 
     this.logger.log(
-      `Étape succès : ${rows.length} jeu(x) à traiter (plafond ${max})`,
+      `Étape succès : ${total} jeu(x) à traiter (lots de ${batchSize})`,
     );
 
     await this.setProgress(jobId, 'achievements', {
-      totalGames: rows.length,
+      totalGames: total,
       processedGames: 0,
     });
 
-    const throttleMs =
-      this.config.get<number>('ACHIEVEMENTS_THROTTLE_MS') ??
-      DEFAULT_ACHIEVEMENTS_THROTTLE_MS;
-    let processed = 0;
+    const throttleMs = this.lireEntier(
+      'ACHIEVEMENTS_THROTTLE_MS',
+      DEFAULT_ACHIEVEMENTS_THROTTLE_MS,
+      0,
+      60_000,
+    );
+    let dejaTraite = false;
 
-    for (const row of rows) {
-      if (processed > 0 && throttleMs > 0) {
-        await sleep(throttleMs);
-      }
-      try {
+    await traiterSuccesParLots({
+      total,
+      batchSize,
+      selectionner: (dejaTentes, limite) =>
+        this.selectionnerSuccesManquants(userId, dejaTentes, limite),
+      traiter: async (row) => {
+        if (dejaTraite && throttleMs > 0) {
+          await sleep(throttleMs);
+        }
+        dejaTraite = true;
         await this.achievements.refreshForSync(
           steamId,
           userId,
           row.gameId,
           row.appId,
         );
-      } catch (error) {
+      },
+      onProgression: (processed) =>
+        this.setProgress(jobId, 'achievements', {
+          totalGames: total,
+          processedGames: processed,
+        }),
+      onEchec: (row, error) => {
         // Un jeu en échec ne doit pas bloquer les autres. Le marqueur de
         // récupération n'est pas avancé, donc une prochaine sync retentera.
         this.logger.warn(
@@ -543,13 +588,8 @@ export class SyncService implements OnModuleInit {
             error instanceof Error ? error.message : 'erreur inconnue'
           }`,
         );
-      }
-      processed += 1;
-      await this.setProgress(jobId, 'achievements', {
-        totalGames: rows.length,
-        processedGames: processed,
-      });
-    }
+      },
+    });
 
     await this.marquerActiviteSucces(userId);
   }
@@ -646,6 +686,22 @@ export class SyncService implements OnModuleInit {
       .innerJoin(games, eq(libraryEntries.gameId, games.id))
       .where(and(eq(libraryEntries.userId, userId), isNull(games.embedding)));
     return rows.map((row) => row.appId);
+  }
+
+  /**
+   * Lit un entier de configuration. `ConfigService.get<number>()` renvoie en
+   * réalité une chaîne : on convertit explicitement et on borne la valeur.
+   */
+  private lireEntier(
+    cle: string,
+    defaut: number,
+    min: number,
+    max: number,
+  ): number {
+    const brut = this.config.get<string | number>(cle);
+    const valeur = brut === undefined || brut === '' ? defaut : Number(brut);
+    if (!Number.isFinite(valeur)) return defaut;
+    return Math.min(max, Math.max(min, Math.trunc(valeur)));
   }
 
   private async markRunning(jobId: number): Promise<void> {
