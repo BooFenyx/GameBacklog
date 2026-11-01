@@ -5,6 +5,10 @@ import {
   SteamRateLimitError,
 } from '../achievements/achievements.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
+import {
+  QuotaReachedError,
+  type RateLimitService,
+} from '../embedding/rate-limiter.service.js';
 import { GamesService } from '../games/games.service.js';
 import { LibraryService, type BibliothequeGame } from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -32,6 +36,7 @@ function makeService(db: unknown): SyncService {
     {} as AchievementsService,
     {} as EmbeddingService,
     {} as UsersService,
+    {} as RateLimitService,
   );
 }
 
@@ -192,6 +197,7 @@ describe('SyncService', () => {
       {} as AchievementsService,
       {} as EmbeddingService,
       {} as UsersService,
+      {} as RateLimitService,
     );
 
     await (
@@ -279,6 +285,7 @@ describe('SyncService', () => {
         {
           setStatus: deps.setStatus ?? (async () => {}),
         } as unknown as UsersService,
+        {} as RateLimitService,
       );
     }
 
@@ -427,6 +434,7 @@ describe('SyncService', () => {
         {} as AchievementsService,
         {} as EmbeddingService,
         {} as UsersService,
+        {} as RateLimitService,
       );
       vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
         1, 2, 3,
@@ -461,6 +469,7 @@ describe('SyncService', () => {
         {} as AchievementsService,
         {} as EmbeddingService,
         {} as UsersService,
+        {} as RateLimitService,
       );
       vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
         1, 2, 3,
@@ -492,6 +501,7 @@ describe('SyncService', () => {
         {} as AchievementsService,
         {} as EmbeddingService,
         {} as UsersService,
+        {} as RateLimitService,
       );
 
       expect(
@@ -530,6 +540,7 @@ describe('SyncService', () => {
         {} as AchievementsService,
         {} as EmbeddingService,
         { setStatus } as unknown as UsersService,
+        {} as RateLimitService,
       );
       vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
         1, 2, 3,
@@ -573,6 +584,7 @@ describe('SyncService', () => {
         {} as AchievementsService,
         {} as EmbeddingService,
         {} as UsersService,
+        {} as RateLimitService,
       );
 
       await (
@@ -635,6 +647,7 @@ describe('SyncService', () => {
         {} as AchievementsService,
         {} as EmbeddingService,
         {} as UsersService,
+        {} as RateLimitService,
       );
     }
 
@@ -815,6 +828,7 @@ describe('SyncService', () => {
         { refreshForSync } as unknown as AchievementsService,
         {} as EmbeddingService,
         {} as UsersService,
+        {} as RateLimitService,
       );
       vi.spyOn(service as never, 'compterSuccesManquants').mockResolvedValue(5);
       vi.spyOn(
@@ -840,6 +854,245 @@ describe('SyncService', () => {
 
       expect(resultat).toEqual({ paused: false, progressed: false });
       expect(refreshForSync).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('embeddings et quota', () => {
+    type Resultat = { paused: boolean; progressed: boolean };
+
+    function serviceEmbeddings(
+      db: unknown,
+      deps: {
+        embeddingInputFor?: (appId: number) => Promise<unknown>;
+        embedGame?: (input: unknown, options: unknown) => Promise<unknown>;
+        remainingToday?: () => Promise<number>;
+      } = {},
+    ): SyncService {
+      return new SyncService(
+        db as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        {
+          embeddingInputFor: deps.embeddingInputFor ?? (async () => null),
+        } as unknown as GamesService,
+        {} as AchievementsService,
+        {
+          embedGame: deps.embedGame ?? (async () => null),
+          modelName: 'modele-test',
+        } as unknown as EmbeddingService,
+        {} as UsersService,
+        {
+          remainingToday: deps.remainingToday ?? (async () => 1000),
+        } as unknown as RateLimitService,
+      );
+    }
+
+    function dbMiseAJour() {
+      const updates: Array<Record<string, unknown>> = [];
+      return {
+        updates,
+        db: {
+          update: () => ({
+            set: (valeurs: Record<string, unknown>) => {
+              updates.push(valeurs);
+              return { where: () => Promise.resolve() };
+            },
+          }),
+        },
+      };
+    }
+
+    it('saute les jeux sans texte et passe la source import', async () => {
+      const { db, updates } = dbMiseAJour();
+      const embeddingInputFor = vi.fn(async (appId: number) =>
+        appId === 1 ? null : { name: `Jeu ${appId}` },
+      );
+      const embedGame = vi.fn(async () => [0.1, 0.2]);
+      const service = serviceEmbeddings(db, {
+        embeddingInputFor,
+        embedGame,
+      });
+      vi.spyOn(service as never, 'appIdsSansEmbedding').mockResolvedValue([
+        1, 2,
+      ]);
+
+      const resultat = await (
+        service as never as {
+          stepEmbeddings: (j: number, u: number) => Promise<Resultat>;
+        }
+      ).stepEmbeddings(1, 1);
+
+      expect(resultat).toEqual({ paused: false, progressed: true });
+      expect(embeddingInputFor).toHaveBeenCalledTimes(2);
+      expect(embedGame).toHaveBeenCalledTimes(1);
+      expect(embedGame).toHaveBeenCalledWith(
+        { name: 'Jeu 2' },
+        { source: 'import' },
+      );
+      expect(updates.some((u) => Array.isArray(u.embedding))).toBe(true);
+    });
+
+    it('quota atteint : la passe s’arrête sans relancer, le reliquat reste', async () => {
+      const { db } = dbMiseAJour();
+      const embedGame = vi.fn(async (input: unknown) => {
+        if ((input as { name: string }).name === 'Jeu 3') {
+          throw new QuotaReachedError();
+        }
+        return [0.1, 0.2];
+      });
+      const service = serviceEmbeddings(db, {
+        embeddingInputFor: async (appId) => ({ name: `Jeu ${appId}` }),
+        embedGame,
+      });
+      vi.spyOn(service as never, 'appIdsSansEmbedding').mockResolvedValue([
+        1, 2, 3, 4,
+      ]);
+
+      const resultat = await (
+        service as never as {
+          stepEmbeddings: (j: number, u: number) => Promise<Resultat>;
+        }
+      ).stepEmbeddings(1, 1);
+
+      expect(resultat).toEqual({ paused: false, progressed: false });
+      expect(embedGame).toHaveBeenCalledTimes(3);
+    });
+
+    it('quota épuisé : processJob termine en done, jamais en error', async () => {
+      const { db, updates } = dbMiseAJour();
+      const setStatus = vi.fn(async () => {});
+      const service = new SyncService(
+        {
+          ...db,
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                limit: () => Promise.resolve([{ steamId: 'steam-1' }]),
+              }),
+            }),
+          }),
+        } as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        {
+          embeddingInputFor: async () => ({ name: 'Jeu' }),
+        } as unknown as GamesService,
+        {} as AchievementsService,
+        {
+          embedGame: async () => {
+            throw new QuotaReachedError();
+          },
+          modelName: 'modele-test',
+        } as unknown as EmbeddingService,
+        { setStatus } as unknown as UsersService,
+        { remainingToday: async () => 0 } as unknown as RateLimitService,
+      );
+      vi.spyOn(service as never, 'appIdsSansEmbedding').mockResolvedValue([1]);
+
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob({
+        id: 1,
+        userId: 1,
+        status: 'pending',
+        step: 'embeddings',
+        totalGames: 0,
+        processedGames: 0,
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      });
+
+      expect(updates.some((u) => u.status === 'done')).toBe(true);
+      expect(updates.some((u) => u.status === 'error')).toBe(false);
+      expect(setStatus).toHaveBeenCalledWith(1, 'done', expect.anything());
+    });
+
+    it('needsEmbeddings : vrai quand il reste des embeddings et du quota', async () => {
+      const remainingToday = vi.fn(async () => 5);
+      const service = serviceEmbeddings({}, { remainingToday });
+      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
+        3,
+      );
+
+      await expect(service.needsEmbeddings(1)).resolves.toBe(true);
+      expect(remainingToday).toHaveBeenCalledTimes(1);
+    });
+
+    it('needsEmbeddings : faux quand le quota du jour est épuisé', async () => {
+      const remainingToday = vi.fn(async () => 0);
+      const service = serviceEmbeddings({}, { remainingToday });
+      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
+        3,
+      );
+
+      await expect(service.needsEmbeddings(1)).resolves.toBe(false);
+    });
+
+    it('needsEmbeddings : faux sans reliquat, sans consulter le quota', async () => {
+      const remainingToday = vi.fn(async () => 5);
+      const service = serviceEmbeddings({}, { remainingToday });
+      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
+        0,
+      );
+
+      await expect(service.needsEmbeddings(1)).resolves.toBe(false);
+      expect(remainingToday).not.toHaveBeenCalled();
+    });
+
+    it('currentJob : renvoie les quatre compteurs de reliquat', async () => {
+      const job: JobRow = {
+        id: 7,
+        userId: 1,
+        status: 'done',
+        step: 'done',
+        totalGames: 10,
+        processedGames: 10,
+        error: null,
+        startedAt: new Date('2026-01-01'),
+        finishedAt: new Date('2026-01-02'),
+      };
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([job]) }),
+          }),
+        }),
+      };
+      const service = serviceEmbeddings(db);
+      vi.spyOn(service as never, 'compterDetailsEnAttente').mockResolvedValue(3);
+      vi.spyOn(service as never, 'compterDetailsIndisponibles').mockResolvedValue(
+        1,
+      );
+      vi.spyOn(service as never, 'compterSuccesManquants').mockResolvedValue(2);
+      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
+        4,
+      );
+
+      await expect(service.currentJob(1)).resolves.toMatchObject({
+        pendingDetails: 3,
+        detailsUnavailable: 1,
+        pendingAchievements: 2,
+        pendingEmbeddings: 4,
+      });
+    });
+
+    it('currentJob : null sans job, sans compter le reliquat', async () => {
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([]) }),
+          }),
+        }),
+      };
+      const service = serviceEmbeddings(db);
+      const compteur = vi.spyOn(
+        service as never,
+        'compterEmbeddingsManquants',
+      );
+
+      await expect(service.currentJob(1)).resolves.toBeNull();
+      expect(compteur).not.toHaveBeenCalled();
     });
   });
 });

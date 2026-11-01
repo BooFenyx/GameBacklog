@@ -10,6 +10,7 @@ import {
   and,
   desc,
   eq,
+  gte,
   isNotNull,
   isNull,
   lt,
@@ -32,7 +33,10 @@ import {
   AchievementsService,
   SteamRateLimitError,
 } from '../achievements/achievements.service.js';
-import { QuotaReachedError } from '../embedding/rate-limiter.service.js';
+import {
+  QuotaReachedError,
+  RateLimitService,
+} from '../embedding/rate-limiter.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
 import { FILTERS_VERSION, GamesService } from '../games/games.service.js';
 import {
@@ -81,7 +85,31 @@ export interface SyncJobResponse {
   error: string | null;
   startedAt: Date | null;
   finishedAt: Date | null;
+  /** Fiches à récupérer (hors jeux en attente de retry ou délistés). */
+  pendingDetails: number;
+  /** Jeux dont la fiche est considérée indisponible (3 échecs « délisté »). */
+  detailsUnavailable: number;
+  /** Jeux dont les compteurs de succès manquent. */
+  pendingAchievements: number;
+  /** Jeux indexables dont l'embedding manque. */
+  pendingEmbeddings: number;
 }
+
+/** Compteurs de reliquat exposés par `GET /api/sync`. */
+type CompteursImport = Pick<
+  SyncJobResponse,
+  | 'pendingDetails'
+  | 'detailsUnavailable'
+  | 'pendingAchievements'
+  | 'pendingEmbeddings'
+>;
+
+const COMPTEURS_VIDES: CompteursImport = {
+  pendingDetails: 0,
+  detailsUnavailable: 0,
+  pendingAchievements: 0,
+  pendingEmbeddings: 0,
+};
 
 /** Ligne `sync_jobs` telle que lue en base. */
 type SyncJobRow = {
@@ -112,6 +140,7 @@ export class SyncService implements OnModuleInit {
     private readonly achievements: AchievementsService,
     private readonly embedding: EmbeddingService,
     private readonly users: UsersService,
+    private readonly rateLimit: RateLimitService,
   ) {}
 
   /**
@@ -193,6 +222,19 @@ export class SyncService implements OnModuleInit {
    */
   async needsAchievements(userId: number): Promise<boolean> {
     return (await this.compterSuccesManquants(userId)) > 0;
+  }
+
+  /**
+   * Indique s'il reste des jeux indexables sans embedding. Faux quand le quota
+   * Gemini du jour est épuisé : relancer une sync ne servirait à rien et
+   * créerait une boucle au login.
+   */
+  async needsEmbeddings(userId: number): Promise<boolean> {
+    const count = await this.compterEmbeddingsManquants(userId);
+    if (count === 0) {
+      return false;
+    }
+    return (await this.rateLimit.remainingToday()) > 0;
   }
 
   /**
@@ -285,7 +327,66 @@ export class SyncService implements OnModuleInit {
       .from(syncJobs)
       .where(eq(syncJobs.userId, userId))
       .limit(1);
-    return job ? this.toResponse(job as SyncJobRow) : null;
+    if (!job) {
+      return null;
+    }
+    return this.toResponse(job as SyncJobRow, await this.compterReliquats(userId));
+  }
+
+  /**
+   * Reliquat de l'import, quel que soit l'état du job (`done`, `error`…).
+   * Quatre `count(*)` par utilisateur : négligeable même pour 1 000 jeux.
+   */
+  private async compterReliquats(userId: number): Promise<CompteursImport> {
+    const [pendingDetails, detailsUnavailable, pendingAchievements, pendingEmbeddings] =
+      await Promise.all([
+        this.compterDetailsEnAttente(userId),
+        this.compterDetailsIndisponibles(userId),
+        this.compterSuccesManquants(userId),
+        this.compterEmbeddingsManquants(userId),
+      ]);
+    return {
+      pendingDetails,
+      detailsUnavailable,
+      pendingAchievements,
+      pendingEmbeddings,
+    };
+  }
+
+  /** Fiches encore à récupérer (retry dû, moins de 3 échecs « délisté »). */
+  private async compterDetailsEnAttente(userId: number): Promise<number> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          isNull(games.detailsFetchedAt),
+          or(
+            isNull(games.detailsNextRetryAt),
+            lte(games.detailsNextRetryAt, new Date()),
+          ),
+          lt(games.detailsAttempts, SEUIL_FICHE_DELISTEE),
+        ),
+      );
+    return Number(row?.count ?? 0);
+  }
+
+  /** Fiches abandonnées : trois passages « délisté » sans succès. */
+  private async compterDetailsIndisponibles(userId: number): Promise<number> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          isNull(games.detailsFetchedAt),
+          gte(games.detailsAttempts, SEUIL_FICHE_DELISTEE),
+        ),
+      );
+    return Number(row?.count ?? 0);
   }
 
   /**
@@ -820,12 +921,14 @@ export class SyncService implements OnModuleInit {
     const deadline = this.creerDeadline();
     let processed = 0;
     let progressed = false;
+    let quotaAtteint = false;
     for (const appId of appIds) {
       if (this.budgetDepasse(deadline)) {
         return { paused: progressed, progressed };
       }
       const input = await this.games.embeddingInputFor(appId);
       if (!input) {
+        // Jeu sans texte exploitable : non indexable, jamais retenté.
         processed += 1;
         await this.setProgress(jobId, 'embeddings', {
           totalGames: appIds.length,
@@ -833,16 +936,31 @@ export class SyncService implements OnModuleInit {
         });
         continue;
       }
-      const embedding = await this.embedding.embedGame(input);
-      if (embedding) {
-        await this.db
-          .update(games)
-          .set({
-            embedding,
-            embeddingModel: this.embedding.modelName,
-          })
-          .where(eq(games.appId, appId));
-        progressed = true;
+      try {
+        const embedding = await this.embedding.embedGame(input, {
+          source: 'import',
+        });
+        if (embedding) {
+          await this.db
+            .update(games)
+            .set({
+              embedding,
+              embeddingModel: this.embedding.modelName,
+            })
+            .where(eq(games.appId, appId));
+          progressed = true;
+        }
+      } catch (error) {
+        if (error instanceof QuotaReachedError) {
+          // Le quota ne revient pas en quelques secondes : on termine la passe
+          // sans réenfiler, le reliquat reste dans `pendingEmbeddings`.
+          quotaAtteint = true;
+          this.logger.warn(
+            'Étape embeddings : quota Gemini atteint, reliquat conservé',
+          );
+          break;
+        }
+        throw error;
       }
       processed += 1;
       await this.setProgress(jobId, 'embeddings', {
@@ -850,7 +968,7 @@ export class SyncService implements OnModuleInit {
         processedGames: processed,
       });
     }
-    return { paused: false, progressed };
+    return { paused: false, progressed: !quotaAtteint && progressed };
   }
 
   /** `appId` de la bibliothèque dont la fiche manque ou est à remapper. */
@@ -875,14 +993,42 @@ export class SyncService implements OnModuleInit {
     return rows.map((row) => row.appId);
   }
 
+  /**
+   * Conditions des jeux indexables dont l'embedding manque : fiche récupérée et
+   * au moins une description, un genre ou une catégorie. Un jeu sans texte
+   * exploitable n'est jamais retenté (aligné sur `embeddingInputFor`).
+   */
+  private conditionsEmbeddingsManquants(userId: number) {
+    return and(
+      eq(libraryEntries.userId, userId),
+      isNull(games.embedding),
+      isNotNull(games.detailsFetchedAt),
+      or(
+        sql`coalesce(${games.shortDescription}, '') <> ''`,
+        sql`cardinality(${games.genres}) > 0`,
+        sql`cardinality(${games.categories}) > 0`,
+      ),
+    );
+  }
+
   /** `appId` de la bibliothèque dont l'embedding manque. */
   private async appIdsSansEmbedding(userId: number): Promise<number[]> {
     const rows = await this.db
       .select({ appId: games.appId })
       .from(libraryEntries)
       .innerJoin(games, eq(libraryEntries.gameId, games.id))
-      .where(and(eq(libraryEntries.userId, userId), isNull(games.embedding)));
+      .where(this.conditionsEmbeddingsManquants(userId));
     return rows.map((row) => row.appId);
+  }
+
+  /** Nombre de jeux indexables dont l'embedding manque. */
+  private async compterEmbeddingsManquants(userId: number): Promise<number> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(this.conditionsEmbeddingsManquants(userId));
+    return Number(row?.count ?? 0);
   }
 
   /**
@@ -962,7 +1108,10 @@ export class SyncService implements OnModuleInit {
       .where(eq(syncJobs.id, jobId));
   }
 
-  private toResponse(job: SyncJobRow): SyncJobResponse {
+  private toResponse(
+    job: SyncJobRow,
+    compteurs: CompteursImport = COMPTEURS_VIDES,
+  ): SyncJobResponse {
     return {
       id: job.id,
       status: job.status,
@@ -972,6 +1121,7 @@ export class SyncService implements OnModuleInit {
       error: job.error,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
+      ...compteurs,
     };
   }
 }

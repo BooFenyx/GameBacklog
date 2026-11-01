@@ -93,21 +93,28 @@ export class AuthController {
       // Steam est récupérée au premier login puis mise en cache en base
       // (`sync_jobs`, `library_entries`, `games`). Le sync ne repart pas quand
       // un import s'est déjà terminé (`done`), sauf si des fiches n'ont pas
-      // encore reçu le mapping courant (`needsFilters`) ou si les compteurs de
-      // succès manquent encore (`needsAchievements`). Le front peut aussi
-      // relancer à la main via `POST /api/sync`.
+      // encore reçu le mapping courant (`needsFilters`), si les compteurs de
+      // succès manquent (`needsAchievements`) ou si des embeddings restent à
+      // produire (`needsEmbeddings`, faux quand le quota Gemini est épuisé).
+      // Le front peut aussi relancer à la main via `POST /api/sync`.
       const statut = await this.usersService.syncStatusOf(userId);
-      const [aRemapper, succesAMettreAJour, activiteAMettreAJour] =
-        await Promise.all([
-          this.syncService.needsFilters(userId),
-          this.syncService.needsAchievements(userId),
-          this.syncService.needsLibraryActivity(userId),
-        ]);
+      const [
+        aRemapper,
+        succesAMettreAJour,
+        activiteAMettreAJour,
+        embeddingsAMettreAJour,
+      ] = await Promise.all([
+        this.syncService.needsFilters(userId),
+        this.syncService.needsAchievements(userId),
+        this.syncService.needsLibraryActivity(userId),
+        this.syncService.needsEmbeddings(userId),
+      ]);
       if (
         statut !== 'done' ||
         aRemapper ||
         succesAMettreAJour ||
-        activiteAMettreAJour
+        activiteAMettreAJour ||
+        embeddingsAMettreAJour
       ) {
         void this.syncService.enqueue(userId);
       }

@@ -34,6 +34,27 @@ describe('MinuteWindow', () => {
     window.record(70_000);
     expect(window.waitMillis()).toBe(0);
   });
+
+  it('count ne compte que les appels de la fenêtre courante', () => {
+    const now = vi.fn().mockReturnValue(10_000);
+    const window = new MinuteWindow(5, 60_000, now);
+    window.record(0);
+    window.record(0);
+    window.record(0);
+    expect(window.count()).toBe(3);
+    now.mockReturnValue(61_000);
+    expect(window.count()).toBe(0);
+  });
+
+  it('waitMillis respecte une limite inférieure à la fenêtre', () => {
+    const now = vi.fn().mockReturnValue(10_000);
+    const window = new MinuteWindow(5, 60_000, now);
+    window.record(0);
+    window.record(0);
+    window.record(0);
+    expect(window.waitMillis(5)).toBe(0);
+    expect(window.waitMillis(3)).toBe(50_000);
+  });
 });
 
 describe('RateLimitService', () => {
@@ -115,5 +136,37 @@ describe('RateLimitService', () => {
       expect.stringContaining('ON CONFLICT (key) DO UPDATE SET count = 1'),
       [KEY, expect.any(Date)],
     );
+  });
+
+  it('remainingToday : max quand aucun compteur n’existe', async () => {
+    pool.query.mockResolvedValue({ rows: [] });
+    await expect(service.remainingToday()).resolves.toBe(2);
+  });
+
+  it('remainingToday : max moins le compteur frais', async () => {
+    pool.query.mockResolvedValue(row(1, new Date()));
+    await expect(service.remainingToday()).resolves.toBe(1);
+  });
+
+  it('remainingToday : max quand la fenêtre a plus de 24 h', async () => {
+    const ilYaPlusDe24h = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    pool.query.mockResolvedValue(row(2, ilYaPlusDe24h));
+    await expect(service.remainingToday()).resolves.toBe(2);
+  });
+
+  it('remainingToday : zéro quand le quota du jour est épuisé', async () => {
+    pool.query.mockResolvedValue(row(2, new Date()));
+    await expect(service.remainingToday()).resolves.toBe(0);
+  });
+
+  it('réserve 20 % de la fenêtre minute à la recherche pendant l’import', async () => {
+    pool.query.mockResolvedValue(row(1, new Date()));
+
+    // 10 appels/min : l'import s'arrête à 8, la recherche peut encore appeler.
+    for (let i = 0; i < 8; i += 1) {
+      await expect(service.acquire(0, 'import')).resolves.toBe('ok');
+    }
+    await expect(service.acquire(0, 'import')).resolves.toBe('busy');
+    await expect(service.acquire(0, 'search')).resolves.toBe('ok');
   });
 });
