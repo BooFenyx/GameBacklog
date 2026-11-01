@@ -15,6 +15,7 @@ import {
   lireFiltres,
   type Filtres,
 } from '../filters'
+import { etatImport } from '../import'
 import {
   chargerBibliotheque,
   chargerFacettes,
@@ -23,7 +24,6 @@ import {
 } from '../library'
 import {
   estEnCours,
-  libelleEtape,
   lireSync,
   relancerSync,
   type JobSync,
@@ -292,6 +292,7 @@ export default function Bibliotheque() {
   }
 
   const enCours = estEnCours(job)
+  const bandeau = etatImport(job)
   const pourcentage =
     enCours && job.totalGames > 0
       ? Math.min(100, Math.round((job.processedGames / job.totalGames) * 100))
@@ -361,19 +362,30 @@ export default function Bibliotheque() {
             onEffacer={effacerFiltres}
           />
 
-          {enCours && (
-            <div className="sync-progression" role="status">
-              <p>
-                {libelleEtape[job.step]}
-                {job.totalGames > 0 &&
-                  ` — ${job.processedGames}/${job.totalGames}`}
-              </p>
-              <div className="sync-barre">
-                <div
-                  className="sync-barre-remplie"
-                  style={{ width: `${pourcentage}%` }}
-                />
-              </div>
+          {bandeau.texte && (
+            <div
+              className={`sync-progression${bandeau.alerte ? ' sync-progression--alerte' : ''}`}
+              role={bandeau.alerte ? 'alert' : 'status'}
+            >
+              <p>{bandeau.texte}</p>
+              {enCours && job.totalGames > 0 && (
+                <div className="sync-barre">
+                  <div
+                    className="sync-barre-remplie"
+                    style={{ width: `${pourcentage}%` }}
+                  />
+                </div>
+              )}
+              {bandeau.action !== 'aucune' && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={enCours}
+                  onClick={() => void relancer()}
+                >
+                  {bandeau.action === 'relancer' ? 'Relancer' : 'Reprendre'}
+                </button>
+              )}
             </div>
           )}
 
