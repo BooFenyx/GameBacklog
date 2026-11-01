@@ -15,6 +15,9 @@ import type { EmbeddingInput } from '../embedding/embedding.service.js';
 const STEAM_STORE_APPDETAILS = 'https://store.steampowered.com/api/appdetails';
 const EXTERNAL_CALL_TIMEOUT_MS = 5000;
 const MAX_SCREENSHOTS = 6;
+/** Backoff sans `Retry-After` : 5 s, 15 s puis 60 s. */
+const RATE_LIMIT_BACKOFF_MS = [5_000, 15_000, 60_000];
+const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60 * 1000;
 
 /**
  * Version du mapping appliqué aux fiches. À incrémenter quand on ajoute un
@@ -48,6 +51,16 @@ export interface AppDetails {
   releaseDate: Date | null;
   headerImageUrl: string | null;
 }
+
+/**
+ * Résultat discriminé d'un appel `appdetails` : un 429 ne doit jamais être
+ * confondu avec un jeu délisté ou une erreur réseau.
+ */
+export type ResultatFiche =
+  | { kind: 'ok'; details: AppDetails }
+  | { kind: 'rate-limit'; retryAfterMs: number }
+  | { kind: 'removed' }
+  | { kind: 'network' };
 
 interface AppdetailsData {
   success?: boolean;
@@ -479,6 +492,25 @@ export interface UserGameDetail {
   achievementsUnlocked: number | null;
 }
 
+/** Lit `Retry-After` (secondes ou date HTTP) et renvoie un délai en ms. */
+export function lireRetryAfter(headers: Headers | undefined): number | null {
+  const valeur = headers?.get('retry-after')?.trim();
+  if (!valeur) return null;
+  if (/^\d+$/.test(valeur)) return Number(valeur) * 1000;
+  const date = Date.parse(valeur);
+  if (Number.isNaN(date)) return null;
+  return Math.max(0, date - Date.now());
+}
+
+/** Backoff exponentiel borné quand Steam ne fournit pas `Retry-After`. */
+export function backoffRateLimitMs(tentative: number): number {
+  const index = Math.min(
+    Math.max(0, Math.trunc(tentative)),
+    RATE_LIMIT_BACKOFF_MS.length - 1,
+  );
+  return Math.min(RATE_LIMIT_BACKOFF_MS[index], RATE_LIMIT_BACKOFF_MAX_MS);
+}
+
 @Injectable()
 export class GamesService {
   private readonly logger = new Logger(GamesService.name);
@@ -486,31 +518,42 @@ export class GamesService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   /**
-   * Récupère la fiche Steam d'un jeu. Renvoie `null` si indisponible (jeu
-   * retiré du Store, erreur réseau, timeout) : jamais une exception — l'import
-   * poursuit sans cette fiche.
+   * Récupère la fiche Steam d'un jeu. Ne lève jamais : renvoie un résultat
+   * discriminé pour que l'import distingue un 429, un jeu délisté et une erreur
+   * réseau. `tentative` ne sert qu'à calculer le backoff sans `Retry-After`.
    */
-  async fetchAppDetails(appId: number): Promise<AppDetails | null> {
+  async fetchAppDetails(
+    appId: number,
+    tentative = 0,
+  ): Promise<ResultatFiche> {
     const url = `${STEAM_STORE_APPDETAILS}?appids=${appId}&l=french`;
     try {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
       });
+      if (response.status === 429) {
+        const retryAfterMs =
+          lireRetryAfter(response.headers) ?? backoffRateLimitMs(tentative);
+        this.logger.warn(
+          `appdetails ${appId} limité (429), nouvel essai dans ${retryAfterMs} ms`,
+        );
+        return { kind: 'rate-limit', retryAfterMs };
+      }
       if (!response.ok) {
         this.logger.warn(`appdetails a répondu ${response.status}`);
-        return null;
+        return { kind: 'network' };
       }
       const body = (await response.json()) as Record<string, AppdetailsData>;
       const entry = body[String(appId)];
       if (!entry?.success || !entry.data?.name) {
-        return null;
+        return { kind: 'removed' };
       }
-      return mapAppDetails(appId, entry.data);
+      return { kind: 'ok', details: mapAppDetails(appId, entry.data) };
     } catch (error) {
       this.logger.warn(
         `appdetails ${appId} injoignable: ${error instanceof Error ? error.message : 'erreur inconnue'}`,
       );
-      return null;
+      return { kind: 'network' };
     }
   }
 
@@ -540,6 +583,9 @@ export class GamesService {
         releaseDate: details.releaseDate,
         headerImageUrl: details.headerImageUrl,
         detailsFetchedAt: new Date(),
+        detailsAttempts: 0,
+        detailsNextRetryAt: null,
+        detailsLastError: null,
       })
       .onConflictDoUpdate({
         target: games.appId,
@@ -564,6 +610,9 @@ export class GamesService {
           releaseDate: details.releaseDate,
           headerImageUrl: details.headerImageUrl,
           detailsFetchedAt: new Date(),
+          detailsAttempts: 0,
+          detailsNextRetryAt: null,
+          detailsLastError: null,
         },
       })
       .returning({ id: games.id });

@@ -46,6 +46,15 @@ function fakeDb(returnedId = 7) {
   };
 }
 
+/** Récupère une fiche et échoue explicitement si Steam ne l'a pas renvoyée. */
+async function ficheOk(service: GamesService, appId: number) {
+  const resultat = await service.fetchAppDetails(appId);
+  if (resultat.kind !== 'ok') {
+    throw new Error(`fiche ${appId} non récupérée: ${resultat.kind}`);
+  }
+  return resultat.details;
+}
+
 const DATA_FULL = {
   name: 'Portal 2',
   short_description: '<b>Résolvez</b> des énigmes.',
@@ -324,7 +333,7 @@ describe('GamesService', () => {
     (service as unknown as { __fake: ReturnType<typeof fakeDb> }).__fake;
 
   it('upsertFromDetails persiste tous les champs et renvoie l’id', async () => {
-    const { values, returning } = faireDbFake();
+    const { values, onConflictDoUpdate, returning } = faireDbFake();
     const id = await service.upsertFromDetails({
       appId: 620,
       name: 'Portal 2',
@@ -366,6 +375,18 @@ describe('GamesService', () => {
         filtersVersion: FILTERS_VERSION,
         controllerSupport: 'full',
         detailsFetchedAt: expect.any(Date),
+        detailsAttempts: 0,
+        detailsNextRetryAt: null,
+        detailsLastError: null,
+      }),
+    );
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({
+          detailsAttempts: 0,
+          detailsNextRetryAt: null,
+          detailsLastError: null,
+        }),
       }),
     );
     expect(returning).toHaveBeenCalled();
@@ -377,12 +398,12 @@ describe('GamesService', () => {
       json: async () => ({ 620: { success: true, data: DATA_FULL } }),
     });
 
-    const details = await service.fetchAppDetails(620);
+    const details = await ficheOk(service, 620);
 
-    expect(details?.genreIds).toEqual([1, 25]);
-    expect(details?.genres).toEqual(['Action', 'Aventure']);
-    expect(details?.categoryIds).toEqual([2, 28]);
-    expect(details?.categories).toEqual([
+    expect(details.genreIds).toEqual([1, 25]);
+    expect(details.genres).toEqual(['Action', 'Aventure']);
+    expect(details.categoryIds).toEqual([2, 28]);
+    expect(details.categories).toEqual([
       'Solo',
       'Compat. contrôleurs complète',
     ]);
@@ -412,12 +433,12 @@ describe('GamesService', () => {
       }),
     });
 
-    const details = await service.fetchAppDetails(621);
+    const details = await ficheOk(service, 621);
 
-    expect(details?.genreIds).toEqual([1, 25]);
-    expect(details?.genres).toEqual(['Action', 'Aventure']);
-    expect(details?.categoryIds).toEqual([2]);
-    expect(details?.categories).toEqual(['Solo']);
+    expect(details.genreIds).toEqual([1, 25]);
+    expect(details.genres).toEqual(['Action', 'Aventure']);
+    expect(details.categoryIds).toEqual([2]);
+    expect(details.categories).toEqual(['Solo']);
   });
 
   it('fetchAppDetails renvoie des tableaux vides quand Steam ne fournit rien', async () => {
@@ -428,27 +449,68 @@ describe('GamesService', () => {
       }),
     });
 
-    const details = await service.fetchAppDetails(622);
+    const details = await ficheOk(service, 622);
 
-    expect(details?.genreIds).toEqual([]);
-    expect(details?.genres).toEqual([]);
-    expect(details?.categoryIds).toEqual([]);
-    expect(details?.categories).toEqual([]);
+    expect(details.genreIds).toEqual([]);
+    expect(details.genres).toEqual([]);
+    expect(details.categoryIds).toEqual([]);
+    expect(details.categories).toEqual([]);
   });
 
-  it('fetchAppDetails : null si la fiche est absente ou en échec', async () => {
+  it('fetchAppDetails : network si la fiche est absente ou en échec', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
     global.fetch = mockFetch;
-    await expect(service.fetchAppDetails(123)).resolves.toBeNull();
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'network',
+    });
   });
 
-  it('fetchAppDetails : null si le Store répond ok:false', async () => {
+  it('fetchAppDetails : removed si le Store répond ok:false', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ 620: { success: false } }),
     });
     global.fetch = mockFetch;
-    await expect(service.fetchAppDetails(620)).resolves.toBeNull();
+    await expect(service.fetchAppDetails(620)).resolves.toEqual({
+      kind: 'removed',
+    });
+  });
+
+  it('fetchAppDetails : rate-limit avec Retry-After', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'retry-after': '30' }),
+    });
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'rate-limit',
+      retryAfterMs: 30_000,
+    });
+  });
+
+  it('fetchAppDetails : rate-limit avec backoff sans Retry-After', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: new Headers(),
+    });
+    const resultat = await service.fetchAppDetails(123, 1);
+    expect(resultat.kind).toBe('rate-limit');
+    if (resultat.kind === 'rate-limit') {
+      expect(resultat.retryAfterMs).toBeGreaterThan(0);
+    }
+  });
+
+  it('fetchAppDetails : network sur 500 ou exception réseau', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'network',
+    });
+
+    global.fetch = vi.fn().mockRejectedValue(new Error('timeout'));
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'network',
+    });
   });
 
   it('fetchAppDetails : parsifie la fiche complète', async () => {
@@ -458,7 +520,7 @@ describe('GamesService', () => {
     });
     global.fetch = mockFetch;
 
-    const details = await service.fetchAppDetails(620);
+    const details = await ficheOk(service, 620);
     expect(details).toMatchObject({
       appId: 620,
       name: 'Portal 2',

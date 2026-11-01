@@ -13,6 +13,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
   max,
   notInArray,
   or,
@@ -27,7 +28,10 @@ import {
   userAchievements,
   users,
 } from '../db/schema.js';
-import { AchievementsService } from '../achievements/achievements.service.js';
+import {
+  AchievementsService,
+  SteamRateLimitError,
+} from '../achievements/achievements.service.js';
 import { QuotaReachedError } from '../embedding/rate-limiter.service.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
 import { FILTERS_VERSION, GamesService } from '../games/games.service.js';
@@ -39,8 +43,18 @@ import { UsersService } from '../users/users.service.js';
 import { deriverActivite, normaliserDernierSucces } from './activite.js';
 import { traiterSuccesParLots } from './achievements-batch.js';
 
-const DEFAULT_APPDETAILS_THROTTLE_MS = 300;
+const DEFAULT_APPDETAILS_THROTTLE_MS = 1500;
 const DEFAULT_ACHIEVEMENTS_THROTTLE_MS = 200;
+/** Trois 429 consécutifs : la passe s'arrête pour ne pas marteler Steam. */
+const MAX_429_CONSECUTIFS = 3;
+/** Attente maximale imposée par un `Retry-After` pendant une passe. */
+const MAX_ATTENTE_429_MS = 5 * 60 * 1000;
+/** Délais avant de retenter une fiche en échec. */
+const RETRY_FICHE_RESEAU_MS = 5 * 60 * 1000;
+const RETRY_FICHE_DELISTEE_MS = 24 * 60 * 60 * 1000;
+const RETRY_FICHE_DELISTEE_LONG_MS = 30 * 24 * 60 * 60 * 1000;
+/** Nombre d'échecs « délisté » avant de considérer la fiche indisponible. */
+const SEUIL_FICHE_DELISTEE = 3;
 /** Taille d'un lot de succès : borne une requête, pas le total de la passe. */
 const DEFAULT_ACHIEVEMENTS_BATCH_SIZE = 200;
 /**
@@ -528,21 +542,25 @@ export class SyncService implements OnModuleInit {
     userId: number,
   ): Promise<ResultatEtape> {
     const jeuxSansFiche = await this.appIdsSansDetails(userId);
-    this.logger.log(
-      `Étape fiches : ${jeuxSansFiche.length} fiche(s) à traiter`,
-    );
-    const throttleMs =
-      this.config.get<number>('APPDETAILS_THROTTLE_MS') ??
-      DEFAULT_APPDETAILS_THROTTLE_MS;
+    const total = jeuxSansFiche.length;
+    this.logger.log(`Étape fiches : ${total} fiche(s) à traiter`);
 
     await this.setProgress(jobId, 'details', {
-      totalGames: jeuxSansFiche.length,
+      totalGames: total,
       processedGames: 0,
     });
 
+    const throttleMs = this.lireEntier(
+      'APPDETAILS_THROTTLE_MS',
+      DEFAULT_APPDETAILS_THROTTLE_MS,
+      0,
+      60_000,
+    );
     const deadline = this.creerDeadline();
     let processed = 0;
     let progressed = false;
+    let limitesConsecutives = 0;
+
     for (const appId of jeuxSansFiche) {
       // Budget vérifié entre deux jeux, jamais au milieu d'un appel HTTP.
       if (this.budgetDepasse(deadline)) {
@@ -551,18 +569,103 @@ export class SyncService implements OnModuleInit {
       if (processed > 0 && throttleMs > 0) {
         await sleep(throttleMs);
       }
-      const details = await this.games.fetchAppDetails(appId);
-      if (details) {
-        await this.games.upsertFromDetails(details);
+      const resultat = await this.tenterFiche(appId);
+      processed += 1;
+      if (resultat === 'ok' || resultat === 'removed') {
         progressed = true;
       }
-      processed += 1;
+      limitesConsecutives =
+        resultat === 'rate-limit' ? limitesConsecutives + 1 : 0;
       await this.setProgress(jobId, 'details', {
-        totalGames: jeuxSansFiche.length,
+        totalGames: total,
         processedGames: processed,
       });
+      if (limitesConsecutives >= MAX_429_CONSECUTIFS) {
+        this.logger.warn(
+          `Étape fiches : ${MAX_429_CONSECUTIFS} 429 consécutifs, pause de la passe`,
+        );
+        return { paused: progressed, progressed };
+      }
     }
     return { paused: false, progressed };
+  }
+
+  /**
+   * Tente une fiche, avec un second essai sur 429 (après `Retry-After` ou
+   * backoff). Enregistre la cause d'échec pour la prochaine synchronisation.
+   */
+  private async tenterFiche(
+    appId: number,
+  ): Promise<'ok' | 'removed' | 'network' | 'rate-limit'> {
+    let tentative = 0;
+    for (;;) {
+      const resultat = await this.games.fetchAppDetails(appId, tentative);
+      if (resultat.kind === 'ok') {
+        await this.games.upsertFromDetails(resultat.details);
+        return 'ok';
+      }
+      if (resultat.kind === 'removed') {
+        await this.enregistrerEchecFiche(appId, 'removed');
+        return 'removed';
+      }
+      if (resultat.kind === 'network') {
+        await this.enregistrerEchecFiche(appId, 'network');
+        return 'network';
+      }
+      if (tentative === 0) {
+        await sleep(Math.min(resultat.retryAfterMs, MAX_ATTENTE_429_MS));
+        tentative = 1;
+        continue;
+      }
+      await this.enregistrerEchecFiche(appId, 'rate-limit', resultat.retryAfterMs);
+      return 'rate-limit';
+    }
+  }
+
+  /**
+   * Cache négatif d'une fiche : seuls les jeux délistés incrémentent
+   * `details_attempts` (un 429 ou un timeout réseau ne sont pas permanents).
+   */
+  private async enregistrerEchecFiche(
+    appId: number,
+    cause: 'removed' | 'network' | 'rate-limit',
+    retryAfterMs = 0,
+  ): Promise<void> {
+    const maintenant = Date.now();
+
+    if (cause === 'removed') {
+      const [row] = await this.db
+        .select({ attempts: games.detailsAttempts })
+        .from(games)
+        .where(eq(games.appId, appId))
+        .limit(1);
+      const attempts = (row?.attempts ?? 0) + 1;
+      const delai =
+        attempts >= SEUIL_FICHE_DELISTEE
+          ? RETRY_FICHE_DELISTEE_LONG_MS
+          : RETRY_FICHE_DELISTEE_MS;
+      await this.db
+        .update(games)
+        .set({
+          detailsAttempts: attempts,
+          detailsNextRetryAt: new Date(maintenant + delai),
+          detailsLastError: 'removed',
+        })
+        .where(eq(games.appId, appId));
+      return;
+    }
+
+    const delai =
+      cause === 'network'
+        ? RETRY_FICHE_RESEAU_MS
+        : Math.max(0, retryAfterMs);
+    await this.db
+      .update(games)
+      .set({
+        detailsNextRetryAt: new Date(maintenant + delai),
+        detailsLastError: cause,
+      })
+      .where(eq(games.appId, appId));
   }
 
   /**
@@ -612,6 +715,8 @@ export class SyncService implements OnModuleInit {
     );
     const deadline = this.creerDeadline();
     let dejaTraite = false;
+    let limitesConsecutives = 0;
+    let limiteAtteinte = false;
 
     const resultat = await traiterSuccesParLots({
       total,
@@ -623,12 +728,28 @@ export class SyncService implements OnModuleInit {
           await sleep(throttleMs);
         }
         dejaTraite = true;
-        await this.achievements.refreshForSync(
-          steamId,
-          userId,
-          row.gameId,
-          row.appId,
-        );
+        try {
+          await this.achievements.refreshForSync(
+            steamId,
+            userId,
+            row.gameId,
+            row.appId,
+          );
+          limitesConsecutives = 0;
+        } catch (error) {
+          if (error instanceof SteamRateLimitError) {
+            limitesConsecutives += 1;
+            if (limitesConsecutives >= MAX_429_CONSECUTIFS) {
+              limiteAtteinte = true;
+              this.logger.warn(
+                `Étape succès : ${MAX_429_CONSECUTIFS} 429 consécutifs, pause de la passe`,
+              );
+            }
+          } else {
+            limitesConsecutives = 0;
+          }
+          throw error;
+        }
       },
       onProgression: (processed) =>
         this.setProgress(jobId, 'achievements', {
@@ -644,7 +765,8 @@ export class SyncService implements OnModuleInit {
           }`,
         );
       },
-      doitPause: () => this.budgetDepasse(deadline),
+      doitPause: () =>
+        limiteAtteinte || this.budgetDepasse(deadline),
     });
 
     await this.marquerActiviteSucces(userId);
@@ -743,6 +865,10 @@ export class SyncService implements OnModuleInit {
           or(
             isNull(games.detailsFetchedAt),
             lt(games.filtersVersion, FILTERS_VERSION),
+          ),
+          or(
+            isNull(games.detailsNextRetryAt),
+            lte(games.detailsNextRetryAt, new Date()),
           ),
         ),
       );

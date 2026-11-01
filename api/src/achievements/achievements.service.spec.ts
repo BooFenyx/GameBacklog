@@ -2,7 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DB, type Db } from '../db/db.module.js';
-import { AchievementsService } from './achievements.service.js';
+import {
+  AchievementsService,
+  SteamRateLimitError,
+} from './achievements.service.js';
 
 function makeConfig(env: Record<string, unknown> = {}): ConfigService {
   return { get: (key: string) => env[key] } as unknown as ConfigService;
@@ -179,6 +182,32 @@ describe('AchievementsService', () => {
         }),
       );
     });
+
+    it('lève SteamRateLimitError quand GetSchemaForGame répond 429', async () => {
+      const fake = fakeDb([[{ fetchedAt: null, total: 0 }], []]);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'retry-after': '30' }),
+        }),
+      );
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AchievementsService,
+          { provide: DB, useValue: fake.db },
+          { provide: ConfigService, useValue: makeConfig({ STEAM_API_KEY: 'cle' }) },
+        ],
+      }).compile();
+      service = module.get<AchievementsService>(AchievementsService);
+
+      await expect(service.getGameAchievements(7, 620)).rejects.toMatchObject({
+        name: 'SteamRateLimitError',
+        retryAfterMs: 30_000,
+      });
+    });
   });
 
   describe('getUserAchievements', () => {
@@ -308,6 +337,24 @@ describe('AchievementsService', () => {
           achievementsFetchedAt: expect.any(Date),
         }),
       );
+    });
+
+    it('lève SteamRateLimitError quand GetPlayerAchievements répond 429', async () => {
+      const fake = fakeDb(schemaEnCache);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 429,
+          headers: new Headers(),
+        }),
+      );
+
+      await expect(
+        service.getUserAchievements('7656119', 3, 7, 620),
+      ).rejects.toBeInstanceOf(SteamRateLimitError);
     });
   });
 });

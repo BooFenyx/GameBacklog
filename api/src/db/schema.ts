@@ -103,6 +103,14 @@ export const games = pgTable(
     embedding: vector('embedding', { dimensions: 1024 }),
     embeddingModel: text('embedding_model'),
     detailsFetchedAt: timestamp('details_fetched_at'),
+    /** Nombre d'échecs « jeu délisté » ; remis à 0 après un succès. */
+    detailsAttempts: integer('details_attempts').notNull().default(0),
+    /** Prochaine date où retenter la fiche (null = immédiatement). */
+    detailsNextRetryAt: timestamp('details_next_retry_at', {
+      withTimezone: true,
+    }),
+    /** Dernière cause d'échec : `removed`, `network` ou `rate-limit`. */
+    detailsLastError: text('details_last_error'),
   },
   (table) => ({
     appIdIdx: uniqueIndex('games_app_id_idx').on(table.appId),
