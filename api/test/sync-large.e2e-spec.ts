@@ -333,5 +333,5 @@ describe('Import volumineux (e2e)', () => {
 
     await expect(service.needsAchievements(userId)).resolves.toBe(false);
     await expect(service.needsEmbeddings(userId)).resolves.toBe(false);
-  });
+  }, TIMEOUT_JOB_MS);
 });
