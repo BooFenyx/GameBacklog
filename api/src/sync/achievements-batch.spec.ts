@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  traiterSuccesParLots,
-  type JeuSucces,
-} from './achievements-batch.js';
+import { traiterSuccesParLots, type JeuSucces } from './achievements-batch.js';
 
 function creerPool(taille: number): JeuSucces[] {
   return Array.from({ length: taille }, (_, index) => ({
@@ -13,9 +10,7 @@ function creerPool(taille: number): JeuSucces[] {
 
 function selectionneur(pool: JeuSucces[]) {
   return async (dejaTentes: number[], limite: number): Promise<JeuSucces[]> =>
-    pool
-      .filter((jeu) => !dejaTentes.includes(jeu.gameId))
-      .slice(0, limite);
+    pool.filter((jeu) => !dejaTentes.includes(jeu.gameId)).slice(0, limite);
 }
 
 describe('traiterSuccesParLots', () => {
@@ -166,5 +161,27 @@ describe('traiterSuccesParLots', () => {
 
     expect(resultat).toEqual({ processed: 0, reussis: 0, paused: false });
     expect(traiter).not.toHaveBeenCalled();
+  });
+
+  it('rejette une erreur fatale sans appeler onEchec', async () => {
+    const selectionner = vi.fn(selectionneur(creerPool(10)));
+    const traiter = vi.fn(async () => {
+      throw new Error('DB');
+    });
+    const onEchec = vi.fn();
+
+    await expect(
+      traiterSuccesParLots({
+        total: 10,
+        batchSize: 200,
+        selectionner,
+        traiter,
+        onEchec,
+        estFatal: () => true,
+      }),
+    ).rejects.toThrow('DB');
+
+    expect(traiter).toHaveBeenCalledTimes(1);
+    expect(onEchec).not.toHaveBeenCalled();
   });
 });

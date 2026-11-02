@@ -70,8 +70,13 @@ boot. Chaque étape respecte un budget (`SYNC_STEP_MAX_MS`, 15 min par défaut,
 plafond total. Les fiches Steam gèrent les 429 et les jeux délistés
 (`details_attempts`, `details_next_retry_at`, `details_last_error`) ; les
 embeddings s'arrêtent proprement sur quota (`done` + `pendingEmbeddings`).
-`needsAchievements` et `needsEmbeddings` relancent la sync au login s'il reste
-des reliquats.
+`needsFilters`, `needsDetails`, `needsAchievements` et `needsEmbeddings`
+relancent la sync au login s'il reste des reliquats. `pendingDetails` compte
+toutes les fiches encore récupérables, y compris celles en backoff
+(`details_next_retry_at` futur) : un scheduler en mémoire relit les échéances
+persistées au démarrage et réenfile automatiquement l'import à la prochaine
+date, sans clic. `POST /api/sync` force en plus les fiches en backoff
+(`details_attempts < 3`) et reste une relance depuis `library`.
 
 **Activité dérivée.** `library_entries` ne stocke plus `last_played_at` : elle expose
 `last_activity_at`, `last_activity_source` (`sync_delta` / `recent_window` /
@@ -102,7 +107,8 @@ avec React Router et un provider de session. La bibliothèque sonde `GET /api/sy
 les 2 s ; elle est filtrée, triée et paginée via l'URL (`/bibliotheque?genres=25&modes=coop&tri=temps`)
 et s'affiche dès que l'étape `library` est passée. Le bandeau d'import affiche l'erreur
 réelle et les reliquats (`pendingDetails`, `detailsUnavailable`, `pendingAchievements`,
-`pendingEmbeddings`) via `web/src/import.ts` (`etatImport`). Sur desktop, une **colonne de filtres**
+`pendingEmbeddings`) via `web/src/import.ts` (`etatImport` et `messageErreurImport`,
+qui réutilise l'aide « profil privé » / quota). Sur desktop, une **colonne de filtres**
 repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
 vertical permet de la rouvrir. La carte et la vue liste utilisent les tokens de
 `web/src/styles/theme.css` ; le bouton Filtres reste à gauche sur mobile/tablette.
@@ -155,14 +161,15 @@ continu front prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
-- `api/src/sync/` — pipeline d'import (4 étapes, lots de succès sans plafond total, reprise par étape, budget `SYNC_STEP_MAX_MS`, progression, backfill `filters_version`, compteurs de succès)
+- `api/src/sync/` — pipeline d'import (4 étapes, lots de succès sans plafond total, reprise par étape, budget `SYNC_STEP_MAX_MS`, scheduler de reprise des fiches en backoff, progression, backfill `filters_version`, compteurs de succès)
+- `api/test/sync-large.e2e-spec.ts` + `api/test/sync-counters.e2e-spec.ts` — e2e 250 (deux passes, P0 réel) et intégration des compteurs/backoff
 - `api/src/sync/activite.ts` — dérivation pure de l'activité (`sync_delta`, `recent_window`, `achievement`)
 - `api/src/library/` — `ownedGames` (Steam, à l'import), `savedLibrary` (lecture filtrée/triée/paginée) et `facets`
 - `api/src/catalog/` — modes Steam, durées, conditions SQL des filtres (ET genres/modes, OR durées), libellés de genres, agrégation des facettes
 - `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId` et `/achievements`
 - `api/src/achievements/` — cache du schéma, compteurs, TTL, liste détaillée (`GetSchemaForGame` / `GetPlayerAchievements`)
 - `api/src/users/` — upsert utilisateur, `syncStatus`
-- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j, `remainingToday`, réservation de 80 % à l'import)
+- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j, `remainingToday`, import plafonné à 80 % de la fenêtre minute)
 - `api/src/search/` — `GET /api/search` (nom/sémantique/série), filtres partagés, limite par `steamId`, cache d'embeddings de requête, DTO
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
 - `api/src/db/pg-utc.ts` — lecture UTC des `timestamp` sans fuseau (OID 1114)
@@ -171,7 +178,7 @@ continu front prêts, rien n'est encore réellement déployé).
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
-- `web/src/import.ts` — `etatImport` : bandeau d'import (erreur, reliquats, reprise)
+- `web/src/import.ts` — `etatImport` + `messageErreurImport` : bandeau d'import (erreur, reliquats, aide profil privé/quota, reprise)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
 - `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
@@ -324,8 +331,17 @@ jamais provoquer une pause sans progrès, sous peine de boucle infinie.
 
 **Quota embeddings.** Un quota épuisé termine le job en `done` avec
 `pendingEmbeddings > 0` (et `needsEmbeddings` vrai), jamais en `error` : les jeux sans
-embedding restent intacts et seront repris. L'import réserve 80 % de la fenêtre minute
-pour ne pas affamer la recherche.
+embedding restent intacts et seront repris. L'import est plafonné à 80 % de la fenêtre
+minute ; 20 % restent réservés à la recherche. Sans `EMBEDDING_API_KEY`, `needsEmbeddings`
+doit être faux : sinon chaque login relance une sync qui ne peut rien indexer.
+
+**Reprise des fiches en backoff.** Une fiche en attente (`details_next_retry_at` futur)
+doit rester dans `pendingDetails`, être reprise par `needsDetails` au login et par le
+scheduler de `SyncService` à l'échéance. Ne jamais la masquer derrière le filtre de
+sélection `appIdsSansDetails` : le backoff est une temporisation, pas une perte. Le
+scheduler est en mémoire mais relit les échéances persistées au boot ; `onModuleDestroy`
+doit annuler les timers. Une relance manuelle force les fiches `details_attempts < 3`
+sans casser la quarantaine à 3 échecs « délisté ».
 
 **Deux cultures de lint/format différentes — ne les mélange pas.**
 - `api/` : géré par Prettier. Guillemets simples, points-virgules, virgules finales.
@@ -469,7 +485,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Indexation (une fois par jeu, à l'import) : texte `nom + description + genres + catégories` → embedding stocké dans `Game.embedding` (pgvector). » (`fiche_projet.md:43`) |
-| **État** | ✅ Résolu — `SyncService` (étape `embeddings`) injecte `EmbeddingService` (`embedGame`) et écrit `games.embedding` + `games.embeddingModel`. Un `EmbeddingRateLimiter` (100 rpm / 1000 j, persisté dans `rate_limits`) protège le quota Gemini ; le job reprend plus tard en cas de `QuotaReachedError`. |
+| **État** | ✅ Résolu — `SyncService` (étape `embeddings`) injecte `EmbeddingService` (`embedGame`) et écrit `games.embedding` + `games.embeddingModel`. `RateLimitService` (100/min en mémoire, 1 000/jour persisté dans `rate_limits`) protège le quota Gemini ; un `QuotaReachedError` termine le job en `done` avec `pendingEmbeddings`, jamais en `error`. |
 
 #### Écart 8 — Fiches Steam (appdetails) récupérées — ✅ Résolu
 

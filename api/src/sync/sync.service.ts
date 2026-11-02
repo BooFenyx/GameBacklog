@@ -3,7 +3,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -16,6 +18,7 @@ import {
   lt,
   lte,
   max,
+  min,
   notInArray,
   or,
   sql,
@@ -57,6 +60,10 @@ const MAX_ATTENTE_429_MS = 5 * 60 * 1000;
 const RETRY_FICHE_RESEAU_MS = 5 * 60 * 1000;
 const RETRY_FICHE_DELISTEE_MS = 24 * 60 * 60 * 1000;
 const RETRY_FICHE_DELISTEE_LONG_MS = 30 * 24 * 60 * 60 * 1000;
+/** Délai minimal d'un 429 sans `Retry-After` exploitable (anti-boucle). */
+const RETRY_429_MIN_MS = 5_000;
+/** Plafond d'un `setTimeout` Node (2^31 - 1 ms) pour les reprises lointaines. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 /** Nombre d'échecs « délisté » avant de considérer la fiche indisponible. */
 const SEUIL_FICHE_DELISTEE = 3;
 /** Taille d'un lot de succès : borne une requête, pas le total de la passe. */
@@ -85,7 +92,7 @@ export interface SyncJobResponse {
   error: string | null;
   startedAt: Date | null;
   finishedAt: Date | null;
-  /** Fiches à récupérer (hors jeux en attente de retry ou délistés). */
+  /** Fiches encore récupérables, y compris celles en attente de reprise. */
   pendingDetails: number;
   /** Jeux dont la fiche est considérée indisponible (3 échecs « délisté »). */
   detailsUnavailable: number;
@@ -125,12 +132,18 @@ type SyncJobRow = {
 };
 
 @Injectable()
-export class SyncService implements OnModuleInit {
+export class SyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SyncService.name);
   /** Verrou en mémoire : un seul job traité à la fois dans ce process. */
   private running = false;
   /** Reboucle s'il reste un job en file à la fin du tour. */
   private rerun = false;
+  /**
+   * Reprises automatiques programmées par utilisateur. La clé est l'id
+   * utilisateur ; la valeur est le timer qui réenfilera l'import à l'échéance
+   * de la prochaine fiche en backoff.
+   */
+  private readonly reprises = new Map<number, NodeJS.Timeout>();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -160,7 +173,17 @@ export class SyncService implements OnModuleInit {
         `${result.rowCount} job(s) interrompu(s) remis en file au démarrage`,
       );
     }
+    // Un redémarrage perd les timers en mémoire : on relit les échéances
+    // persistées (`details_next_retry_at`) pour reprogrammer les reprises.
+    await this.planifierToutesReprises();
     void this.drain();
+  }
+
+  onModuleDestroy(): void {
+    for (const timer of this.reprises.values()) {
+      clearTimeout(timer);
+    }
+    this.reprises.clear();
   }
 
   /**
@@ -170,7 +193,18 @@ export class SyncService implements OnModuleInit {
    * Si un job est déjà en file ou en cours, il est renvoyé tel quel : relancer
    * l'import ne doit pas remettre sa progression à zéro.
    */
-  async enqueue(userId: number): Promise<SyncJobResponse> {
+  async enqueue(
+    userId: number,
+    options: { forcerFiches?: boolean } = {},
+  ): Promise<SyncJobResponse> {
+    // Une relance (login ou clic) remplace la reprise programmée : le job qui
+    // va tourner reprogrammera l'échéance suivante à sa fin.
+    this.annulerReprise(userId);
+
+    if (options.forcerFiches) {
+      await this.forcerRepriseFiches(userId);
+    }
+
     const [existant] = await this.db
       .select()
       .from(syncJobs)
@@ -181,6 +215,9 @@ export class SyncService implements OnModuleInit {
       existant &&
       (existant.status === 'pending' || existant.status === 'running')
     ) {
+      // Un job pending peut être orphelin si la boucle a été interrompue :
+      // on réarme `drain` même dans ce cas.
+      void this.drain();
       return this.toResponse(existant as SyncJobRow);
     }
 
@@ -191,14 +228,159 @@ export class SyncService implements OnModuleInit {
   }
 
   /**
+   * Relance manuelle : ignore le backoff des fiches encore récupérables.
+   * Les jeux à 3 échecs « délisté » restent en quarantaine ; les fiches déjà
+   * récupérées mais à remapper sont également retentées.
+   */
+  private async forcerRepriseFiches(userId: number): Promise<void> {
+    await this.db.$client.query(
+      `UPDATE games g
+       SET details_next_retry_at = NULL
+       FROM library_entries le
+       WHERE le.game_id = g.id
+         AND le.user_id = $1
+         AND g.details_attempts < $2
+         AND (
+           g.details_fetched_at IS NULL
+           OR g.filters_version < $3
+         )`,
+      [userId, SEUIL_FICHE_DELISTEE, FILTERS_VERSION],
+    );
+  }
+
+  /** Annule la reprise programmée d'un utilisateur (relance ou arrêt). */
+  private annulerReprise(userId: number): void {
+    const timer = this.reprises.get(userId);
+    if (timer) {
+      clearTimeout(timer);
+      this.reprises.delete(userId);
+    }
+  }
+
+  /**
+   * Programme la prochaine reprise d'un utilisateur à l'échéance de sa fiche
+   * la plus proche. Un timer en mémoire suffit : au redémarrage,
+   * `onModuleInit` relit les échéances persistées et reprogramme.
+   */
+  private async planifierReprise(
+    userId: number,
+    options: { autoriserEcheanceDue?: boolean } = {},
+  ): Promise<void> {
+    this.annulerReprise(userId);
+    const prochaine = await this.prochaineRepriseFiche(userId);
+    if (!prochaine) {
+      return;
+    }
+    if (prochaine.getTime() <= Date.now() && !options.autoriserEcheanceDue) {
+      // Échéance déjà due : le timer qui a tiré, le scan de démarrage ou
+      // `needsDetails` au login la prend en charge. La replanifier à 0 après
+      // un job en échec (ex. profil privé à l'étape library) créerait une
+      // boucle serrée.
+      return;
+    }
+    this.planifierAvecEcheance(userId, prochaine);
+  }
+
+  /** Pose le timer (borné à `MAX_TIMEOUT_MS`) pour une échéance connue. */
+  private planifierAvecEcheance(userId: number, prochaine: Date): void {
+    const delai = Math.max(0, prochaine.getTime() - Date.now());
+    const attente = Math.min(delai, MAX_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      this.reprises.delete(userId);
+      if (Date.now() >= prochaine.getTime()) {
+        void this.enqueue(userId).catch((error: unknown) => {
+          this.logger.warn(
+            `Reprise automatique impossible pour l'utilisateur ${userId}: ${
+              error instanceof Error ? error.message : 'erreur inconnue'
+            }`,
+          );
+        });
+      } else {
+        void this.planifierReprise(userId).catch((error: unknown) => {
+          this.logger.warn(
+            `Replanification impossible pour l'utilisateur ${userId}: ${
+              error instanceof Error ? error.message : 'erreur inconnue'
+            }`,
+          );
+        });
+      }
+    }, attente);
+    // Ne pas garder le processus en vie uniquement pour ce timer (tests,
+    // arrêt propre) : le serveur HTTP le maintient déjà.
+    timer.unref();
+    this.reprises.set(userId, timer);
+    this.logger.debug(
+      `Reprise des fiches de l'utilisateur ${userId} programmée dans ${attente} ms`,
+    );
+  }
+
+  /** Plus proche échéance de reprise d'une fiche pour un utilisateur. */
+  private async prochaineRepriseFiche(userId: number): Promise<Date | null> {
+    const [row] = await this.db
+      .select({ prochaine: min(games.detailsNextRetryAt) })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          or(
+            isNull(games.detailsFetchedAt),
+            lt(games.filtersVersion, FILTERS_VERSION),
+          ),
+          isNotNull(games.detailsNextRetryAt),
+        ),
+      );
+    return row?.prochaine ?? null;
+  }
+
+  /**
+   * Reprogramme toutes les reprises au démarrage. Un redémarrage perd les
+   * timers en mémoire mais pas `details_next_retry_at`.
+   */
+  private async planifierToutesReprises(): Promise<void> {
+    try {
+      const rows = await this.db
+        .select({
+          userId: libraryEntries.userId,
+          prochaine: min(games.detailsNextRetryAt),
+        })
+        .from(libraryEntries)
+        .innerJoin(games, eq(libraryEntries.gameId, games.id))
+        .where(
+          and(
+            or(
+              isNull(games.detailsFetchedAt),
+              lt(games.filtersVersion, FILTERS_VERSION),
+            ),
+            isNotNull(games.detailsNextRetryAt),
+          ),
+        )
+        .groupBy(libraryEntries.userId);
+
+      for (const row of rows) {
+        if (row.prochaine) {
+          this.planifierAvecEcheance(row.userId, row.prochaine);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Planification des reprises impossible au démarrage: ${
+          error instanceof Error ? error.message : 'erreur inconnue'
+        }`,
+      );
+    }
+  }
+
+  /**
    * Indique si au moins un jeu de l'utilisateur a une fiche déjà récupérée mais
-   * pas encore remappée (`filters_version`). Sert à relancer un import après
-   * l'ajout d'un champ dérivé de `appdetails`, même si le dernier import est
-   * terminé.
+   * pas encore remappée (`filters_version`), ou si un remap en attente est dû.
+   * Sert à relancer un import après l'ajout d'un champ dérivé de `appdetails`,
+   * même si le dernier import est terminé.
    *
-   * Les fiches jamais récupérées (`details_fetched_at IS NULL`) sont exclues :
-   * les inclure relancerait un import à chaque connexion pour un jeu retiré du
-   * Store, sans jamais pouvoir aboutir. Un `Synchroniser` manuel les retente.
+   * Les fiches jamais récupérées (`details_fetched_at IS NULL`) sont traitées
+   * par `needsDetails` ; ici on ne couvre que les fiches existantes à remapper.
+   * Le délai `details_next_retry_at` évite une sync à chaque login pendant un
+   * backoff de remap.
    */
   async needsFilters(userId: number): Promise<boolean> {
     const [row] = await this.db
@@ -210,6 +392,34 @@ export class SyncService implements OnModuleInit {
           eq(libraryEntries.userId, userId),
           isNotNull(games.detailsFetchedAt),
           lt(games.filtersVersion, FILTERS_VERSION),
+          or(
+            isNull(games.detailsNextRetryAt),
+            lte(games.detailsNextRetryAt, new Date()),
+          ),
+        ),
+      );
+    return Number(row?.count ?? 0) > 0;
+  }
+
+  /**
+   * Indique s'il reste une fiche manquante dont la reprise est due. Complète
+   * le planificateur (`planifierToutesReprises` / `planifierReprise`) pour un
+   * login qui suit immédiatement l'échéance, sans attendre un timer.
+   */
+  async needsDetails(userId: number): Promise<boolean> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(libraryEntries)
+      .innerJoin(games, eq(libraryEntries.gameId, games.id))
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          isNull(games.detailsFetchedAt),
+          lt(games.detailsAttempts, SEUIL_FICHE_DELISTEE),
+          or(
+            isNull(games.detailsNextRetryAt),
+            lte(games.detailsNextRetryAt, new Date()),
+          ),
         ),
       );
     return Number(row?.count ?? 0) > 0;
@@ -226,10 +436,13 @@ export class SyncService implements OnModuleInit {
 
   /**
    * Indique s'il reste des jeux indexables sans embedding. Faux quand le quota
-   * Gemini du jour est épuisé : relancer une sync ne servirait à rien et
-   * créerait une boucle au login.
+   * Gemini du jour est épuisé, ou quand aucune clé n'est configurée : relancer
+   * une sync ne servirait à rien et créerait une boucle au login.
    */
   async needsEmbeddings(userId: number): Promise<boolean> {
+    if (!this.config.get<string>('EMBEDDING_API_KEY')) {
+      return false;
+    }
     const count = await this.compterEmbeddingsManquants(userId);
     if (count === 0) {
       return false;
@@ -289,9 +502,7 @@ export class SyncService implements OnModuleInit {
       .where(
         and(
           this.conditionsSuccesManquants(userId),
-          dejaTentes.length > 0
-            ? notInArray(games.id, dejaTentes)
-            : undefined,
+          dejaTentes.length > 0 ? notInArray(games.id, dejaTentes) : undefined,
         ),
       )
       .orderBy(
@@ -330,7 +541,10 @@ export class SyncService implements OnModuleInit {
     if (!job) {
       return null;
     }
-    return this.toResponse(job as SyncJobRow, await this.compterReliquats(userId));
+    return this.toResponse(
+      job as SyncJobRow,
+      await this.compterReliquats(userId),
+    );
   }
 
   /**
@@ -338,13 +552,17 @@ export class SyncService implements OnModuleInit {
    * Quatre `count(*)` par utilisateur : négligeable même pour 1 000 jeux.
    */
   private async compterReliquats(userId: number): Promise<CompteursImport> {
-    const [pendingDetails, detailsUnavailable, pendingAchievements, pendingEmbeddings] =
-      await Promise.all([
-        this.compterDetailsEnAttente(userId),
-        this.compterDetailsIndisponibles(userId),
-        this.compterSuccesManquants(userId),
-        this.compterEmbeddingsManquants(userId),
-      ]);
+    const [
+      pendingDetails,
+      detailsUnavailable,
+      pendingAchievements,
+      pendingEmbeddings,
+    ] = await Promise.all([
+      this.compterDetailsEnAttente(userId),
+      this.compterDetailsIndisponibles(userId),
+      this.compterSuccesManquants(userId),
+      this.compterEmbeddingsManquants(userId),
+    ]);
     return {
       pendingDetails,
       detailsUnavailable,
@@ -353,7 +571,12 @@ export class SyncService implements OnModuleInit {
     };
   }
 
-  /** Fiches encore à récupérer (retry dû, moins de 3 échecs « délisté »). */
+  /**
+   * Fiches encore récupérables, y compris celles dont le retry est programmé.
+   * C'est le contrat du brief 00 §4.6 : une fiche en backoff n'est pas perdue,
+   * elle reste un reliquat visible. La sélection d'une passe, elle, respecte
+   * `details_next_retry_at` (voir `appIdsSansDetails`).
+   */
   private async compterDetailsEnAttente(userId: number): Promise<number> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)` })
@@ -363,10 +586,6 @@ export class SyncService implements OnModuleInit {
         and(
           eq(libraryEntries.userId, userId),
           isNull(games.detailsFetchedAt),
-          or(
-            isNull(games.detailsNextRetryAt),
-            lte(games.detailsNextRetryAt, new Date()),
-          ),
           lt(games.detailsAttempts, SEUIL_FICHE_DELISTEE),
         ),
       );
@@ -399,23 +618,35 @@ export class SyncService implements OnModuleInit {
       return;
     }
     this.running = true;
+    let job: SyncJobRow | undefined;
     try {
       do {
         this.rerun = false;
-        const [job] = await this.db
+        const [prochain] = await this.db
           .select()
           .from(syncJobs)
           .where(eq(syncJobs.status, 'pending'))
           .orderBy(syncJobs.id)
           .limit(1);
+        job = prochain as SyncJobRow | undefined;
         if (job) {
-          await this.processJob(job as SyncJobRow);
+          await this.processJob(job);
         }
       } while (this.rerun);
     } catch (error) {
-      this.logger.error(
-        `Erreur de la boucle de sync: ${error instanceof Error ? error.message : 'erreur inconnue'}`,
-      );
+      const message =
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : 'erreur inconnue';
+      this.logger.error(`Erreur de la boucle de sync: ${message}`);
+      // Best effort : ne pas laisser un job pending orphelin si l'erreur a
+      // échappé à `processJob`.
+      if (job && (job.status === 'pending' || job.status === 'running')) {
+        await this.finish(job.id, 'error', job.step, message, new Date()).catch(
+          () => undefined,
+        );
+        await this.users.setStatus(job.userId, 'error').catch(() => undefined);
+      }
     } finally {
       this.running = false;
     }
@@ -443,17 +674,19 @@ export class SyncService implements OnModuleInit {
 
   /** Déroule les quatre étapes. Aucune suppression nulle part. */
   private async processJob(job: SyncJobRow): Promise<void> {
-    const [user] = await this.db
-      .select({ steamId: users.steamId })
-      .from(users)
-      .where(eq(users.id, job.userId))
-      .limit(1);
-    if (!user) {
-      throw new NotFoundException('Utilisateur inconnu');
-    }
-
-    await this.markRunning(job.id);
+    let enErreur = false;
     try {
+      const [user] = await this.db
+        .select({ steamId: users.steamId })
+        .from(users)
+        .where(eq(users.id, job.userId))
+        .limit(1);
+      if (!user) {
+        throw new NotFoundException('Utilisateur inconnu');
+      }
+
+      await this.markRunning(job.id);
+
       // Un job repris repart de son étape courante ; les étapes terminées sont
       // sautées. `done` + `pending` est un état anormal : on répare depuis le
       // début.
@@ -500,6 +733,7 @@ export class SyncService implements OnModuleInit {
         lastSyncAt: new Date(),
       });
     } catch (error) {
+      enErreur = true;
       const message =
         error instanceof QuotaReachedError
           ? 'quota-embedding-atteint'
@@ -522,6 +756,21 @@ export class SyncService implements OnModuleInit {
         new Date(),
       );
       await this.users.setStatus(job.userId, 'error');
+    } finally {
+      // Programme la reprise de la prochaine fiche en backoff. Si le job a
+      // échoué avant l'étape des fiches (ex. profil privé à `library`), une
+      // échéance déjà due ne doit pas être replanifiée à zéro : ce serait une
+      // boucle serrée. Elle sera reprise au login (`needsDetails`) ou au
+      // prochain démarrage.
+      await this.planifierReprise(job.userId, {
+        autoriserEcheanceDue: !enErreur,
+      }).catch((error: unknown) => {
+        this.logger.warn(
+          `Planification de reprise impossible pour l'utilisateur ${job.userId}: ${
+            error instanceof Error ? error.message : 'erreur inconnue'
+          }`,
+        );
+      });
     }
   }
 
@@ -718,7 +967,11 @@ export class SyncService implements OnModuleInit {
         tentative = 1;
         continue;
       }
-      await this.enregistrerEchecFiche(appId, 'rate-limit', resultat.retryAfterMs);
+      await this.enregistrerEchecFiche(
+        appId,
+        'rate-limit',
+        resultat.retryAfterMs,
+      );
       return 'rate-limit';
     }
   }
@@ -759,7 +1012,7 @@ export class SyncService implements OnModuleInit {
     const delai =
       cause === 'network'
         ? RETRY_FICHE_RESEAU_MS
-        : Math.max(0, retryAfterMs);
+        : Math.max(RETRY_429_MIN_MS, retryAfterMs);
     await this.db
       .update(games)
       .set({
@@ -796,8 +1049,7 @@ export class SyncService implements OnModuleInit {
       Number.MAX_SAFE_INTEGER,
     );
     const manquants = await this.compterSuccesManquants(userId);
-    const total =
-      maxTotal > 0 ? Math.min(manquants, maxTotal) : manquants;
+    const total = maxTotal > 0 ? Math.min(manquants, maxTotal) : manquants;
 
     this.logger.log(
       `Étape succès : ${total} jeu(x) à traiter (lots de ${batchSize})`,
@@ -818,6 +1070,7 @@ export class SyncService implements OnModuleInit {
     let dejaTraite = false;
     let limitesConsecutives = 0;
     let limiteAtteinte = false;
+    let attente429Ms = 0;
 
     const resultat = await traiterSuccesParLots({
       total,
@@ -839,6 +1092,7 @@ export class SyncService implements OnModuleInit {
           limitesConsecutives = 0;
         } catch (error) {
           if (error instanceof SteamRateLimitError) {
+            attente429Ms = Math.max(attente429Ms, error.retryAfterMs);
             limitesConsecutives += 1;
             if (limitesConsecutives >= MAX_429_CONSECUTIFS) {
               limiteAtteinte = true;
@@ -866,9 +1120,20 @@ export class SyncService implements OnModuleInit {
           }`,
         );
       },
-      doitPause: () =>
-        limiteAtteinte || this.budgetDepasse(deadline),
+      doitPause: () => limiteAtteinte || this.budgetDepasse(deadline),
+      // Les erreurs Steam transitoires restent des échecs de jeu ; une erreur
+      // DB ou de programmation doit faire échouer le job, pas finir en `done`.
+      estFatal: (error) =>
+        !(error instanceof SteamRateLimitError) &&
+        !(error instanceof ServiceUnavailableException),
     });
+
+    // Trois 429 consécutifs avec du progrès : on attend le Retry-After (borné)
+    // avant de réenfiler la passe. Sans cela, `pauseJob` relancerait
+    // immédiatement et martèlerait Steam.
+    if (limiteAtteinte && resultat.paused && attente429Ms > 0) {
+      await sleep(Math.min(attente429Ms, MAX_ATTENTE_429_MS));
+    }
 
     await this.marquerActiviteSucces(userId);
 
@@ -989,7 +1254,10 @@ export class SyncService implements OnModuleInit {
             lte(games.detailsNextRetryAt, new Date()),
           ),
         ),
-      );
+      )
+      // Les jeux jamais tentés passent avant ceux qui reviennent d'un backoff :
+      // sans cet ordre, trois 429 répétés pourraient affamer les suivants.
+      .orderBy(sql`${games.detailsNextRetryAt} ASC NULLS FIRST`, games.appId);
     return rows.map((row) => row.appId);
   }
 

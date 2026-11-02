@@ -529,7 +529,9 @@ en passes et le job reprend à l'étape en cours, sans perdre la progression.
 - Budget épuisé → la passe s'arrête en `paused` sans erreur ; le job reste `pending` et
   reprend à la passe suivante. Pas de pause sans progrès, sinon boucle infinie.
 - La reprise s'appuie sur `job.step` ; au démarrage, `onModuleInit` remet les jobs
-  `running` en `pending`. Une relance manuelle (`POST /api/sync`) reprend le même job.
+  `running` en `pending`. Une relance manuelle (`POST /api/sync`) **relance** le job
+  depuis `library` (ce n'est pas une reprise à l'étape) ; elle force aussi les fiches
+  récupérables, voir 7.5.
 
 ### 7.4 Fiches Steam
 
@@ -538,31 +540,53 @@ en passes et le job reprend à l'étape en cours, sans perdre la progression.
   `games.details_last_error` (`rate-limit` / `network` / `removed`) rendent les échecs
   visibles et pilotent les nouvelles tentatives.
 - Un 429 respecte `Retry-After` ; trois 429 consécutifs mettent la passe en pause. Une
-  erreur réseau est retentée après 5 min.
+  erreur réseau est retentée après 5 min, un 429 au moins 5 s après le dernier échec.
 - Un jeu délisté (`success:false`) est retenté après 24 h, puis après 30 jours à partir
-  du troisième échec. Il est compté dans `detailsUnavailable`, pas dans `pendingDetails`.
+  du troisième échec. Il est compté dans `detailsUnavailable` et reste retenté
+  périodiquement en arrière-plan.
+- `pendingDetails` compte **toutes** les fiches encore récupérables, y compris celles
+  dont le retry est programmé : une fiche en backoff n'est jamais perdue ni masquée.
 
-### 7.5 Embeddings
+### 7.5 Reprise automatique des fiches
 
-- Quota Gemini : 100 appels/min et 1 000/jour, persisté dans `rate_limits`.
-- L'import réserve 80 % de la fenêtre minute (`acquire('import')`) pour laisser ~20 %
-  à la recherche ; la recherche n'est jamais bloquée par une indexation en cours.
+- Le scheduler de `SyncService` lit la plus proche échéance
+  `games.details_next_retry_at` par utilisateur et programme un réenfilement
+  automatique à cette date. Aucun clic n'est nécessaire.
+- Au redémarrage, les timers en mémoire sont perdus mais `onModuleInit` relit les
+  échéances persistées et reprogramme ; une échéance déjà due déclenche un import
+  immédiat.
+- `needsDetails` complète le dispositif au login pour les fiches dues, sans attendre le
+  timer.
+- Une relance manuelle (`POST /api/sync`) force les fiches `details_attempts < 3` en
+  effaçant `details_next_retry_at` ; la quarantaine après 3 échecs « délisté » reste
+  respectée.
+- Le scheduler est mono-process, comme `drain` : pas de coordination multi-instance.
+
+### 7.6 Embeddings
+
+- Quota Gemini : 100 appels/min et 1 000/jour. Seul le quota **journalier** est persisté
+  dans `rate_limits` ; la fenêtre minute est en mémoire.
+- L'import est plafonné à 80 % de la fenêtre minute
+  (`embedGame(..., { source: 'import' })`, soit `acquire(undefined, 'import')`) pour
+  laisser ~20 % à la recherche ; la recherche n'est pas bloquée pendant l'indexation.
 - Quota épuisé → le job passe `done` avec `pendingEmbeddings > 0`, **pas** `error` ;
   `needsEmbeddings` relance l'indexation plus tard. Aucun embedding n'est supprimé.
+- Sans `EMBEDDING_API_KEY`, `needsEmbeddings` est faux : pas de sync inutile au login.
 
-### 7.6 Contrat `GET /api/sync`
+### 7.7 Contrat `GET /api/sync`
 
 La réponse expose quatre reliquats, tous à `0` quand l'import est complet :
 
-- `pendingDetails` : fiches encore à récupérer ;
-- `detailsUnavailable` : fiches définitivement indisponibles ou en attente longue ;
+- `pendingDetails` : fiches encore récupérables, y compris en attente de reprise ;
+- `detailsUnavailable` : fiches à 3 échecs « délisté », en attente longue ;
 - `pendingAchievements` : jeux dont les compteurs de succès manquent ;
 - `pendingEmbeddings` : jeux sans embedding.
 
-`needsAchievements` et `needsEmbeddings` sont renvoyés à l'authentification pour
-décider d'un réenfilement au login.
+`needsFilters`, `needsDetails`, `needsAchievements` et `needsEmbeddings` sont évalués à
+l'authentification pour décider d'un réenfilement au login ; le scheduler de 7.5 couvre
+les fiches en backoff entre deux logins.
 
-### 7.7 Piège Drizzle — `sql<Date>` n'est pas un cast
+### 7.8 Piège Drizzle — `sql<Date>` n'est pas un cast
 
 `sql<Date>\`max(...)\`` ne fait que **mentir au compilateur** : le pilote `pg` renvoie une
 **chaîne** pour un `timestamp` sans fuseau, pas un `Date`. Utiliser `max(colonne)` (Drizzle

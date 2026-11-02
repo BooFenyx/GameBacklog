@@ -218,7 +218,8 @@ Règles :
 - Le bandeau de progression d'import reste compact et ne pousse pas la grille.
 - (31/10/2026) Il affiche aussi l'erreur réelle, les reliquats (`pendingDetails`,
   `detailsUnavailable`, `pendingAchievements`, `pendingEmbeddings`) et la reprise
-  automatique, via `etatImport` (`web/src/import.ts`).
+  automatique des fiches programmée en arrière-plan, via `etatImport`
+  (`web/src/import.ts`) ; le bouton **Reprendre** force un retry immédiat.
 
 ### 5.2 Barre de résultats
 

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DB, type Db } from '../db/db.module.js';
 import {
@@ -55,9 +56,8 @@ function fakeDb(reponses: unknown[][]) {
   // requêtes sans `.limit()`.
   const builder = {
     // oxlint-disable-next-line unicorn/no-thenable
-    then: (
-      onFulfilled: (value: unknown[]) => unknown,
-    ): Promise<unknown> => suivant().then(onFulfilled),
+    then: (onFulfilled: (value: unknown[]) => unknown): Promise<unknown> =>
+      suivant().then(onFulfilled),
     limit,
   };
   limit.mockImplementation(suivant);
@@ -105,7 +105,10 @@ describe('AchievementsService', () => {
         providers: [
           AchievementsService,
           { provide: DB, useValue: fake.db },
-          { provide: ConfigService, useValue: makeConfig({ STEAM_API_KEY: 'cle' }) },
+          {
+            provide: ConfigService,
+            useValue: makeConfig({ STEAM_API_KEY: 'cle' }),
+          },
         ],
       }).compile();
       service = module.get<AchievementsService>(AchievementsService);
@@ -120,11 +123,7 @@ describe('AchievementsService', () => {
     });
 
     it('récupère puis persiste le schéma quand le cache est vide', async () => {
-      const fake = fakeDb([
-        [{ fetchedAt: null, total: 0 }],
-        [],
-        LIGNE_DETAIL,
-      ]);
+      const fake = fakeDb([[{ fetchedAt: null, total: 0 }], [], LIGNE_DETAIL]);
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue({
@@ -154,7 +153,10 @@ describe('AchievementsService', () => {
         providers: [
           AchievementsService,
           { provide: DB, useValue: fake.db },
-          { provide: ConfigService, useValue: makeConfig({ STEAM_API_KEY: 'cle' }) },
+          {
+            provide: ConfigService,
+            useValue: makeConfig({ STEAM_API_KEY: 'cle' }),
+          },
         ],
       }).compile();
       service = module.get<AchievementsService>(AchievementsService);
@@ -183,7 +185,7 @@ describe('AchievementsService', () => {
       );
     });
 
-    it('lève SteamRateLimitError quand GetSchemaForGame répond 429', async () => {
+    it('renvoie 503 quand GetSchemaForGame répond 429', async () => {
       const fake = fakeDb([[{ fetchedAt: null, total: 0 }], []]);
       vi.stubGlobal(
         'fetch',
@@ -198,15 +200,17 @@ describe('AchievementsService', () => {
         providers: [
           AchievementsService,
           { provide: DB, useValue: fake.db },
-          { provide: ConfigService, useValue: makeConfig({ STEAM_API_KEY: 'cle' }) },
+          {
+            provide: ConfigService,
+            useValue: makeConfig({ STEAM_API_KEY: 'cle' }),
+          },
         ],
       }).compile();
       service = module.get<AchievementsService>(AchievementsService);
 
-      await expect(service.getGameAchievements(7, 620)).rejects.toMatchObject({
-        name: 'SteamRateLimitError',
-        retryAfterMs: 30_000,
-      });
+      await expect(service.getGameAchievements(7, 620)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
     });
   });
 
@@ -242,7 +246,11 @@ describe('AchievementsService', () => {
             playerstats: {
               success: true,
               achievements: [
-                { apiname: 'PORTAL_PUZZLE', achieved: 1, unlocktime: 1_700_000_000 },
+                {
+                  apiname: 'PORTAL_PUZZLE',
+                  achieved: 1,
+                  unlocktime: 1_700_000_000,
+                },
                 { apiname: 'PORTAL_FRIEND', achieved: 0 },
               ],
             },
@@ -339,7 +347,26 @@ describe('AchievementsService', () => {
       );
     });
 
-    it('lève SteamRateLimitError quand GetPlayerAchievements répond 429', async () => {
+    it('sert le cache quand GetPlayerAchievements répond 429 sur la fiche', async () => {
+      const fake = fakeDb(schemaEnCache);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 429,
+          headers: new Headers(),
+        }),
+      );
+
+      const result = await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(result).toHaveLength(2);
+      expect(result.every((succes) => succes.unlockedAt === null)).toBe(true);
+    });
+
+    it('propage un 429 à l’import via refreshForSync', async () => {
       const fake = fakeDb(schemaEnCache);
       await creerService(fake);
 
@@ -353,7 +380,7 @@ describe('AchievementsService', () => {
       );
 
       await expect(
-        service.getUserAchievements('7656119', 3, 7, 620),
+        service.refreshForSync('7656119', 3, 7, 620),
       ).rejects.toBeInstanceOf(SteamRateLimitError);
     });
   });

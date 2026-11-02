@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { etatImport } from './import'
+import { etatImport, messageErreurImport } from './import'
 import type { JobSync } from './sync'
 
 function job(overrides: Partial<JobSync> = {}): JobSync {
@@ -109,5 +109,27 @@ describe('etatImport', () => {
     )
 
     expect(etat.texte).toBe('Import de la bibliothèque')
+  })
+})
+
+describe('messageErreurImport', () => {
+  it('explique le profil Steam privé', () => {
+    expect(
+      messageErreurImport(
+        'Steam a refusé l’accès (403) : profil privé ou clé invalide',
+      ),
+    ).toContain('Rends-le public')
+  })
+
+  it('explique le quota d’embedding', () => {
+    expect(messageErreurImport('quota-embedding-atteint')).toContain(
+      'Quota d’embedding',
+    )
+  })
+
+  it('laisse passer un message inconnu', () => {
+    expect(messageErreurImport('Steam est injoignable')).toBe(
+      'Steam est injoignable',
+    )
   })
 })

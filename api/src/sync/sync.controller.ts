@@ -15,7 +15,9 @@ export class SyncController {
 
   @Post()
   relancer(@Req() req: Request): Promise<SyncJobResponse> {
-    return this.syncService.enqueue(req.session.userId as number);
+    return this.syncService.enqueue(req.session.userId as number, {
+      forcerFiches: true,
+    });
   }
 
   @Get()

@@ -13,10 +13,7 @@ export interface OptionsLotsSucces {
    * Sélectionne le lot suivant. `dejaTentes` contient les `gameId` déjà
    * tentés dans ce run : ils doivent être exclus de la sélection.
    */
-  selectionner: (
-    dejaTentes: number[],
-    limite: number,
-  ) => Promise<JeuSucces[]>;
+  selectionner: (dejaTentes: number[], limite: number) => Promise<JeuSucces[]>;
   /** Traite un jeu. Une exception le laisse manquant sans interrompre le lot. */
   traiter: (jeu: JeuSucces) => Promise<void>;
   /** Appelé après chaque jeu tenté, avec le cumul de la passe. */
@@ -28,6 +25,11 @@ export interface OptionsLotsSucces {
    * `true`, la boucle s'arrête et signale une pause si du progrès a été fait.
    */
   doitPause?: () => boolean;
+  /**
+   * Une erreur fatale interrompt le run au lieu d'être comptée comme un échec
+   * de jeu. Les erreurs Steam transitoires (429, réseau) restent non fatales.
+   */
+  estFatal?: (error: unknown) => boolean;
 }
 
 export interface ResultatLotsSucces {
@@ -71,6 +73,9 @@ export async function traiterSuccesParLots(
         progresLot += 1;
         reussis += 1;
       } catch (error) {
+        if (options.estFatal?.(error)) {
+          throw error;
+        }
         options.onEchec?.(row, error);
       }
       processed += 1;

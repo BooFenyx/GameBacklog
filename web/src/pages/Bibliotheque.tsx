@@ -15,7 +15,7 @@ import {
   lireFiltres,
   type Filtres,
 } from '../filters'
-import { etatImport } from '../import'
+import { etatImport, messageErreurImport } from '../import'
 import {
   chargerBibliotheque,
   chargerFacettes,
@@ -31,17 +31,8 @@ import {
 
 /** Message d'erreur lisible, avec l'aide dédiée au profil Steam privé. */
 function messageErreur(erreur: unknown): string {
-  const texte =
-    erreur instanceof Error
-      ? erreur.message
-      : 'Impossible de récupérer la bibliothèque.'
-  if (texte.includes('profil privé') || texte.includes('privé')) {
-    return 'Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque.'
-  }
-  if (texte.includes('quota')) {
-    return 'Quota d’embedding atteint (Google Gemini) : l’import reprendra plus tard.'
-  }
-  return texte
+  if (erreur instanceof Error) return messageErreurImport(erreur.message)
+  return 'Impossible de récupérer la bibliothèque.'
 }
 
 /**
@@ -292,7 +283,11 @@ export default function Bibliotheque() {
   }
 
   const enCours = estEnCours(job)
-  const bandeau = etatImport(job)
+  const bandeau = etatImport(
+    job && job.error
+      ? { ...job, error: messageErreurImport(job.error) }
+      : job,
+  )
   const pourcentage =
     enCours && job.totalGames > 0
       ? Math.min(100, Math.round((job.processedGames / job.totalGames) * 100))

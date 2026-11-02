@@ -14,7 +14,7 @@ export type JobSync = {
   error: string | null
   startedAt: string | null
   finishedAt: string | null
-  /** Fiches encore à récupérer (retry dû, moins de 3 échecs « délisté »). */
+  /** Fiches encore récupérables, y compris celles en attente de reprise. */
   pendingDetails: number
   /** Jeux dont la fiche est définitivement indisponible (3 échecs). */
   detailsUnavailable: number

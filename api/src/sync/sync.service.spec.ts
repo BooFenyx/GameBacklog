@@ -10,7 +10,10 @@ import {
   type RateLimitService,
 } from '../embedding/rate-limiter.service.js';
 import { GamesService } from '../games/games.service.js';
-import { LibraryService, type BibliothequeGame } from '../library/library.service.js';
+import {
+  LibraryService,
+  type BibliothequeGame,
+} from '../library/library.service.js';
 import { UsersService } from '../users/users.service.js';
 import { SyncService } from './sync.service.js';
 
@@ -67,6 +70,34 @@ describe('SyncService', () => {
     };
 
     await expect(makeService(db).needsFilters(1)).resolves.toBe(false);
+  });
+
+  it('needsDetails : vrai quand une fiche manquante est due', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => Promise.resolve([{ count: '2' }]),
+          }),
+        }),
+      }),
+    };
+
+    await expect(makeService(db).needsDetails(1)).resolves.toBe(true);
+  });
+
+  it('needsDetails : faux quand aucune fiche n’est due', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => Promise.resolve([{ count: '0' }]),
+          }),
+        }),
+      }),
+    };
+
+    await expect(makeService(db).needsDetails(1)).resolves.toBe(false);
   });
 
   it('needsAchievements : vrai quand un jeu manque de compteurs', async () => {
@@ -143,7 +174,11 @@ describe('SyncService', () => {
       insert,
     };
 
-    const response = await makeService(db).enqueue(1);
+    const service = makeService(db);
+    const drain = vi
+      .spyOn(service as never, 'drain')
+      .mockResolvedValue(undefined);
+    const response = await service.enqueue(1);
 
     expect(response).toMatchObject({
       id: 42,
@@ -151,6 +186,40 @@ describe('SyncService', () => {
       processedGames: 4,
     });
     expect(insert).not.toHaveBeenCalled();
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+
+  it('enqueue : réarme drain sur un job pending orphelin', async () => {
+    const job: JobRow = {
+      id: 43,
+      userId: 1,
+      status: 'pending',
+      step: 'details',
+      totalGames: 10,
+      processedGames: 2,
+      error: null,
+      startedAt: null,
+      finishedAt: null,
+    };
+    const insert = vi.fn();
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: () => Promise.resolve([job]) }),
+        }),
+      }),
+      insert,
+    };
+
+    const service = makeService(db);
+    const drain = vi
+      .spyOn(service as never, 'drain')
+      .mockResolvedValue(undefined);
+    const response = await service.enqueue(1);
+
+    expect(response).toMatchObject({ id: 43, status: 'pending' });
+    expect(insert).not.toHaveBeenCalled();
+    expect(drain).toHaveBeenCalledTimes(1);
   });
 
   it('syncLibrary : convertit une chaîne de dernier succès en Date', async () => {
@@ -273,7 +342,7 @@ describe('SyncService', () => {
         setStatus?: () => Promise<void>;
       } = {},
     ): SyncService {
-      return new SyncService(
+      const service = new SyncService(
         db as Db,
         { get: () => undefined } as unknown as ConfigService,
         {
@@ -287,6 +356,10 @@ describe('SyncService', () => {
         } as unknown as UsersService,
         {} as RateLimitService,
       );
+      vi.spyOn(service as never, 'planifierReprise').mockResolvedValue(
+        undefined,
+      );
+      return service;
     }
 
     function espionnerEtapes(service: SyncService) {
@@ -313,8 +386,9 @@ describe('SyncService', () => {
       const service = serviceOrchestration(db, { ownedGames, setStatus });
       const etapes = espionnerEtapes(service);
 
-      await (service as never as { processJob: (j: JobRow) => Promise<void> })
-        .processJob(jobRow('library'));
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('library'));
 
       expect(ownedGames).toHaveBeenCalledWith('steam-1');
       expect(etapes.syncLibrary).toHaveBeenCalledTimes(1);
@@ -331,8 +405,9 @@ describe('SyncService', () => {
       const service = serviceOrchestration(db, { ownedGames });
       const etapes = espionnerEtapes(service);
 
-      await (service as never as { processJob: (j: JobRow) => Promise<void> })
-        .processJob(jobRow('details'));
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('details'));
 
       expect(ownedGames).not.toHaveBeenCalled();
       expect(etapes.syncLibrary).not.toHaveBeenCalled();
@@ -346,8 +421,9 @@ describe('SyncService', () => {
       const service = serviceOrchestration(db);
       const etapes = espionnerEtapes(service);
 
-      await (service as never as { processJob: (j: JobRow) => Promise<void> })
-        .processJob(jobRow('achievements'));
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('achievements'));
 
       expect(etapes.stepDetails).not.toHaveBeenCalled();
       expect(etapes.stepAchievements).toHaveBeenCalledTimes(1);
@@ -359,8 +435,9 @@ describe('SyncService', () => {
       const service = serviceOrchestration(db);
       const etapes = espionnerEtapes(service);
 
-      await (service as never as { processJob: (j: JobRow) => Promise<void> })
-        .processJob(jobRow('embeddings'));
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('embeddings'));
 
       expect(etapes.stepDetails).not.toHaveBeenCalled();
       expect(etapes.stepAchievements).not.toHaveBeenCalled();
@@ -373,8 +450,9 @@ describe('SyncService', () => {
       const service = serviceOrchestration(db, { ownedGames });
       const etapes = espionnerEtapes(service);
 
-      await (service as never as { processJob: (j: JobRow) => Promise<void> })
-        .processJob(jobRow('done'));
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('done'));
 
       expect(ownedGames).toHaveBeenCalledWith('steam-1');
       expect(etapes.syncLibrary).toHaveBeenCalledTimes(1);
@@ -388,8 +466,9 @@ describe('SyncService', () => {
       const etapes = espionnerEtapes(service);
       etapes.stepDetails.mockResolvedValue({ paused: true, progressed: true });
 
-      await (service as never as { processJob: (j: JobRow) => Promise<void> })
-        .processJob(jobRow('details'));
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('details'));
 
       expect(updates).toContainEqual({
         status: 'pending',
@@ -400,6 +479,33 @@ describe('SyncService', () => {
       expect(setStatus).not.toHaveBeenCalled();
       expect(etapes.stepAchievements).not.toHaveBeenCalled();
       expect(etapes.stepEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it('utilisateur absent : marque le job en error, pas en pending', async () => {
+      const updates: Array<Record<string, unknown>> = [];
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([]) }),
+          }),
+        }),
+        update: () => ({
+          set: (valeurs: Record<string, unknown>) => {
+            updates.push(valeurs);
+            return { where: () => Promise.resolve() };
+          },
+        }),
+      };
+      const setStatus = vi.fn(async () => {});
+      const service = serviceOrchestration(db, { setStatus });
+
+      await (
+        service as never as { processJob: (j: JobRow) => Promise<void> }
+      ).processJob(jobRow('library'));
+
+      expect(updates.some((u) => u.status === 'error')).toBe(true);
+      expect(updates.some((u) => u.status === 'pending')).toBe(false);
+      expect(setStatus).toHaveBeenCalledWith(1, 'error');
     });
   });
 
@@ -447,7 +553,10 @@ describe('SyncService', () => {
 
       const resultat = await (
         service as never as {
-          stepDetails: (j: number, u: number) => Promise<{
+          stepDetails: (
+            j: number,
+            u: number,
+          ) => Promise<{
             paused: boolean;
             progressed: boolean;
           }>;
@@ -478,7 +587,10 @@ describe('SyncService', () => {
 
       const resultat = await (
         service as never as {
-          stepDetails: (j: number, u: number) => Promise<{
+          stepDetails: (
+            j: number,
+            u: number,
+          ) => Promise<{
             paused: boolean;
             progressed: boolean;
           }>;
@@ -493,8 +605,7 @@ describe('SyncService', () => {
       const service = new SyncService(
         {} as Db,
         {
-          get: (cle: string) =>
-            cle === 'SYNC_STEP_MAX_MS' ? '0' : undefined,
+          get: (cle: string) => (cle === 'SYNC_STEP_MAX_MS' ? '0' : undefined),
         } as unknown as ConfigService,
         {} as LibraryService,
         {} as GamesService,
@@ -505,7 +616,9 @@ describe('SyncService', () => {
       );
 
       expect(
-        (service as never as { creerDeadline: () => number | null }).creerDeadline(),
+        (
+          service as never as { creerDeadline: () => number | null }
+        ).creerDeadline(),
       ).toBeNull();
     });
 
@@ -541,6 +654,9 @@ describe('SyncService', () => {
         {} as EmbeddingService,
         { setStatus } as unknown as UsersService,
         {} as RateLimitService,
+      );
+      vi.spyOn(service as never, 'planifierReprise').mockResolvedValue(
+        undefined,
       );
       vi.spyOn(service as never, 'appIdsSansDetails').mockResolvedValue([
         1, 2, 3,
@@ -602,12 +718,183 @@ describe('SyncService', () => {
     });
   });
 
+  describe('reprises automatiques', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    function servicePlanification(): SyncService {
+      return new SyncService(
+        {} as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        {} as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        {} as UsersService,
+        {} as RateLimitService,
+      );
+    }
+
+    it('programme une reprise à l’échéance puis enfile le job', async () => {
+      vi.useFakeTimers();
+      const service = servicePlanification();
+      const echeance = new Date(Date.now() + 60_000);
+      vi.spyOn(service as never, 'prochaineRepriseFiche').mockResolvedValue(
+        echeance,
+      );
+      const enqueue = vi
+        .spyOn(service, 'enqueue')
+        .mockResolvedValue({} as never);
+
+      await (
+        service as never as {
+          planifierReprise: (userId: number) => Promise<void>;
+        }
+      ).planifierReprise(7);
+
+      expect(
+        (service as never as { reprises: Map<number, unknown> }).reprises.size,
+      ).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(enqueue).toHaveBeenCalledWith(7);
+    });
+
+    it('ne programme rien quand aucune fiche n’a d’échéance', async () => {
+      const service = servicePlanification();
+      vi.spyOn(service as never, 'prochaineRepriseFiche').mockResolvedValue(
+        null,
+      );
+
+      await (
+        service as never as {
+          planifierReprise: (userId: number) => Promise<void>;
+        }
+      ).planifierReprise(7);
+
+      expect(
+        (service as never as { reprises: Map<number, unknown> }).reprises.size,
+      ).toBe(0);
+    });
+
+    it('ne replanifie pas une échéance déjà due (anti-boucle)', async () => {
+      const service = servicePlanification();
+      vi.spyOn(service as never, 'prochaineRepriseFiche').mockResolvedValue(
+        new Date(Date.now() - 1_000),
+      );
+
+      await (
+        service as never as {
+          planifierReprise: (userId: number) => Promise<void>;
+        }
+      ).planifierReprise(7);
+
+      expect(
+        (service as never as { reprises: Map<number, unknown> }).reprises.size,
+      ).toBe(0);
+    });
+
+    it('replanifie une échéance due quand le job a terminé sans erreur', async () => {
+      vi.useFakeTimers();
+      const service = servicePlanification();
+      vi.spyOn(service as never, 'prochaineRepriseFiche').mockResolvedValue(
+        new Date(Date.now() - 1_000),
+      );
+
+      await (
+        service as never as {
+          planifierReprise: (
+            userId: number,
+            options: { autoriserEcheanceDue?: boolean },
+          ) => Promise<void>;
+        }
+      ).planifierReprise(7, { autoriserEcheanceDue: true });
+
+      expect(
+        (service as never as { reprises: Map<number, unknown> }).reprises.size,
+      ).toBe(1);
+      service.onModuleDestroy();
+      vi.useRealTimers();
+    });
+
+    it('onModuleDestroy annule les timers programmés', async () => {
+      vi.useFakeTimers();
+      const service = servicePlanification();
+      vi.spyOn(service as never, 'prochaineRepriseFiche').mockResolvedValue(
+        new Date(Date.now() + 60_000),
+      );
+
+      await (
+        service as never as {
+          planifierReprise: (userId: number) => Promise<void>;
+        }
+      ).planifierReprise(7);
+      service.onModuleDestroy();
+
+      expect(
+        (service as never as { reprises: Map<number, unknown> }).reprises.size,
+      ).toBe(0);
+    });
+
+    it('drain marque le job en error si processJob jette', async () => {
+      const job: JobRow = {
+        id: 1,
+        userId: 1,
+        status: 'pending',
+        step: 'details',
+        totalGames: 0,
+        processedGames: 0,
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      };
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: () => Promise.resolve([job]),
+              }),
+            }),
+          }),
+        }),
+      };
+      const service = new SyncService(
+        db as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        {} as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        { setStatus: async () => {} } as unknown as UsersService,
+        {} as RateLimitService,
+      );
+      vi.spyOn(service as never, 'processJob').mockRejectedValue(
+        new Error('boom'),
+      );
+      const finish = vi
+        .spyOn(service as never, 'finish')
+        .mockResolvedValue(undefined);
+
+      await (service as never as { drain: () => Promise<void> }).drain();
+
+      expect(finish).toHaveBeenCalledWith(
+        1,
+        'error',
+        'details',
+        'boom',
+        expect.any(Date),
+      );
+    });
+  });
+
   describe('fiches Steam', () => {
     type Resultat = { paused: boolean; progressed: boolean };
 
-    function dbFiches(
-      attemptsQueue: Array<Array<{ attempts: number }>> = [],
-    ) {
+    function dbFiches(attemptsQueue: Array<Array<{ attempts: number }>> = []) {
       const file = [...attemptsQueue];
       const updates: Array<Record<string, unknown>> = [];
       return {
@@ -632,10 +919,7 @@ describe('SyncService', () => {
 
     function serviceFiches(
       db: unknown,
-      fetchAppDetails: (
-        appId: number,
-        tentative?: number,
-      ) => Promise<unknown>,
+      fetchAppDetails: (appId: number, tentative?: number) => Promise<unknown>,
       upsertFromDetails = async () => 1,
       config: Record<string, string> = {},
     ): SyncService {
@@ -704,9 +988,7 @@ describe('SyncService', () => {
 
       expect(resultat).toEqual({ paused: false, progressed: true });
       expect(upsertFromDetails).toHaveBeenCalledTimes(200);
-      const echecs = updates.filter(
-        (u) => u.detailsLastError === 'rate-limit',
-      );
+      const echecs = updates.filter((u) => u.detailsLastError === 'rate-limit');
       expect(echecs).toHaveLength(50);
       for (const echec of echecs) {
         expect(echec.detailsNextRetryAt).toBeInstanceOf(Date);
@@ -855,6 +1137,77 @@ describe('SyncService', () => {
       expect(resultat).toEqual({ paused: false, progressed: false });
       expect(refreshForSync).toHaveBeenCalledTimes(3);
     });
+
+    it('stepAchievements : attend Retry-After après 3 429 avec progrès', async () => {
+      vi.useFakeTimers();
+      try {
+        const db = {
+          update: () => ({
+            set: () => ({ where: () => Promise.resolve() }),
+          }),
+          $client: {
+            query: () => Promise.resolve({ rowCount: 0, rows: [] }),
+          },
+        };
+        let appels = 0;
+        const refreshForSync = vi.fn(async () => {
+          appels += 1;
+          if (appels === 1) return;
+          throw new SteamRateLimitError(1_000);
+        });
+        const service = new SyncService(
+          db as unknown as Db,
+          {
+            get: (cle: string) =>
+              cle === 'ACHIEVEMENTS_THROTTLE_MS' ? '0' : undefined,
+          } as unknown as ConfigService,
+          {} as LibraryService,
+          {} as GamesService,
+          { refreshForSync } as unknown as AchievementsService,
+          {} as EmbeddingService,
+          {} as UsersService,
+          {} as RateLimitService,
+        );
+        vi.spyOn(service as never, 'compterSuccesManquants').mockResolvedValue(
+          5,
+        );
+        vi.spyOn(
+          service as never,
+          'selectionnerSuccesManquants',
+        ).mockResolvedValue([
+          { gameId: 1, appId: 11 },
+          { gameId: 2, appId: 12 },
+          { gameId: 3, appId: 13 },
+          { gameId: 4, appId: 14 },
+          { gameId: 5, appId: 15 },
+        ]);
+
+        const promesse = (
+          service as never as {
+            stepAchievements: (
+              j: number,
+              u: number,
+              s: string,
+            ) => Promise<Resultat>;
+          }
+        ).stepAchievements(1, 1, 'steam-1');
+        let terminee = false;
+        void promesse.then(() => {
+          terminee = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(terminee).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await expect(promesse).resolves.toEqual({
+          paused: true,
+          progressed: true,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('succès volumineux', () => {
@@ -880,7 +1233,7 @@ describe('SyncService', () => {
       );
       const refreshForSync = vi.fn(
         async (_steamId: string, _userId: number, gameId: number) => {
-          if (echecs.has(gameId)) throw new Error('429');
+          if (echecs.has(gameId)) throw new SteamRateLimitError(0);
         },
       );
       const service = new SyncService(
@@ -945,10 +1298,15 @@ describe('SyncService', () => {
         embedGame?: (input: unknown, options: unknown) => Promise<unknown>;
         remainingToday?: () => Promise<number>;
       } = {},
+      config: Record<string, string | undefined> = {
+        EMBEDDING_API_KEY: 'cle-de-test',
+      },
     ): SyncService {
       return new SyncService(
         db as Db,
-        { get: () => undefined } as unknown as ConfigService,
+        {
+          get: (cle: string) => config[cle],
+        } as unknown as ConfigService,
         {} as LibraryService,
         {
           embeddingInputFor: deps.embeddingInputFor ?? (async () => null),
@@ -1065,6 +1423,9 @@ describe('SyncService', () => {
         { setStatus } as unknown as UsersService,
         { remainingToday: async () => 0 } as unknown as RateLimitService,
       );
+      vi.spyOn(service as never, 'planifierReprise').mockResolvedValue(
+        undefined,
+      );
       vi.spyOn(service as never, 'appIdsSansEmbedding').mockResolvedValue([1]);
 
       await (
@@ -1089,9 +1450,10 @@ describe('SyncService', () => {
     it('needsEmbeddings : vrai quand il reste des embeddings et du quota', async () => {
       const remainingToday = vi.fn(async () => 5);
       const service = serviceEmbeddings({}, { remainingToday });
-      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
-        3,
-      );
+      vi.spyOn(
+        service as never,
+        'compterEmbeddingsManquants',
+      ).mockResolvedValue(3);
 
       await expect(service.needsEmbeddings(1)).resolves.toBe(true);
       expect(remainingToday).toHaveBeenCalledTimes(1);
@@ -1100,19 +1462,31 @@ describe('SyncService', () => {
     it('needsEmbeddings : faux quand le quota du jour est épuisé', async () => {
       const remainingToday = vi.fn(async () => 0);
       const service = serviceEmbeddings({}, { remainingToday });
-      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
-        3,
-      );
+      vi.spyOn(
+        service as never,
+        'compterEmbeddingsManquants',
+      ).mockResolvedValue(3);
 
       await expect(service.needsEmbeddings(1)).resolves.toBe(false);
+    });
+
+    it('needsEmbeddings : faux sans clé, sans consulter le quota', async () => {
+      const remainingToday = vi.fn(async () => 5);
+      const service = serviceEmbeddings({}, { remainingToday }, {});
+      const compter = vi.spyOn(service as never, 'compterEmbeddingsManquants');
+
+      await expect(service.needsEmbeddings(1)).resolves.toBe(false);
+      expect(compter).not.toHaveBeenCalled();
+      expect(remainingToday).not.toHaveBeenCalled();
     });
 
     it('needsEmbeddings : faux sans reliquat, sans consulter le quota', async () => {
       const remainingToday = vi.fn(async () => 5);
       const service = serviceEmbeddings({}, { remainingToday });
-      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
-        0,
-      );
+      vi.spyOn(
+        service as never,
+        'compterEmbeddingsManquants',
+      ).mockResolvedValue(0);
 
       await expect(service.needsEmbeddings(1)).resolves.toBe(false);
       expect(remainingToday).not.toHaveBeenCalled();
@@ -1138,14 +1512,18 @@ describe('SyncService', () => {
         }),
       };
       const service = serviceEmbeddings(db);
-      vi.spyOn(service as never, 'compterDetailsEnAttente').mockResolvedValue(3);
-      vi.spyOn(service as never, 'compterDetailsIndisponibles').mockResolvedValue(
-        1,
+      vi.spyOn(service as never, 'compterDetailsEnAttente').mockResolvedValue(
+        3,
       );
+      vi.spyOn(
+        service as never,
+        'compterDetailsIndisponibles',
+      ).mockResolvedValue(1);
       vi.spyOn(service as never, 'compterSuccesManquants').mockResolvedValue(2);
-      vi.spyOn(service as never, 'compterEmbeddingsManquants').mockResolvedValue(
-        4,
-      );
+      vi.spyOn(
+        service as never,
+        'compterEmbeddingsManquants',
+      ).mockResolvedValue(4);
 
       await expect(service.currentJob(1)).resolves.toMatchObject({
         pendingDetails: 3,
@@ -1164,10 +1542,7 @@ describe('SyncService', () => {
         }),
       };
       const service = serviceEmbeddings(db);
-      const compteur = vi.spyOn(
-        service as never,
-        'compterEmbeddingsManquants',
-      );
+      const compteur = vi.spyOn(service as never, 'compterEmbeddingsManquants');
 
       await expect(service.currentJob(1)).resolves.toBeNull();
       expect(compteur).not.toHaveBeenCalled();

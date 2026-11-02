@@ -56,8 +56,8 @@ avec deux modes explicites — recherche par **nom de jeu** et recherche
   (`api/src/embedding/embedding.service.ts:58`). Renvoie `null` si la clé est
   absente, si Gemini répond en erreur ou renvoie un vecteur vide ; lève
   `QuotaReachedError` sur HTTP 429 ou quota journalier épuisé.
-- **Quota partagé** : `RateLimitService` (100/min, 1000/jour, persisté dans
-  `rate_limits`) — `api/src/embedding/rate-limiter.service.ts`. La recherche
+- **Quota partagé** : `RateLimitService` (100/min en mémoire, 1000/jour persisté
+  dans `rate_limits`) — `api/src/embedding/rate-limiter.service.ts`. La recherche
   consomme le **même** quota Gemini que l'import d'embeddings.
 - **Colonne pgvector** : `games.embedding vector(1024)` + `games.embeddingModel`
   (`api/src/db/schema.ts:48`). **Aucune migration n'est nécessaire.**
@@ -447,8 +447,9 @@ bout.
   - `SEARCH_MIN_SCORE=` (vide = désactivé)
   - `SEARCH_EMBEDDING_MAX_WAIT_MS=1500`
 - **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé. Depuis le
-  31/10/2026, l'import réserve 80 % de la fenêtre minute (`acquire('import')`) : la
-  recherche conserve ~20 % et peut répondre en mode dégradé pendant une indexation.
+  31/10/2026, l'import est plafonné à 80 % de la fenêtre minute
+  (`embedGame(..., { source: 'import' })`) : la recherche conserve ~20 % et peut
+  répondre en mode dégradé pendant une indexation.
 - **API** : nouvelle route `GET /api/search`, sous le préfixe global `/api`.
 
 ## 12. Références

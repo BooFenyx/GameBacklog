@@ -8,6 +8,20 @@ export type EtatImport = {
 
 const VIDE: EtatImport = { texte: '', action: 'aucune', alerte: false }
 
+/**
+ * Traduit un message d'erreur d'import en message utilisateur. Réutilisé par
+ * la liste et par le bandeau, pour que le profil privé soit toujours expliqué.
+ */
+export function messageErreurImport(texte: string): string {
+  if (texte.includes('profil privé') || texte.includes('privé')) {
+    return 'Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque.'
+  }
+  if (texte.includes('quota')) {
+    return 'Quota d’embedding atteint (Google Gemini) : l’import reprendra plus tard.'
+  }
+  return texte
+}
+
 function pluriel(nombre: number, mot: string, suffixe = 's'): string {
   return `${nombre} ${mot}${nombre > 1 ? suffixe : ''}`
 }

@@ -143,7 +143,17 @@ export class AchievementsService {
     gameId: number,
     appId: number,
   ): Promise<AchievementRow[]> {
-    return this.ensureGameAchievements(gameId, appId);
+    try {
+      return await this.ensureGameAchievements(gameId, appId);
+    } catch (error) {
+      if (error instanceof SteamRateLimitError) {
+        // Comportement historique de la fiche : 503, jamais 500.
+        throw new ServiceUnavailableException(
+          'Succès Steam indisponibles pour le moment',
+        );
+      }
+      throw error;
+    }
   }
 
   /** Liste complète des succès d'un joueur pour un jeu. */
@@ -168,13 +178,24 @@ export class AchievementsService {
     userId: number,
     gameId: number,
     appId: number,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; propagerRateLimit?: boolean } = {},
   ): Promise<SuccesDetail> {
-    const schema = await this.ensureGameAchievements(
-      gameId,
-      appId,
-      options.force ?? false,
-    );
+    let schema: AchievementRow[];
+    try {
+      schema = await this.ensureGameAchievements(
+        gameId,
+        appId,
+        options.force ?? false,
+      );
+    } catch (error) {
+      if (error instanceof SteamRateLimitError && !options.propagerRateLimit) {
+        // 429 sur le schéma : la fiche répond 503, comme avant le lot.
+        throw new ServiceUnavailableException(
+          'Succès Steam indisponibles pour le moment',
+        );
+      }
+      throw error;
+    }
     const total = schema.length;
 
     if (total === 0) {
@@ -217,7 +238,26 @@ export class AchievementsService {
       };
     }
 
-    const unlocks = await this.fetchPlayerStats(steamId, appId);
+    type DeblocagesSteam = Array<{
+      apiName?: string;
+      achieved?: number;
+      unlocktime?: number;
+    }> | null;
+    let unlocks: DeblocagesSteam;
+    try {
+      unlocks = await this.fetchPlayerStats(steamId, appId);
+    } catch (error) {
+      if (error instanceof SteamRateLimitError && !options.propagerRateLimit) {
+        // 429 sur la progression : servir le cache, comme avant le lot.
+        const debloques = await this.chargerDeblocages(userId, gameId);
+        return {
+          total,
+          unlocked: debloques.size,
+          list: this.listeDepuisCache(schema, debloques),
+        };
+      }
+      throw error;
+    }
     if (unlocks === null) {
       // Échec réseau : on renvoie le cache existant plutôt que de casser la
       // fiche. La date de récupération n'est pas avancée, donc un prochain
@@ -268,7 +308,9 @@ export class AchievementsService {
     gameId: number,
     appId: number,
   ): Promise<void> {
-    await this.getUserAchievementsDetail(steamId, userId, gameId, appId);
+    await this.getUserAchievementsDetail(steamId, userId, gameId, appId, {
+      propagerRateLimit: true,
+    });
   }
 
   /**
@@ -486,11 +528,19 @@ export class AchievementsService {
     }
   }
 
-  /** Déblocages du joueur (`GetPlayerAchievements`). Jamais d'exception. */
+  /**
+   * Déblocages du joueur (`GetPlayerAchievements`). Renvoie `null` sur une
+   * erreur réseau ; lève `SteamRateLimitError` sur 429 pour que l'import
+   * puisse mettre la passe en pause.
+   */
   private async fetchPlayerStats(
     steamId: string,
     appId: number,
-  ): Promise<Array<{ apiName?: string; achieved?: number; unlocktime?: number }> | null> {
+  ): Promise<Array<{
+    apiName?: string;
+    achieved?: number;
+    unlocktime?: number;
+  }> | null> {
     let key: string;
     try {
       key = this.apiKey();

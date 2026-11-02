@@ -153,6 +153,10 @@ describe('Import volumineux (e2e)', () => {
           });
         }
         if (url.includes('GetOwnedGames')) {
+          const steamId = new URL(url).searchParams.get('steamid');
+          if (steamId !== STEAM_ID) {
+            throw new Error(`GetOwnedGames inattendu pour ${steamId}`);
+          }
           return reponse(JEUX_STEAM);
         }
         if (url.includes('appdetails')) {
@@ -179,7 +183,10 @@ describe('Import volumineux (e2e)', () => {
         embed: async () => Array.from({ length: 1024 }, () => 0.01),
       })
       .overrideProvider(RateLimitService)
-      .useValue({ remainingToday: async () => 1000 })
+      .useValue({
+        remainingToday: async () => 1000,
+        acquire: async () => 'ok',
+      })
       .compile();
 
     const expressApp =
@@ -251,87 +258,116 @@ describe('Import volumineux (e2e)', () => {
     );
   }
 
-  it('importe 250 jeux en un seul job complet', async () => {
-    await agent.post('/api/sync').expect(201);
+  it(
+    'importe 250 jeux en un seul job complet',
+    async () => {
+      await agent.post('/api/sync').expect(201);
 
-    const statut = await attendreFin();
+      const statut = await attendreFin();
 
-    const entrees = await db
-      .select({ gameId: libraryEntries.gameId })
-      .from(libraryEntries)
-      .where(eq(libraryEntries.userId, userId));
-    expect(entrees).toHaveLength(NB_JEUX);
+      const entrees = await db
+        .select({ gameId: libraryEntries.gameId })
+        .from(libraryEntries)
+        .where(eq(libraryEntries.userId, userId));
+      expect(entrees).toHaveLength(NB_JEUX);
 
-    const fiches = await db
-      .select({ appId: games.appId })
-      .from(games)
-      .where(
-        and(
-          gte(games.appId, PREMIER_APP_ID),
-          lt(games.appId, FIN_APP_ID),
-          isNotNull(games.detailsFetchedAt),
-        ),
-      );
-    expect(fiches).toHaveLength(NB_JEUX);
+      const fiches = await db
+        .select({ appId: games.appId })
+        .from(games)
+        .where(
+          and(
+            gte(games.appId, PREMIER_APP_ID),
+            lt(games.appId, FIN_APP_ID),
+            isNotNull(games.detailsFetchedAt),
+          ),
+        );
+      expect(fiches).toHaveLength(NB_JEUX);
 
-    const compteurs = await db
-      .select({ appId: games.appId })
-      .from(games)
-      .where(
-        and(
-          gte(games.appId, PREMIER_APP_ID),
-          lt(games.appId, FIN_APP_ID),
-          isNotNull(games.achievementsFetchedAt),
-        ),
-      );
-    expect(compteurs).toHaveLength(NB_JEUX);
+      const compteurs = await db
+        .select({ appId: games.appId })
+        .from(games)
+        .where(
+          and(
+            gte(games.appId, PREMIER_APP_ID),
+            lt(games.appId, FIN_APP_ID),
+            isNotNull(games.achievementsFetchedAt),
+          ),
+        );
+      expect(compteurs).toHaveLength(NB_JEUX);
 
-    const embeddings = await db
-      .select({ appId: games.appId })
-      .from(games)
-      .where(
-        and(
-          gte(games.appId, PREMIER_APP_ID),
-          lt(games.appId, FIN_APP_ID),
-          isNotNull(games.embedding),
-        ),
-      );
-    expect(embeddings).toHaveLength(NB_JEUX);
+      const embeddings = await db
+        .select({ appId: games.appId })
+        .from(games)
+        .where(
+          and(
+            gte(games.appId, PREMIER_APP_ID),
+            lt(games.appId, FIN_APP_ID),
+            isNotNull(games.embedding),
+          ),
+        );
+      expect(embeddings).toHaveLength(NB_JEUX);
 
-    const succes = await db
-      .select({ id: achievements.id })
-      .from(achievements)
-      .innerJoin(games, eq(achievements.gameId, games.id))
-      .where(
-        and(gte(games.appId, PREMIER_APP_ID), lt(games.appId, FIN_APP_ID)),
-      );
-    expect(succes).toHaveLength(NB_JEUX * 3);
+      const succes = await db
+        .select({ id: achievements.id })
+        .from(achievements)
+        .innerJoin(games, eq(achievements.gameId, games.id))
+        .where(
+          and(gte(games.appId, PREMIER_APP_ID), lt(games.appId, FIN_APP_ID)),
+        );
+      expect(succes).toHaveLength(NB_JEUX * 3);
 
-    // Seul le succès débloqué est persisté pour le joueur : un par jeu.
-    const debloques = await db
-      .select({ achievementId: userAchievements.achievementId })
-      .from(userAchievements)
-      .where(eq(userAchievements.userId, userId));
-    expect(debloques).toHaveLength(NB_JEUX);
+      // Seul le succès débloqué est persisté pour le joueur : un par jeu.
+      const debloques = await db
+        .select({ achievementId: userAchievements.achievementId })
+        .from(userAchievements)
+        .where(eq(userAchievements.userId, userId));
+      expect(debloques).toHaveLength(NB_JEUX);
 
-    const [job] = await db
-      .select()
-      .from(syncJobs)
-      .where(eq(syncJobs.userId, userId))
-      .limit(1);
-    if (!job) throw new Error('Job de sync absent');
-    expect(job).toMatchObject({ status: 'done', step: 'done', error: null });
+      const [job] = await db
+        .select()
+        .from(syncJobs)
+        .where(eq(syncJobs.userId, userId))
+        .limit(1);
+      if (!job) throw new Error('Job de sync absent');
+      expect(job).toMatchObject({ status: 'done', step: 'done', error: null });
 
-    expect(statut).toMatchObject({
-      status: 'done',
-      step: 'done',
-      pendingDetails: 0,
-      detailsUnavailable: 0,
-      pendingAchievements: 0,
-      pendingEmbeddings: 0,
-    });
+      expect(statut).toMatchObject({
+        status: 'done',
+        step: 'done',
+        pendingDetails: 0,
+        detailsUnavailable: 0,
+        pendingAchievements: 0,
+        pendingEmbeddings: 0,
+      });
 
-    await expect(service.needsAchievements(userId)).resolves.toBe(false);
-    await expect(service.needsEmbeddings(userId)).resolves.toBe(false);
-  }, TIMEOUT_JOB_MS);
+      await expect(service.needsAchievements(userId)).resolves.toBe(false);
+      await expect(service.needsEmbeddings(userId)).resolves.toBe(false);
+
+      // Seconde sync : les succès sont déjà en base, donc `syncLibrary` exécute
+      // `max(unlocked_at)` sur des lignes réelles. C'est le chemin exact du P0
+      // (`value.toISOString is not a function`) qui n'était pas couvert.
+      await agent.post('/api/sync').expect(201);
+      const statut2 = await attendreFin();
+      expect(statut2).toMatchObject({
+        status: 'done',
+        step: 'done',
+        pendingDetails: 0,
+        detailsUnavailable: 0,
+        pendingAchievements: 0,
+        pendingEmbeddings: 0,
+      });
+
+      const [activite] = await db
+        .select({
+          source: libraryEntries.lastActivitySource,
+          at: libraryEntries.lastActivityAt,
+        })
+        .from(libraryEntries)
+        .where(eq(libraryEntries.userId, userId))
+        .limit(1);
+      expect(activite.at).not.toBeNull();
+      expect(activite.source).toBe('achievement');
+    },
+    TIMEOUT_JOB_MS + 30_000,
+  );
 });
