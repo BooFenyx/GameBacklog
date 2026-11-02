@@ -155,9 +155,14 @@ export function filtresVides(filtres: Filtres): boolean {
   )
 }
 
-/** Clé stable pour remonter un composant quand les filtres changent. */
+/**
+ * Clé stable identifiant une combinaison de filtres, texte de recherche
+ * compris. Elle sert à étiqueter les réponses de `/api/library` : sans `q`,
+ * une saisie dans le champ « Filtrer par nom » ne relancerait pas la requête.
+ */
 export function cleFiltres(filtres: Filtres): string {
   return [
+    filtres.q,
     filtres.genres.join(','),
     filtres.modes.join(','),
     filtres.manette ?? '',
