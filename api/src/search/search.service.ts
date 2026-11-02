@@ -7,6 +7,10 @@ import {
 import { libellesGenresUtilisateur } from '../catalog/genres.js';
 import { modesDepuisCategories, type ModeJeu } from '../catalog/modes.js';
 import { DB, type Db } from '../db/db.module.js';
+import type {
+  LastActivityPrecision,
+  LastActivitySource,
+} from '../db/schema.js';
 import { EmbeddingService } from '../embedding/embedding.service.js';
 import { QuotaReachedError } from '../embedding/rate-limiter.service.js';
 import type { SearchMode, SearchQueryDto } from './dto/search-query.dto.js';
@@ -26,7 +30,9 @@ export interface SearchResult {
   /** Modes dérivés des catégories Steam. */
   modes: ModeJeu[];
   playtimeForever: number;
-  lastPlayedAt: Date | string | null;
+  lastActivityAt: Date | string | null;
+  lastActivitySource: LastActivitySource | null;
+  lastActivityPrecision: LastActivityPrecision | null;
   score: number | null;
   source: SearchResultSource;
   criteria: string[];
@@ -54,7 +60,9 @@ interface NameSearchRow {
   categoryIds: number[] | null;
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
-  lastPlayedAt: Date | string | null;
+  lastActivityAt: Date | string | null;
+  lastActivitySource: LastActivitySource | null;
+  lastActivityPrecision: LastActivityPrecision | null;
   total: string | number;
 }
 
@@ -122,7 +130,9 @@ export class SearchService {
         g.category_ids AS "categoryIds",
         g.controller_support AS "controllerSupport",
         le.playtime_forever AS "playtimeForever",
-        le.last_played_at AS "lastPlayedAt",
+        le.last_activity_at AS "lastActivityAt",
+        le.last_activity_source AS "lastActivitySource",
+        le.last_activity_precision AS "lastActivityPrecision",
         COUNT(*) OVER() AS total
       FROM library_entries le
       JOIN games g ON g.id = le.game_id
@@ -222,7 +232,9 @@ export class SearchService {
         g.category_ids AS "categoryIds",
         g.controller_support AS "controllerSupport",
         le.playtime_forever AS "playtimeForever",
-        le.last_played_at AS "lastPlayedAt",
+        le.last_activity_at AS "lastActivityAt",
+        le.last_activity_source AS "lastActivitySource",
+        le.last_activity_precision AS "lastActivityPrecision",
         1 - (g.embedding <=> $1::vector) AS score,
         CASE
           WHEN $3::text IS NOT NULL
@@ -383,7 +395,9 @@ export class SearchService {
       controllerSupport: row.controllerSupport,
       modes: modesDepuisCategories(row.categoryIds ?? []),
       playtimeForever: row.playtimeForever,
-      lastPlayedAt: row.lastPlayedAt,
+      lastActivityAt: row.lastActivityAt,
+      lastActivitySource: row.lastActivitySource,
+      lastActivityPrecision: row.lastActivityPrecision,
     };
   }
 }

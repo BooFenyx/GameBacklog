@@ -1,0 +1,89 @@
+/** Jeu à traiter par l'étape `achievements`. */
+export interface JeuSucces {
+  gameId: number;
+  appId: number;
+}
+
+export interface OptionsLotsSucces {
+  /** Nombre de jeux manquants au début de la passe. */
+  total: number;
+  /** Taille maximale d'un lot. */
+  batchSize: number;
+  /**
+   * Sélectionne le lot suivant. `dejaTentes` contient les `gameId` déjà
+   * tentés dans ce run : ils doivent être exclus de la sélection.
+   */
+  selectionner: (dejaTentes: number[], limite: number) => Promise<JeuSucces[]>;
+  /** Traite un jeu. Une exception le laisse manquant sans interrompre le lot. */
+  traiter: (jeu: JeuSucces) => Promise<void>;
+  /** Appelé après chaque jeu tenté, avec le cumul de la passe. */
+  onProgression?: (processed: number) => Promise<void> | void;
+  /** Appelé quand `traiter` échoue (429, réseau, etc.). */
+  onEchec?: (jeu: JeuSucces, error: unknown) => void;
+  /**
+   * Vérifié entre deux jeux (jamais au milieu d'un appel). Quand il renvoie
+   * `true`, la boucle s'arrête et signale une pause si du progrès a été fait.
+   */
+  doitPause?: () => boolean;
+  /**
+   * Une erreur fatale interrompt le run au lieu d'être comptée comme un échec
+   * de jeu. Les erreurs Steam transitoires (429, réseau) restent non fatales.
+   */
+  estFatal?: (error: unknown) => boolean;
+}
+
+export interface ResultatLotsSucces {
+  /** Jeux tentés (succès ou échec). */
+  processed: number;
+  /** Jeux traités sans erreur. */
+  reussis: number;
+  /** Budget atteint alors qu'au moins un jeu a été traité. */
+  paused: boolean;
+}
+
+/**
+ * Traite les jeux manquants par lots jusqu'à épuisement du total.
+ *
+ * Les `gameId` déjà tentés sont mémorisés et exclus des lots suivants : un jeu
+ * en échec reste manquant en base pour un prochain sync, mais n'est pas repris
+ * en boucle dans le même run. Si un lot ne progresse pas du tout, la boucle
+ * s'arrête pour éviter d'enchaîner des lots voués à l'échec.
+ */
+export async function traiterSuccesParLots(
+  options: OptionsLotsSucces,
+): Promise<ResultatLotsSucces> {
+  const tentes = new Set<number>();
+  let processed = 0;
+  let reussis = 0;
+
+  while (processed < options.total) {
+    const limite = Math.min(options.batchSize, options.total - processed);
+    const rows = await options.selectionner([...tentes], limite);
+    if (rows.length === 0) break;
+
+    let progresLot = 0;
+
+    for (const row of rows) {
+      if (options.doitPause?.()) {
+        return { processed, reussis, paused: reussis > 0 };
+      }
+      tentes.add(row.gameId);
+      try {
+        await options.traiter(row);
+        progresLot += 1;
+        reussis += 1;
+      } catch (error) {
+        if (options.estFatal?.(error)) {
+          throw error;
+        }
+        options.onEchec?.(row, error);
+      }
+      processed += 1;
+      await options.onProgression?.(processed);
+    }
+
+    if (progresLot === 0) break;
+  }
+
+  return { processed, reussis, paused: false };
+}

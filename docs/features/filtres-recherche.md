@@ -20,7 +20,7 @@ filtrage stables, sans refonte visuelle des cartes.
 - Identifiants Steam des genres et catégories stockés en base.
 - Backfill des fiches existantes via le pipeline de synchronisation.
 - Filtres : genres, modes de jeu, manette, état, durée.
-- Tri : nom, temps de jeu, dernière partie.
+- Tri : nom, temps de jeu, activité récente.
 - Pagination serveur (48 par page, « Afficher plus »).
 - Facettes avec compteurs (`/api/library/facets`).
 - Même jeu de filtres sur la recherche par nom et la recherche sémantique.
@@ -129,7 +129,9 @@ GET /api/library?q=portal&genres=25,23&modes=coop&manette=full&etat=joue&duree=2
     "controllerSupport": "full",
     "playtimeForever": 1200,
     "playtimeLast2Weeks": 0,
-    "lastPlayedAt": "2024-03-12T00:00:00.000Z",
+    "lastActivityAt": "2024-03-12T00:00:00.000Z",
+    "lastActivitySource": "sync_delta",
+    "lastActivityPrecision": "upper_bound",
     "achievementsUnlocked": 12
   }],
   "total": 42,
@@ -151,7 +153,8 @@ GET /api/library?q=portal&genres=25,23&modes=coop&manette=full&etat=joue&duree=2
   "modes": [{ "value": "coop", "label": "Coop", "count": 58 }],
   "manettes": [{ "value": "full", "label": "Manette complète", "count": 72 }],
   "etats": [{ "value": "jamais", "label": "Jamais lancé", "count": 14 }],
-  "durees": [{ "value": "2-10", "label": "2 à 10 h", "count": 31 }]
+  "durees": [{ "value": "2-10", "label": "2 à 10 h", "count": 31 }],
+  "lastActivityDisponible": true
 }
 ```
 
@@ -183,7 +186,8 @@ Tri :
 ```sql
 ORDER BY lower(g.name), g.app_id
 ORDER BY le.playtime_forever DESC, lower(g.name), g.app_id
-ORDER BY le.last_played_at DESC NULLS LAST, lower(g.name), g.app_id
+ORDER BY le.last_activity_at DESC NULLS LAST, le.playtime_last_2_weeks DESC,
+         lower(g.name), g.app_id
 ```
 
 Index :
@@ -193,8 +197,8 @@ CREATE INDEX games_genre_ids_gin ON games USING gin (genre_ids);
 CREATE INDEX games_category_ids_gin ON games USING gin (category_ids);
 CREATE INDEX library_entries_user_playtime_idx
   ON library_entries (user_id, playtime_forever DESC);
-CREATE INDEX library_entries_user_last_played_idx
-  ON library_entries (user_id, last_played_at DESC);
+CREATE INDEX library_entries_user_last_activity_idx
+  ON library_entries (user_id, last_activity_at DESC NULLS LAST);
 ```
 
 ## 7. Front

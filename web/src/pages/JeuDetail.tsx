@@ -1,217 +1,213 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { urlApi } from '../api'
-import { formaterDate, formaterDuree } from '../format'
+import DescriptionJeu from '../components/jeu/DescriptionJeu'
+import EnteteJeu from '../components/jeu/EnteteJeu'
+import GalerieJeu from '../components/jeu/GalerieJeu'
+import PanneauJeu from '../components/jeu/PanneauJeu'
+import SqueletteJeu from '../components/jeu/SqueletteJeu'
+import SuccesJeu from '../components/jeu/SuccesJeu'
+import { IconeAlerte } from '../components/ui/Icones'
+import {
+  ErreurFiche,
+  chargerFicheJeu,
+  chargerSuccesJeu,
+  type FicheJeu,
+  type SuccesDetail,
+} from '../games'
 
-type Succes = {
-  apiName: string
-  displayName: string
-  description: string | null
-  iconUrl: string | null
-  unlockedAt: string | null
-}
-
-type FicheJeu = {
-  appId: number
-  name: string
-  shortDescription: string | null
-  genres: string[]
-  categories: string[]
-  controllerSupport: 'none' | 'partial' | 'full'
-  releaseDate: string | null
-  headerImageUrl: string | null
-  playtimeForever: number
-  playtimeLast2Weeks: number
-  lastPlayedAt: string | null
-  achievementsUnlocked: number
-  achievements: { total: number; unlocked: number; list: Succes[] }
-  steamUrl: string
-}
-
-type Etat =
+type EtatFiche =
   | { statut: 'chargement' }
-  | { statut: 'erreur'; message: string }
+  | { statut: 'erreur'; message: string; introuvable: boolean }
   | { statut: 'pret'; jeu: FicheJeu }
 
-const LIBELLE_MANETTE: Record<FicheJeu['controllerSupport'], string> = {
-  none: 'Manette non supportée',
-  partial: 'Manette partielle',
-  full: 'Manette complète',
-}
+type EtatSucces =
+  | { statut: 'chargement' }
+  | { statut: 'erreur'; message: string }
+  | { statut: 'pret'; succes: SuccesDetail }
 
-/** Page détail d'un jeu : fiche `GET /api/games/:appId` + succès et temps de jeu. */
+const MESSAGE_INTROUVABLE =
+  "Ce jeu n'est pas dans ta bibliothèque, ou sa fiche n'est plus disponible."
+
+/** Page détail d'un jeu : fiche et succès sont chargés séparément. */
 export default function JeuDetail() {
   const { appId } = useParams<{ appId: string }>()
-  const [etat, setEtat] = useState<Etat>({ statut: 'chargement' })
+  const [fiche, setFiche] = useState<EtatFiche>({ statut: 'chargement' })
+  const [succes, setSucces] = useState<EtatSucces>({ statut: 'chargement' })
+  const [rechargerFiche, setRechargerFiche] = useState(0)
+  const [rechargerSucces, setRechargerSucces] = useState(0)
 
   useEffect(() => {
-    let actif = true
     if (!appId) return
-    void (async () => {
-      try {
-        const res = await fetch(urlApi(`/api/games/${appId}`), {
-          credentials: 'include',
-        })
-        if (!res.ok) {
-          const corps = (await res.json().catch(() => null)) as {
-            message?: string
-          } | null
-          throw new Error(corps?.message ?? `Réponse ${res.status}`)
+    const controller = new AbortController()
+    let actif = true
+
+    void chargerFicheJeu(appId, controller.signal)
+      .then((jeu) => {
+        if (actif) setFiche({ statut: 'pret', jeu })
+      })
+      .catch((error: unknown) => {
+        if (!actif || controller.signal.aborted) return
+        if (error instanceof ErreurFiche && error.statut === 404) {
+          setFiche({
+            statut: 'erreur',
+            message: MESSAGE_INTROUVABLE,
+            introuvable: true,
+          })
+          return
         }
-        const jeu = (await res.json()) as FicheJeu
-        if (actif) setEtat({ statut: 'pret', jeu })
-      } catch (error) {
-        if (!actif) return
-        setEtat({
+        setFiche({
           statut: 'erreur',
           message:
             error instanceof Error
               ? error.message
               : 'Impossible de récupérer la fiche du jeu.',
+          introuvable: false,
         })
-      }
-    })()
+      })
+
     return () => {
       actif = false
+      controller.abort()
     }
-  }, [appId])
+  }, [appId, rechargerFiche])
 
-  // L'URL ne matche la route que si un `appId` est présent ; ce garde-fou
-  // couvre le cas d'une navigation programmée vers une route sans paramètre.
+  useEffect(() => {
+    if (!appId) return
+    const controller = new AbortController()
+    let actif = true
+
+    void chargerSuccesJeu(appId, controller.signal)
+      .then((detail) => {
+        if (actif) setSucces({ statut: 'pret', succes: detail })
+      })
+      .catch((error: unknown) => {
+        if (!actif || controller.signal.aborted) return
+        if (error instanceof ErreurFiche && error.statut === 404) {
+          setSucces({ statut: 'erreur', message: MESSAGE_INTROUVABLE })
+          return
+        }
+        setSucces({
+          statut: 'erreur',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Impossible de récupérer les succès.',
+        })
+      })
+
+    return () => {
+      actif = false
+      controller.abort()
+    }
+  }, [appId, rechargerSucces])
+
   if (!appId) {
     return (
-      <section className="detail">
-        <h1>Fiche du jeu</h1>
-        <p className="message-erreur">Identifiant de jeu manquant.</p>
-        <Link className="btn" to="/bibliotheque">
-          Retour à la bibliothèque
-        </Link>
+      <section className="detail detail--erreur">
+        <div className="etat-biblio">
+          <span className="etat-biblio__icone" aria-hidden="true">
+            <IconeAlerte />
+          </span>
+          <p>Identifiant de jeu manquant.</p>
+          <Link className="btn" to="/bibliotheque">
+            Retour à la bibliothèque
+          </Link>
+        </div>
       </section>
     )
   }
 
-  if (etat.statut === 'chargement') {
-    return <p className="chargement">Chargement de la fiche…</p>
-  }
-
-  if (etat.statut === 'erreur') {
+  if (fiche.statut === 'chargement') {
     return (
-      <section className="detail">
-        <h1>Fiche du jeu</h1>
-        <p className="message-erreur">{etat.message}</p>
-        <Link className="btn" to="/bibliotheque">
-          Retour à la bibliothèque
-        </Link>
+      <>
+        <p className="sr-only" role="status">
+          Chargement de la fiche…
+        </p>
+        <SqueletteJeu />
+      </>
+    )
+  }
+
+  if (fiche.statut === 'erreur') {
+    return (
+      <section className="detail detail--erreur">
+        <div className="etat-biblio" role="alert">
+          <span className="etat-biblio__icone" aria-hidden="true">
+            <IconeAlerte />
+          </span>
+          <p>{fiche.message}</p>
+          <div className="etat-erreur-actions">
+            {!fiche.introuvable && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setFiche({ statut: 'chargement' })
+                  setSucces({ statut: 'chargement' })
+                  setRechargerFiche((valeur) => valeur + 1)
+                  setRechargerSucces((valeur) => valeur + 1)
+                }}
+              >
+                Réessayer
+              </button>
+            )}
+            <Link className="btn" to="/bibliotheque">
+              Retour à la bibliothèque
+            </Link>
+          </div>
+        </div>
       </section>
     )
   }
 
-  const { jeu } = etat
-  const dureeTotale = formaterDuree(jeu.playtimeForever)
+  const detailSucces = succes.statut === 'pret' ? succes.succes : undefined
 
   return (
-    <section className="detail">
-      {jeu.headerImageUrl && (
-        <img
-          className="detail-image"
-          src={jeu.headerImageUrl}
-          alt=""
-          width="616"
-          height="353"
-        />
-      )}
+    <article className="fiche">
+      <EnteteJeu jeu={fiche.jeu} succes={detailSucces} />
+      <div className="fiche-layout">
+        <div className="fiche-principale">
+          <DescriptionJeu
+            blocs={fiche.jeu.descriptionBlocks}
+            descriptionCourte={fiche.jeu.shortDescription}
+          />
+          <GalerieJeu
+            captures={fiche.jeu.screenshots}
+            nom={fiche.jeu.name}
+          />
 
-      <div className="detail-tete">
-        <h1>{jeu.name}</h1>
-        <Link className="btn" to="/bibliotheque">
-          ← Bibliothèque
-        </Link>
+          {succes.statut === 'chargement' && (
+            <section className="fiche-section" aria-busy="true">
+              <h2 className="titre-section">Succès</h2>
+              <p className="succes-vide">Chargement des succès…</p>
+            </section>
+          )}
+
+          {succes.statut === 'erreur' && (
+            <section className="fiche-section" role="alert">
+              <h2 className="titre-section">Succès</h2>
+              <p className="succes-vide">{succes.message}</p>
+              <div className="succes-plus">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setSucces({ statut: 'chargement' })
+                    setRechargerSucces((valeur) => valeur + 1)
+                  }}
+                >
+                  Réessayer
+                </button>
+              </div>
+            </section>
+          )}
+
+          {succes.statut === 'pret' && (
+            <SuccesJeu succes={succes.succes} />
+          )}
+        </div>
+        <PanneauJeu jeu={fiche.jeu} succes={detailSucces} />
       </div>
-
-      {jeu.shortDescription && (
-        <p className="detail-description">{jeu.shortDescription}</p>
-      )}
-
-      <dl className="detail-infos">
-        <div>
-          <dt>Genres</dt>
-          <dd>
-            {jeu.genres.length > 0 ? jeu.genres.join(', ') : '—'}
-          </dd>
-        </div>
-        <div>
-          <dt>Caractéristiques</dt>
-          <dd>{jeu.categories.length > 0 ? jeu.categories.join(', ') : '—'}</dd>
-        </div>
-        <div>
-          <dt>Manette</dt>
-          <dd>
-            {LIBELLE_MANETTE[jeu.controllerSupport]}
-            {jeu.controllerSupport === 'partial' && (
-              <small className="detail-note">
-                Certaines actions peuvent nécessiter le clavier ou la souris.
-              </small>
-            )}
-          </dd>
-        </div>
-        {jeu.releaseDate && (
-          <div>
-            <dt>Sortie</dt>
-            <dd>{formaterDate(jeu.releaseDate)}</dd>
-          </div>
-        )}
-        <div>
-          <dt>Temps de jeu</dt>
-          <dd>
-            {dureeTotale}
-            {jeu.playtimeLast2Weeks > 0 &&
-              ` (dont ${formaterDuree(jeu.playtimeLast2Weeks)} sur les 2 dernières semaines)`}
-          </dd>
-        </div>
-        {jeu.lastPlayedAt && (
-          <div>
-            <dt>Dernière partie</dt>
-            <dd>{formaterDate(jeu.lastPlayedAt)}</dd>
-          </div>
-        )}
-      </dl>
-
-      <div className="detail-actions">
-        <a className="btn btn-principal" href={jeu.steamUrl}>
-          Lancer sur Steam
-        </a>
-      </div>
-
-      <div className="detail-succes">
-        <h2>
-          Succès — {jeu.achievements.unlocked}/{jeu.achievements.total}
-        </h2>
-        {jeu.achievements.list.length === 0 ? (
-          <p>Aucun succès public pour ce jeu.</p>
-        ) : (
-          <ul className="liste-succes">
-            {jeu.achievements.list.map((succes) => (
-              <li
-                key={succes.apiName}
-                className={succes.unlockedAt ? 'succes-debloque' : 'succes-verrouille'}
-              >
-                {succes.iconUrl && (
-                  <img src={succes.iconUrl} alt="" width="32" height="32" />
-                )}
-                <span className="succes-texte">
-                  <strong>{succes.displayName}</strong>
-                  {succes.description && (
-                    <em>{succes.description}</em>
-                  )}
-                  {succes.unlockedAt && (
-                    <small>Débloqué le {formaterDate(succes.unlockedAt)}</small>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
+    </article>
   )
 }

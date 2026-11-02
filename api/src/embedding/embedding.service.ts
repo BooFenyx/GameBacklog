@@ -22,6 +22,11 @@ export interface EmbedOptions {
    * renvoie `null` immédiatement au lieu de suspendre la requête.
    */
   maxWaitMs?: number;
+  /**
+   * Origine de l'appel : l'import s'arrête à 80 % de la fenêtre minute pour
+   * réserver le reste à la recherche. Défaut : `'search'`.
+   */
+  source?: 'search' | 'import';
 }
 
 interface GeminiEmbeddingResponse {
@@ -75,7 +80,10 @@ export class EmbeddingService {
     // et reprendra plus tard (aucune suppression). `'busy'` signifie que la
     // fenêtre minute est saturée au-delà de l'attente autorisée : on renonce
     // sans consommer de créneau.
-    const slot = await this.rateLimit.acquire(options.maxWaitMs);
+    const slot = await this.rateLimit.acquire(
+      options.maxWaitMs,
+      options.source,
+    );
     if (slot === 'busy') {
       this.logger.debug(
         "Fenêtre d'embedding saturée : appel abandonné sans attente",

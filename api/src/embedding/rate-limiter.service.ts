@@ -26,13 +26,17 @@ export class MinuteWindow {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** Nombre d'appels encore comptés dans la fenêtre courante. */
+  count(): number {
+    this.purger();
+    return this.calls.length;
+  }
+
   /** Attente restante en ms avant de pouvoir émettre (0 si une place est libre). */
-  waitMillis(): number {
+  waitMillis(limite = this.maxPerMinute): number {
     const current = this.now();
-    while (this.calls.length > 0 && current - this.calls[0] >= this.windowMs) {
-      this.calls.shift();
-    }
-    if (this.calls.length >= this.maxPerMinute) {
+    this.purger(current);
+    if (this.calls.length >= limite) {
       return this.windowMs - (current - this.calls[0]);
     }
     return 0;
@@ -40,6 +44,12 @@ export class MinuteWindow {
 
   record(now = this.now()): void {
     this.calls.push(now);
+  }
+
+  private purger(current = this.now()): void {
+    while (this.calls.length > 0 && current - this.calls[0] >= this.windowMs) {
+      this.calls.shift();
+    }
   }
 }
 
@@ -82,13 +92,34 @@ export class RateLimitService {
     return Number.isFinite(parsed) ? Math.max(1, parsed) : defaultValue;
   }
 
+  /**
+   * Nombre d'appels encore disponibles aujourd'hui (0 quand le quota est
+   * épuisé). Utilisé pour ne pas relancer une sync qui ne pourrait rien faire.
+   */
+  async remainingToday(): Promise<number> {
+    const day = await this.readDayCounter();
+    if (!day) {
+      return this.maxPerDay;
+    }
+    if (Date.now() - day.windowStartedAt >= this.dayWindowMs) {
+      return this.maxPerDay;
+    }
+    return Math.max(0, this.maxPerDay - day.count);
+  }
+
   async acquire(
     maxWaitMs?: number,
+    source: 'search' | 'import' = 'search',
   ): Promise<'ok' | 'quota-journalier' | 'busy'> {
     // Fenêtre par minute (mémoire) : on attend le temps exact de libération
     // avant de consommer un créneau, sans pause fixe de 60 s. La recherche
     // borne cette attente : au-delà, elle préfère un repli immédiat.
-    const wait = this.minuteWindow.waitMillis();
+    // L'import s'arrête à 80 % de la fenêtre pour laisser ~20 % à la recherche.
+    const limite =
+      source === 'import'
+        ? Math.max(1, Math.floor(this.maxPerMinute * 0.8))
+        : this.maxPerMinute;
+    const wait = this.minuteWindow.waitMillis(limite);
     if (wait > 0) {
       if (maxWaitMs !== undefined && wait > maxWaitMs) {
         return 'busy';

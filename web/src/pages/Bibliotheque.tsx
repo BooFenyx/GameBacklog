@@ -15,6 +15,7 @@ import {
   lireFiltres,
   type Filtres,
 } from '../filters'
+import { etatImport, messageErreurImport } from '../import'
 import {
   chargerBibliotheque,
   chargerFacettes,
@@ -23,7 +24,6 @@ import {
 } from '../library'
 import {
   estEnCours,
-  libelleEtape,
   lireSync,
   relancerSync,
   type JobSync,
@@ -31,17 +31,8 @@ import {
 
 /** Message d'erreur lisible, avec l'aide dédiée au profil Steam privé. */
 function messageErreur(erreur: unknown): string {
-  const texte =
-    erreur instanceof Error
-      ? erreur.message
-      : 'Impossible de récupérer la bibliothèque.'
-  if (texte.includes('profil privé') || texte.includes('privé')) {
-    return 'Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque.'
-  }
-  if (texte.includes('quota')) {
-    return 'Quota d’embedding atteint (Google Gemini) : l’import reprendra plus tard.'
-  }
-  return texte
+  if (erreur instanceof Error) return messageErreurImport(erreur.message)
+  return 'Impossible de récupérer la bibliothèque.'
 }
 
 /**
@@ -234,6 +225,18 @@ export default function Bibliotheque() {
     window.scrollTo({ top: 0 })
   }, [setSearchParams])
 
+  // Un lien `?tri=recent` peut arriver sur un compte sans activité dérivée :
+  // on retombe silencieusement sur le tri par nom, l'option étant masquée.
+  useEffect(() => {
+    if (
+      facettes &&
+      facettes.lastActivityDisponible === false &&
+      filtres.tri === 'recent'
+    ) {
+      changerFiltres({ ...filtres, tri: 'nom' })
+    }
+  }, [facettes, filtres, changerFiltres])
+
   const reessayerListe = useCallback(() => {
     setErreurListe(null)
     setRecharger((valeur) => valeur + 1)
@@ -280,6 +283,11 @@ export default function Bibliotheque() {
   }
 
   const enCours = estEnCours(job)
+  const bandeau = etatImport(
+    job && job.error
+      ? { ...job, error: messageErreurImport(job.error) }
+      : job,
+  )
   const pourcentage =
     enCours && job.totalGames > 0
       ? Math.min(100, Math.round((job.processedGames / job.totalGames) * 100))
@@ -343,24 +351,36 @@ export default function Bibliotheque() {
             filtresEnSidebar
             afficherCompte={false}
             afficherToutEffacer={false}
+            activiteDisponible={facettes?.lastActivityDisponible ?? true}
             actions={<BasculeVue vue={vue} onChanger={changerVue} />}
             onChanger={changerFiltres}
             onEffacer={effacerFiltres}
           />
 
-          {enCours && (
-            <div className="sync-progression" role="status">
-              <p>
-                {libelleEtape[job.step]}
-                {job.totalGames > 0 &&
-                  ` — ${job.processedGames}/${job.totalGames}`}
-              </p>
-              <div className="sync-barre">
-                <div
-                  className="sync-barre-remplie"
-                  style={{ width: `${pourcentage}%` }}
-                />
-              </div>
+          {bandeau.texte && (
+            <div
+              className={`sync-progression${bandeau.alerte ? ' sync-progression--alerte' : ''}`}
+              role={bandeau.alerte ? 'alert' : 'status'}
+            >
+              <p>{bandeau.texte}</p>
+              {enCours && job.totalGames > 0 && (
+                <div className="sync-barre">
+                  <div
+                    className="sync-barre-remplie"
+                    style={{ width: `${pourcentage}%` }}
+                  />
+                </div>
+              )}
+              {bandeau.action !== 'aucune' && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={enCours}
+                  onClick={() => void relancer()}
+                >
+                  {bandeau.action === 'relancer' ? 'Relancer' : 'Reprendre'}
+                </button>
+              )}
             </div>
           )}
 

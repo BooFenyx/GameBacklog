@@ -12,6 +12,7 @@ import {
   games,
   libraryEntries,
   userAchievements,
+  type LastActivitySource,
 } from '../db/schema.js';
 
 /** Base de la Steam Web API (authentifiée par `STEAM_API_KEY`). */
@@ -20,6 +21,39 @@ const STEAM_API_BASE = 'https://api.steampowered.com';
 const EXTERNAL_CALL_TIMEOUT_MS = 5000;
 /** Durée de fraîcheur des déblocages d'un joueur avant nouvel appel Steam. */
 const PROGRESS_TTL_MS = 24 * 60 * 60 * 1000;
+/** Backoff sans `Retry-After` : 5 s, 15 s puis 60 s. */
+const RATE_LIMIT_BACKOFF_MS = [5_000, 15_000, 60_000];
+const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+/**
+ * 429 Steam : l'import doit s'arrêter proprement au lieu de compter le jeu
+ * comme traité. `retryAfterMs` vient de `Retry-After` ou du backoff.
+ */
+export class SteamRateLimitError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super(`Steam a limité les appels (429), retry dans ${retryAfterMs} ms`);
+    this.name = 'SteamRateLimitError';
+  }
+}
+
+/** Lit `Retry-After` (secondes ou date HTTP) et renvoie un délai en ms. */
+function lireRetryAfter(headers: Headers | undefined): number | null {
+  const valeur = headers?.get('retry-after')?.trim();
+  if (!valeur) return null;
+  if (/^\d+$/.test(valeur)) return Number(valeur) * 1000;
+  const date = Date.parse(valeur);
+  if (Number.isNaN(date)) return null;
+  return Math.max(0, date - Date.now());
+}
+
+/** Backoff exponentiel borné quand Steam ne fournit pas `Retry-After`. */
+function backoffRateLimitMs(tentative = 0): number {
+  const index = Math.min(
+    Math.max(0, Math.trunc(tentative)),
+    RATE_LIMIT_BACKOFF_MS.length - 1,
+  );
+  return Math.min(RATE_LIMIT_BACKOFF_MS[index], RATE_LIMIT_BACKOFF_MAX_MS);
+}
 
 /** Succès tel que renvoyé au front (avec la date de déblocage éventuelle). */
 export interface AchievementDto {
@@ -49,7 +83,8 @@ interface AchievementRow {
 /** Ligne `library_entries` utile au calcul de progression. */
 interface EntreeProgression {
   playtimeForever: number;
-  lastPlayedAt: Date | null;
+  lastActivityAt: Date | null;
+  lastActivitySource: LastActivitySource | null;
   achievementsFetchedAt: Date | null;
 }
 
@@ -108,7 +143,17 @@ export class AchievementsService {
     gameId: number,
     appId: number,
   ): Promise<AchievementRow[]> {
-    return this.ensureGameAchievements(gameId, appId);
+    try {
+      return await this.ensureGameAchievements(gameId, appId);
+    } catch (error) {
+      if (error instanceof SteamRateLimitError) {
+        // Comportement historique de la fiche : 503, jamais 500.
+        throw new ServiceUnavailableException(
+          'Succès Steam indisponibles pour le moment',
+        );
+      }
+      throw error;
+    }
   }
 
   /** Liste complète des succès d'un joueur pour un jeu. */
@@ -133,13 +178,24 @@ export class AchievementsService {
     userId: number,
     gameId: number,
     appId: number,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; propagerRateLimit?: boolean } = {},
   ): Promise<SuccesDetail> {
-    const schema = await this.ensureGameAchievements(
-      gameId,
-      appId,
-      options.force ?? false,
-    );
+    let schema: AchievementRow[];
+    try {
+      schema = await this.ensureGameAchievements(
+        gameId,
+        appId,
+        options.force ?? false,
+      );
+    } catch (error) {
+      if (error instanceof SteamRateLimitError && !options.propagerRateLimit) {
+        // 429 sur le schéma : la fiche répond 503, comme avant le lot.
+        throw new ServiceUnavailableException(
+          'Succès Steam indisponibles pour le moment',
+        );
+      }
+      throw error;
+    }
     const total = schema.length;
 
     if (total === 0) {
@@ -149,10 +205,15 @@ export class AchievementsService {
 
     const entree = await this.chargerEntree(userId, gameId);
     const dateProgression = entree?.achievementsFetchedAt ?? null;
+    // Une partie détectée après la dernière récupération force le rafraîchissement.
+    const activiteSync =
+      entree?.lastActivitySource === 'sync_delta'
+        ? entree.lastActivityAt
+        : null;
     const frais =
       dateProgression !== null &&
       Date.now() - dateProgression.getTime() < PROGRESS_TTL_MS &&
-      (!entree?.lastPlayedAt || entree.lastPlayedAt <= dateProgression);
+      (!activiteSync || activiteSync <= dateProgression);
 
     // Jeu jamais lancé : le débloqué vaut 0, inutile d'appeler
     // `GetPlayerAchievements`.
@@ -177,7 +238,26 @@ export class AchievementsService {
       };
     }
 
-    const unlocks = await this.fetchPlayerStats(steamId, appId);
+    type DeblocagesSteam = Array<{
+      apiName?: string;
+      achieved?: number;
+      unlocktime?: number;
+    }> | null;
+    let unlocks: DeblocagesSteam;
+    try {
+      unlocks = await this.fetchPlayerStats(steamId, appId);
+    } catch (error) {
+      if (error instanceof SteamRateLimitError && !options.propagerRateLimit) {
+        // 429 sur la progression : servir le cache, comme avant le lot.
+        const debloques = await this.chargerDeblocages(userId, gameId);
+        return {
+          total,
+          unlocked: debloques.size,
+          list: this.listeDepuisCache(schema, debloques),
+        };
+      }
+      throw error;
+    }
     if (unlocks === null) {
       // Échec réseau : on renvoie le cache existant plutôt que de casser la
       // fiche. La date de récupération n'est pas avancée, donc un prochain
@@ -228,7 +308,9 @@ export class AchievementsService {
     gameId: number,
     appId: number,
   ): Promise<void> {
-    await this.getUserAchievementsDetail(steamId, userId, gameId, appId);
+    await this.getUserAchievementsDetail(steamId, userId, gameId, appId, {
+      propagerRateLimit: true,
+    });
   }
 
   /**
@@ -315,7 +397,8 @@ export class AchievementsService {
     const [entree] = await this.db
       .select({
         playtimeForever: libraryEntries.playtimeForever,
-        lastPlayedAt: libraryEntries.lastPlayedAt,
+        lastActivityAt: libraryEntries.lastActivityAt,
+        lastActivitySource: libraryEntries.lastActivitySource,
         achievementsFetchedAt: libraryEntries.achievementsFetchedAt,
       })
       .from(libraryEntries)
@@ -418,6 +501,11 @@ export class AchievementsService {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
       });
+      if (response.status === 429) {
+        throw new SteamRateLimitError(
+          lireRetryAfter(response.headers) ?? backoffRateLimitMs(),
+        );
+      }
       if (!response.ok) {
         this.logger.warn(`GetSchemaForGame a répondu ${response.status}`);
         return null;
@@ -432,6 +520,7 @@ export class AchievementsService {
         }))
         .filter((a) => a.apiName && a.displayName);
     } catch (error) {
+      if (error instanceof SteamRateLimitError) throw error;
       this.logger.warn(
         `GetSchemaForGame ${appId} injoignable: ${error instanceof Error ? error.message : 'erreur inconnue'}`,
       );
@@ -439,11 +528,19 @@ export class AchievementsService {
     }
   }
 
-  /** Déblocages du joueur (`GetPlayerAchievements`). Jamais d'exception. */
+  /**
+   * Déblocages du joueur (`GetPlayerAchievements`). Renvoie `null` sur une
+   * erreur réseau ; lève `SteamRateLimitError` sur 429 pour que l'import
+   * puisse mettre la passe en pause.
+   */
   private async fetchPlayerStats(
     steamId: string,
     appId: number,
-  ): Promise<Array<{ apiName?: string; achieved?: number; unlocktime?: number }> | null> {
+  ): Promise<Array<{
+    apiName?: string;
+    achieved?: number;
+    unlocktime?: number;
+  }> | null> {
     let key: string;
     try {
       key = this.apiKey();
@@ -464,6 +561,11 @@ export class AchievementsService {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
       });
+      if (response.status === 429) {
+        throw new SteamRateLimitError(
+          lireRetryAfter(response.headers) ?? backoffRateLimitMs(),
+        );
+      }
       if (!response.ok) {
         this.logger.warn(`GetPlayerAchievements a répondu ${response.status}`);
         return null;
@@ -480,6 +582,7 @@ export class AchievementsService {
         unlocktime: raw.unlocktime,
       }));
     } catch (error) {
+      if (error instanceof SteamRateLimitError) throw error;
       this.logger.warn(
         `GetPlayerAchievements ${appId} injoignable: ${error instanceof Error ? error.message : 'erreur inconnue'}`,
       );

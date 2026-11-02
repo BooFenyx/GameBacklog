@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   FILTRES_VIDES,
+  cleFiltres,
   compterFiltresActifs,
   ecrireFiltres,
   lireFiltres,
@@ -64,5 +65,18 @@ describe('filtres — URL', () => {
         tri: 'temps',
       }),
     ).toBe(2)
+  })
+
+  it('inclut le texte de recherche dans la clé de requête', () => {
+    const base = { ...FILTRES_VIDES, genres: [25] }
+
+    // Changer le texte doit changer la clé, sinon la liste ne se recharge pas.
+    expect(cleFiltres({ ...base, q: 'portal' })).not.toBe(
+      cleFiltres({ ...base, q: 'hades' }),
+    )
+    // La même combinaison doit produire la même clé (pas de requête inutile).
+    expect(cleFiltres({ ...base, q: 'portal' })).toBe(
+      cleFiltres({ ...base, q: 'portal' }),
+    )
   })
 })

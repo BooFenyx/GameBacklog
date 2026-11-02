@@ -56,8 +56,8 @@ avec deux modes explicites — recherche par **nom de jeu** et recherche
   (`api/src/embedding/embedding.service.ts:58`). Renvoie `null` si la clé est
   absente, si Gemini répond en erreur ou renvoie un vecteur vide ; lève
   `QuotaReachedError` sur HTTP 429 ou quota journalier épuisé.
-- **Quota partagé** : `RateLimitService` (100/min, 1000/jour, persisté dans
-  `rate_limits`) — `api/src/embedding/rate-limiter.service.ts`. La recherche
+- **Quota partagé** : `RateLimitService` (100/min en mémoire, 1000/jour persisté
+  dans `rate_limits`) — `api/src/embedding/rate-limiter.service.ts`. La recherche
   consomme le **même** quota Gemini que l'import d'embeddings.
 - **Colonne pgvector** : `games.embedding vector(1024)` + `games.embeddingModel`
   (`api/src/db/schema.ts:48`). **Aucune migration n'est nécessaire.**
@@ -166,7 +166,9 @@ GET /api/search?q=<phrase>&mode=<name|semantic>&manette=<full|partial>&limit=<1.
       "genres": ["Puzzle"],
       "controllerSupport": "full",
       "playtimeForever": 320,
-      "lastPlayedAt": "2024-01-02T03:04:05.000Z",
+      "lastActivityAt": "2024-01-02T03:04:05.000Z",
+      "lastActivitySource": "achievement",
+      "lastActivityPrecision": "lower_bound",
       "score": 0.8123,
       "source": "series",
       "criteria": ["Se rapproche de Portal"]
@@ -183,6 +185,9 @@ GET /api/search?q=<phrase>&mode=<name|semantic>&manette=<full|partial>&limit=<1.
   en mode nom et en repli dégradé.
 - `source` : `name`, `semantic` ou `series`.
 - `criteria` : libellés lisibles des filtres et rapprochements respectés.
+- `lastActivityAt`, `lastActivitySource`, `lastActivityPrecision` : activité dérivée, comme
+  dans la bibliothèque et la fiche (voir `docs/analyse-donnees-steam.md`). `lastPlayedAt`
+  n'existe plus.
 - `hasMore` : calculé en demandant `limit + 1` lignes puis en tronquant. Aucun
   `COUNT` supplémentaire.
 
@@ -269,7 +274,8 @@ SQL brut, littéral (pas de jokers `LIKE`), filtré sur la bibliothèque :
 
 ```sql
 SELECT g.app_id, g.name, g.short_description, g.header_image_url, g.genres,
-       g.controller_support, le.playtime_forever, le.last_played_at
+       g.controller_support, le.playtime_forever,
+       le.last_activity_at, le.last_activity_source, le.last_activity_precision
 FROM library_entries le
 JOIN games g ON g.id = le.game_id
 WHERE le.user_id = $1
@@ -303,7 +309,8 @@ service demande `limit + 1` lignes pour calculer `hasMore`.
 ```sql
 SELECT
   g.app_id, g.name, g.short_description, g.header_image_url, g.genres,
-  g.controller_support, le.playtime_forever, le.last_played_at,
+  g.controller_support, le.playtime_forever,
+  le.last_activity_at, le.last_activity_source, le.last_activity_precision,
   1 - (g.embedding <=> $1::vector) AS score,
   CASE
     WHEN $3::text IS NOT NULL AND strpos(lower(g.name), lower($3)) > 0
@@ -439,7 +446,10 @@ bout.
   - `SEARCH_PAGE_SIZE=20`
   - `SEARCH_MIN_SCORE=` (vide = désactivé)
   - `SEARCH_EMBEDDING_MAX_WAIT_MS=1500`
-- **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé.
+- **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé. Depuis le
+  31/10/2026, l'import est plafonné à 80 % de la fenêtre minute
+  (`embedGame(..., { source: 'import' })`) : la recherche conserve ~20 % et peut
+  répondre en mode dégradé pendant une indexation.
 - **API** : nouvelle route `GET /api/search`, sous le préfixe global `/api`.
 
 ## 12. Références

@@ -158,7 +158,32 @@ describe('EmbeddingService', () => {
       const result = await service.embed('test', { maxWaitMs: 1500 });
 
       expect(result).toBeNull();
-      expect(mockRateLimitService.acquire).toHaveBeenCalledWith(1500);
+      expect(mockRateLimitService.acquire).toHaveBeenCalledWith(
+        1500,
+        undefined,
+      );
+    });
+
+    it('devrait transmettre la source import au limiteur', async () => {
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'EMBEDDING_API_KEY') return 'test-key';
+        return undefined;
+      });
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          embedding: { values: [0.1, 0.2, 0.3] },
+        }),
+      });
+      global.fetch = mockFetch;
+
+      await service.embed('test', { source: 'import' });
+
+      expect(mockRateLimitService.acquire).toHaveBeenCalledWith(
+        undefined,
+        'import',
+      );
     });
 
     it("devrait retourner null si l'embedding est vide", async () => {

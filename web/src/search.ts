@@ -1,3 +1,7 @@
+import type {
+  LastActivityPrecision,
+  LastActivitySource,
+} from './activite'
 import { urlApi } from './api'
 import type { DureeJeu, EtatJeu, ModeJeu } from './filters'
 
@@ -19,7 +23,9 @@ export type ResultatRecherche = {
   modes: ModeJeu[]
   controllerSupport: 'none' | 'partial' | 'full'
   playtimeForever: number
-  lastPlayedAt: string | null
+  lastActivityAt: string | null
+  lastActivitySource: LastActivitySource | null
+  lastActivityPrecision: LastActivityPrecision | null
   score: number | null
   source: SourceResultat
   criteria: string[]

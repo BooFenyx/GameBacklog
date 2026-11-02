@@ -974,6 +974,15 @@
   }
 }
 
+.sync-progression--alerte {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.sync-progression .btn {
+  margin-top: 10px;
+}
+
 .sync-barre {
   height: 10px;
   border-radius: 999px;

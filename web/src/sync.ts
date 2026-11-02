@@ -14,6 +14,14 @@ export type JobSync = {
   error: string | null
   startedAt: string | null
   finishedAt: string | null
+  /** Fiches encore récupérables, y compris celles en attente de reprise. */
+  pendingDetails: number
+  /** Jeux dont la fiche est définitivement indisponible (3 échecs). */
+  detailsUnavailable: number
+  /** Jeux dont les compteurs de succès manquent. */
+  pendingAchievements: number
+  /** Jeux indexables dont l'embedding manque. */
+  pendingEmbeddings: number
 }
 
 export const libelleEtape: Record<JobSync['step'], string> = {

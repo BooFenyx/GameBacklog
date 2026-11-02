@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TITRE_ACTIVITE_INDISPONIBLE } from '../../activite'
+import { formaterDate } from '../../format'
 import type { JeuBibliotheque } from '../../library'
 import {
   contexteCarte,
@@ -19,7 +21,9 @@ function jeu(overrides: Partial<JeuBibliotheque> = {}): JeuBibliotheque {
     controllerSupport: 'full',
     playtimeForever: 1200,
     playtimeLast2Weeks: 0,
-    lastPlayedAt: new Date(Date.now() - 8 * 86_400_000).toISOString(),
+    lastActivityAt: null,
+    lastActivitySource: null,
+    lastActivityPrecision: null,
     achievementsUnlocked: 12,
     achievementsTotal: 51,
     ...overrides,
@@ -45,19 +49,35 @@ describe('affichage — état et méta', () => {
     expect(etatJeu(jeu())).toEqual({ label: 'Joué', recent: false })
   })
 
-  it('sépare le temps de jeu et la dernière partie', () => {
-    expect(metaJeu(jeu())).toEqual({
+  it('sépare le temps de jeu et l’activité dérivée', () => {
+    const activite = {
+      lastActivityAt: '2026-10-30T12:00:00.000Z',
+      lastActivitySource: 'sync_delta' as const,
+      lastActivityPrecision: 'upper_bound' as const,
+    }
+    expect(metaJeu(jeu(activite))).toEqual({
       temps: '20 h',
-      dernier: 'il y a 8 j',
+      activite: 'depuis la sync',
+      activiteTitre: `Détecté lors de la synchronisation du ${formaterDate(activite.lastActivityAt)}`,
       jamais: false,
     })
   })
 
   it('signale l’absence de temps de jeu', () => {
-    expect(metaJeu(jeu({ playtimeForever: 0, lastPlayedAt: null }))).toEqual({
+    expect(metaJeu(jeu({ playtimeForever: 0 }))).toEqual({
       temps: null,
-      dernier: null,
+      activite: null,
+      activiteTitre: TITRE_ACTIVITE_INDISPONIBLE,
       jamais: true,
+    })
+  })
+
+  it('ne marque pas « jamais lancé » un jeu joué sans activité connue', () => {
+    expect(metaJeu(jeu())).toEqual({
+      temps: '20 h',
+      activite: null,
+      activiteTitre: TITRE_ACTIVITE_INDISPONIBLE,
+      jamais: false,
     })
   })
 })

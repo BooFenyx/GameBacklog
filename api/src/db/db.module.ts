@@ -4,13 +4,22 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { fileURLToPath } from 'node:url';
+import { enregistrerParseurUtc } from './pg-utc.js';
 import * as schema from './schema.js';
+
+// Avant toute connexion : `pg` doit relire les `timestamp` sans fuseau en UTC,
+// comme Drizzle les écrit.
+enregistrerParseurUtc();
 
 export const DB = Symbol('DB');
 export type Db = ReturnType<typeof createDb>;
 
 function createDb(connectionString: string) {
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({
+    connectionString,
+    // Drizzle envoie des littéraux UTC ; la session doit les interpréter en UTC.
+    options: '-c timezone=UTC',
+  });
   return drizzle(pool, { schema });
 }
 

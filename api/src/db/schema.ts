@@ -4,10 +4,31 @@ import {
   text,
   integer,
   timestamp,
+  jsonb,
   vector,
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
+
+/** Bloc de description longue, converti depuis le HTML Steam. */
+export type DescriptionBlock =
+  | { type: 'paragraphe'; texte: string }
+  | { type: 'titre'; texte: string }
+  | { type: 'liste'; items: string[] };
+
+/** Capture d'écran : miniature pour la galerie, pleine taille pour le dialogue. */
+export type CaptureEcran = {
+  miniature: string;
+  pleine: string;
+};
+
+export type Plateforme = 'windows' | 'mac' | 'linux';
+
+/** Source de l'activité dérivée d'un jeu (données accessibles à tous). */
+export type LastActivitySource = 'sync_delta' | 'recent_window' | 'achievement';
+
+/** Précision de la date d'activité : borne haute ou basse, jamais exacte. */
+export type LastActivityPrecision = 'upper_bound' | 'lower_bound';
 
 export const users = pgTable(
   'users',
@@ -55,6 +76,23 @@ export const games = pgTable(
       .default('none'),
     releaseDate: timestamp('release_date'),
     headerImageUrl: text('header_image_url'),
+    /** Description longue convertie en blocs sûrs (jamais de HTML brut). */
+    descriptionBlocks: jsonb('description_blocks')
+      .$type<DescriptionBlock[]>()
+      .notNull()
+      .default([]),
+    /** Captures d'écran, limitées à 6 par le mapping. */
+    screenshots: jsonb('screenshots')
+      .$type<CaptureEcran[]>()
+      .notNull()
+      .default([]),
+    developers: text('developers').array().notNull().default([]),
+    publishers: text('publishers').array().notNull().default([]),
+    website: text('website').notNull().default(''),
+    platforms: text('platforms').array().notNull().default([]),
+    metacriticScore: integer('metacritic_score'),
+    metacriticUrl: text('metacritic_url'),
+    backgroundImageUrl: text('background_image_url'),
     /**
      * Total de succès du jeu (schéma Steam) et date de récupération du schéma.
      * Le total est partagé entre utilisateurs ; un jeu sans succès garde
@@ -65,6 +103,14 @@ export const games = pgTable(
     embedding: vector('embedding', { dimensions: 1024 }),
     embeddingModel: text('embedding_model'),
     detailsFetchedAt: timestamp('details_fetched_at'),
+    /** Nombre d'échecs « jeu délisté » ; remis à 0 après un succès. */
+    detailsAttempts: integer('details_attempts').notNull().default(0),
+    /** Prochaine date où retenter la fiche (null = immédiatement). */
+    detailsNextRetryAt: timestamp('details_next_retry_at', {
+      withTimezone: true,
+    }),
+    /** Dernière cause d'échec : `removed`, `network` ou `rate-limit`. */
+    detailsLastError: text('details_last_error'),
   },
   (table) => ({
     appIdIdx: uniqueIndex('games_app_id_idx').on(table.appId),
@@ -88,7 +134,16 @@ export const libraryEntries = pgTable(
       .references(() => games.id, { onDelete: 'cascade' }),
     playtimeForever: integer('playtime_forever').notNull().default(0),
     playtimeLast2Weeks: integer('playtime_last_2_weeks').notNull().default(0),
-    lastPlayedAt: timestamp('last_played_at'),
+    /** Estimation d'activité dérivée (tri + affichage), jamais une date exacte. */
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
+    lastActivitySource: text('last_activity_source', {
+      enum: ['sync_delta', 'recent_window', 'achievement'],
+    }),
+    lastActivityPrecision: text('last_activity_precision', {
+      enum: ['upper_bound', 'lower_bound'],
+    }),
+    /** Dernière synchronisation réussie : point de départ du prochain `sync_delta`. */
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     achievementsUnlocked: integer('achievements_unlocked').notNull().default(0),
     /** Date de la dernière récupération des succès du joueur pour ce jeu. */
     achievementsFetchedAt: timestamp('achievements_fetched_at'),
@@ -103,9 +158,9 @@ export const libraryEntries = pgTable(
       table.userId,
       table.playtimeForever.desc(),
     ),
-    userLastPlayedIdx: index('library_entries_user_last_played_idx').on(
+    userLastActivityIdx: index('library_entries_user_last_activity_idx').on(
       table.userId,
-      table.lastPlayedAt.desc(),
+      table.lastActivityAt.desc(),
     ),
   }),
 );

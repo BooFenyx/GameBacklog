@@ -16,7 +16,9 @@ interface NameSearchRow {
   categoryIds: number[] | null;
   controllerSupport: 'none' | 'partial' | 'full';
   playtimeForever: number;
-  lastPlayedAt: Date | string | null;
+  lastActivityAt: Date | string | null;
+  lastActivitySource: 'sync_delta' | 'recent_window' | 'achievement' | null;
+  lastActivityPrecision: 'upper_bound' | 'lower_bound' | null;
   total: string | number;
 }
 
@@ -47,7 +49,9 @@ function ligne(overrides: Partial<NameSearchRow> = {}): NameSearchRow {
     categoryIds: [2],
     controllerSupport: 'full',
     playtimeForever: 320,
-    lastPlayedAt: new Date('2024-01-02T03:04:05.000Z'),
+    lastActivityAt: new Date('2024-01-02T03:04:05.000Z'),
+    lastActivitySource: 'sync_delta',
+    lastActivityPrecision: 'upper_bound',
     total: 1,
     ...overrides,
   };
@@ -119,7 +123,9 @@ describe('SearchService — recherche par nom', () => {
           controllerSupport: 'full',
           modes: ['solo'],
           playtimeForever: 320,
-          lastPlayedAt: new Date('2024-01-02T03:04:05.000Z'),
+          lastActivityAt: new Date('2024-01-02T03:04:05.000Z'),
+          lastActivitySource: 'sync_delta',
+          lastActivityPrecision: 'upper_bound',
           score: null,
           source: 'name',
           criteria: [],
@@ -154,6 +160,8 @@ describe('SearchService — recherche par nom', () => {
     expect(sql).toContain('strpos(lower(g.name), lower($2)) > 0');
     expect(sql).toContain('WHEN lower(g.name) = lower($2) THEN 0');
     expect(sql).toContain('WHEN strpos(lower(g.name), lower($2)) = 1 THEN 1');
+    expect(sql).toContain('le.last_activity_at AS "lastActivityAt"');
+    expect(sql).not.toContain('last_played_at');
     expect(params).toEqual([7, 'portal', 21, 0]);
   });
 
@@ -295,6 +303,8 @@ describe('SearchService — recherche sémantique', () => {
     const [sql, params] = query.mock.calls[1] as [string, unknown[]];
     expect(sql).toContain('g.embedding <=> $1::vector');
     expect(sql).toContain('seriesMatch');
+    expect(sql).toContain('le.last_activity_at AS "lastActivityAt"');
+    expect(sql).not.toContain('last_played_at');
     expect(params).toEqual([JSON.stringify(VECTOR), 7, 'Portal', 21, 0]);
     expect(reponse.mode).toBe('semantic');
     expect(reponse.results[0]).toMatchObject({
