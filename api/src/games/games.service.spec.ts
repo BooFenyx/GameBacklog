@@ -11,6 +11,7 @@ import {
   mapPlatforms,
   mapScreenshots,
   parseReleaseDate,
+  retirerPreambuleCommercial,
 } from './games.service.js';
 
 function fakeDb(returnedId = 7) {
@@ -314,6 +315,159 @@ describe('mapAppDetails', () => {
     expect(details.metacriticScore).toBeNull();
     expect(details.metacriticUrl).toBeNull();
     expect(details.backgroundImageUrl).toBeNull();
+  });
+
+  it('retire le préambule commercial avant « À propos du jeu »', () => {
+    const details = mapAppDetails(1808500, {
+      name: 'ARC Raiders',
+      detailed_description:
+        '<h3>ARC Raiders Deluxe Edition</h3><p>Includes the base game and cosmetics.</p><h3>À propos du jeu</h3><p>Un jeu d’extraction dans un monde futuriste ravagé par les ARC.</p>',
+    });
+    expect(details.descriptionBlocks).toEqual([
+      {
+        type: 'paragraphe',
+        texte: 'Un jeu d’extraction dans un monde futuriste ravagé par les ARC.',
+      },
+    ]);
+  });
+});
+
+describe('retirerPreambuleCommercial', () => {
+  const paragrapheLong = {
+    type: 'paragraphe' as const,
+    texte:
+      'Un long paragraphe qui décrit réellement le jeu, ses mécaniques, son monde et ses personnages.',
+  };
+
+  it('coupe avant « À propos du jeu » quand le premier titre est commercial', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'ARC Raiders Deluxe Edition' },
+      { type: 'paragraphe' as const, texte: 'Includes the base game.' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('reconnaît les variantes anglaises et la casse', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'DIGITAL DELUXE EDITION' },
+      { type: 'paragraphe' as const, texte: 'Includes the base game.' },
+      { type: 'titre' as const, texte: 'ABOUT THIS GAME' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('reconnaît les pluriels et les renvois vers d’autres jeux', () => {
+    expect(
+      retirerPreambuleCommercial([
+        { type: 'titre', texte: 'Explore our Special Editions!' },
+        { type: 'titre', texte: 'À propos du jeu' },
+        paragrapheLong,
+      ]),
+    ).toEqual([paragrapheLong]);
+
+    expect(
+      retirerPreambuleCommercial([
+        { type: 'titre', texte: 'Our games you might like' },
+        { type: 'titre', texte: 'À propos du jeu' },
+        paragrapheLong,
+      ]),
+    ).toEqual([paragrapheLong]);
+  });
+
+  it('coupe un préambule composé uniquement de titres commerciaux', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'INTRODUCING: KING OF THE CASTLE' },
+      { type: 'titre' as const, texte: 'Join the Discord Community' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('garde un titre non commercial isolé', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Apex Legends : Traque' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('ne coupe pas sans titre « À propos »', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition collector' },
+      { type: 'paragraphe' as const, texte: 'Contenu de l’édition.' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('retire un titre « À propos » déjà en tête', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('ne coupe pas un vrai contenu de mise à jour', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'BROFORCE FOREVER' },
+      { type: 'paragraphe' as const, texte: 'La mise à jour gratuite ajoute du contenu.' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('ne coupe pas si le reste ne contient plus de texte descriptif', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'ARC Raiders Deluxe Edition' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('reconnaît les titres accentués commençant par « Édition »', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition numérique de luxe' },
+      { type: 'paragraphe' as const, texte: 'Cette édition comprend le jeu de base.' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('ne confond pas un mot contenant « edition » avec une édition', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Expedition 33' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('ne confond pas un titre sur le studio avec « À propos du jeu »', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition numérique de luxe' },
+      { type: 'titre' as const, texte: 'À PROPOS DE HAZELIGHT' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('est idempotent', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition numérique de luxe' },
+      { type: 'paragraphe' as const, texte: 'Cette édition comprend le jeu de base.' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    const uneFois = retirerPreambuleCommercial(blocs);
+    expect(retirerPreambuleCommercial(uneFois)).toEqual(uneFois);
   });
 });
 

@@ -26,8 +26,9 @@ const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60 * 1000;
  *
  * La version 2 ajoute la description longue, les captures, les développeurs,
  * les éditeurs, le site, les plateformes, Metacritic et l'image de fond.
+ * La version 3 retire le préambule commercial placé avant « À propos du jeu ».
  */
-export const FILTERS_VERSION = 2;
+export const FILTERS_VERSION = 3;
 
 /** Fiche Steam telle que persistée dans `games`. */
 export interface AppDetails {
@@ -340,6 +341,83 @@ export function htmlToBlocks(html: string | undefined): DescriptionBlock[] {
   return blocks;
 }
 
+/** Titre qui ouvre la vraie description éditoriale d'un jeu. */
+const TITRE_A_PROPOS =
+  /^\s*(?:à\s+propos\s+du\s+jeu|a\s+propos\s+du\s+jeu|about\s+(?:this|the)\s+game)\s*[:.!]?\s*$/i;
+
+/**
+ * Titres d'introduction commerciale : éditions, DLC, wishlist, Discord,
+ * feuille de route, critiques… Steam les place parfois avant « À propos du jeu ».
+ *
+ * Volontairement restrictif : « mise à jour » / « update » n'en fait pas partie,
+ * car ces sections décrivent du contenu réel du jeu et ne doivent pas être
+ * supprimées (ex. Broforce, Make Way).
+ */
+const TITRE_PREAMBULE_COMMERCIAL =
+  /(?<![\p{L}\p{N}_])(?:éditions?|editions?|deluxe|collector|ultimate|gold|anniversary|collections?|dlc|extension|add-?on|wishlist|souhaits?|discord|communaut[ée]|community|roadmap|feuille\s+de\s+route|reviews?|avis|workshop|pr[ée]commande|pre-?order|season\s+pass|pass\s+de\s+saison|offre\s+sp[ée]ciale|special\s+offers?|version\s+comparison|game\s+of\s+(?:a|the)\s+generation|our\s+games|you\s+might\s+(?:also\s+)?like|check\s+out|more\s+games|from\s+the\s+makers)(?![\p{L}\p{N}_])/iu;
+
+/** Vrai si les blocs restants contiennent encore du texte descriptif réel. */
+function contientTexteDescriptif(blocks: DescriptionBlock[]): boolean {
+  const texte = blocks
+    .map((bloc) => (bloc.type === 'liste' ? bloc.items.join(' ') : bloc.texte))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return texte.length >= 40;
+}
+
+/**
+ * Retire le préambule commercial que Steam place avant le titre
+ * « À propos du jeu » (édition Deluxe, DLC, wishlist, Discord, roadmap…).
+ *
+ * La coupe n'est faite que si :
+ * - un titre « À propos du jeu » / « About this game » existe ;
+ * - il n'y a rien à couper (titre déjà en tête) ou le préambule est commercial :
+ *   soit son premier bloc est un titre explicitement commercial, soit il n'est
+ *   composé que de titres et l'un d'eux l'est (ex. « INTRODUCING… » puis
+ *   « Join the Discord Community ») ;
+ * - ce qui reste après la coupe contient encore du texte descriptif.
+ *
+ * Le titre d'ouverture « À propos du jeu » est retiré au passage : la page
+ * affiche déjà ce titre de section, le garder produirait un doublon.
+ *
+ * Sinon les blocs sont renvoyés inchangés : mieux vaut garder un préambule que
+ * supprimer la vraie description.
+ */
+export function retirerPreambuleCommercial(
+  blocks: DescriptionBlock[],
+): DescriptionBlock[] {
+  const indexAbout = blocks.findIndex(
+    (bloc) => bloc.type === 'titre' && TITRE_A_PROPOS.test(bloc.texte),
+  );
+  if (indexAbout < 0) return blocks;
+
+  if (indexAbout > 0) {
+    const preambule = blocks.slice(0, indexAbout);
+    const premier = preambule[0];
+    if (premier.type !== 'titre') return blocks;
+
+    const premierEstCommercial = TITRE_PREAMBULE_COMMERCIAL.test(premier.texte);
+    const seulementDesTitres = preambule.every(
+      (bloc) => bloc.type === 'titre',
+    );
+    const titreCommercialDansPreambule = seulementDesTitres
+      ? preambule.some(
+          (bloc) =>
+            bloc.type === 'titre' &&
+            TITRE_PREAMBULE_COMMERCIAL.test(bloc.texte),
+        )
+      : false;
+
+    if (!premierEstCommercial && !titreCommercialDansPreambule) return blocks;
+  }
+
+  // La page rend déjà un titre de section « À propos du jeu » : on retire le
+  // titre Steam équivalent pour ne pas l'afficher deux fois de suite.
+  const suite = blocks.slice(indexAbout).slice(1);
+  return contientTexteDescriptif(suite) ? suite : blocks;
+}
+
 /** Filtre, déduplique et limite les captures d'écran Steam. */
 export function mapScreenshots(
   entries: Array<{ path_thumbnail?: string; path_full?: string }> | undefined,
@@ -439,7 +517,9 @@ export function mapAppDetails(
     shortDescription: data.short_description
       ? nettoyerTexte(data.short_description)
       : null,
-    descriptionBlocks: htmlToBlocks(data.detailed_description),
+    descriptionBlocks: retirerPreambuleCommercial(
+      htmlToBlocks(data.detailed_description),
+    ),
     screenshots: mapScreenshots(data.screenshots),
     developers: mapListeTextes(data.developers),
     publishers: mapListeTextes(data.publishers),
