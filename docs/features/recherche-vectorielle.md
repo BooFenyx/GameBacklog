@@ -446,7 +446,9 @@ bout.
   - `SEARCH_PAGE_SIZE=20`
   - `SEARCH_MIN_SCORE=` (vide = désactivé)
   - `SEARCH_EMBEDDING_MAX_WAIT_MS=1500`
-- **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé.
+- **Quota Gemini** : réutilise `EMBEDDING_API_KEY` et le quota partagé. Depuis le
+  31/10/2026, l'import réserve 80 % de la fenêtre minute (`acquire('import')`) : la
+  recherche conserve ~20 % et peut répondre en mode dégradé pendant une indexation.
 - **API** : nouvelle route `GET /api/search`, sous le préfixe global `/api`.
 
 ## 12. Références

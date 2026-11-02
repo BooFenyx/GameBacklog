@@ -63,9 +63,15 @@ schéma Steam une fois par jeu et progression du joueur avec TTL), `embeddings`
 (texte `nom + description + genres + catégories` → Gemini `gemini-embedding-001`,
 1024 dims, stocké dans `games.embedding`). Progression suivie par `GET /api/sync`,
 relance par `POST /api/sync`. Un job interrompu (`running`) est remis en file au
-boot. L'étape `achievements` traite au plus 200 jeux par synchronisation, en
-priorisant les jeux récemment lancés ; `needsAchievements` relance la sync au
-login s'il reste des compteurs manquants.
+boot. Chaque étape respecte un budget (`SYNC_STEP_MAX_MS`, 15 min par défaut,
+`0` = illimité) et reprend à `job.step` à la passe suivante. L'étape
+`achievements` traite les jeux manquants par lots de `ACHIEVEMENTS_BATCH_SIZE`
+(200) jusqu'à épuisement : `ACHIEVEMENTS_MAX_GAMES_PER_SYNC=0` supprime le
+plafond total. Les fiches Steam gèrent les 429 et les jeux délistés
+(`details_attempts`, `details_next_retry_at`, `details_last_error`) ; les
+embeddings s'arrêtent proprement sur quota (`done` + `pendingEmbeddings`).
+`needsAchievements` et `needsEmbeddings` relancent la sync au login s'il reste
+des reliquats.
 
 **Activité dérivée.** `library_entries` ne stocke plus `last_played_at` : elle expose
 `last_activity_at`, `last_activity_source` (`sync_delta` / `recent_window` /
@@ -94,7 +100,9 @@ demande, avec le cache et le TTL de l'étape `achievements`.
 **Front.** Pages Connexion, accueil, bibliothèque, détail d'un jeu (`/jeu/:appId`) et 404,
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
 les 2 s ; elle est filtrée, triée et paginée via l'URL (`/bibliotheque?genres=25&modes=coop&tri=temps`)
-et s'affiche dès que l'étape `library` est passée. Sur desktop, une **colonne de filtres**
+et s'affiche dès que l'étape `library` est passée. Le bandeau d'import affiche l'erreur
+réelle et les reliquats (`pendingDetails`, `detailsUnavailable`, `pendingAchievements`,
+`pendingEmbeddings`) via `web/src/import.ts` (`etatImport`). Sur desktop, une **colonne de filtres**
 repliable accompagne les résultats ; elle se ferme en glissant à gauche et un onglet
 vertical permet de la rouvrir. La carte et la vue liste utilisent les tokens de
 `web/src/styles/theme.css` ; le bouton Filtres reste à gauche sur mobile/tablette.
@@ -147,22 +155,23 @@ continu front prêts, rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, timeouts), session, guard
-- `api/src/sync/` — pipeline d'import (4 étapes, reprise, progression, backfill `filters_version`, compteurs de succès)
+- `api/src/sync/` — pipeline d'import (4 étapes, lots de succès sans plafond total, reprise par étape, budget `SYNC_STEP_MAX_MS`, progression, backfill `filters_version`, compteurs de succès)
 - `api/src/sync/activite.ts` — dérivation pure de l'activité (`sync_delta`, `recent_window`, `achievement`)
 - `api/src/library/` — `ownedGames` (Steam, à l'import), `savedLibrary` (lecture filtrée/triée/paginée) et `facets`
 - `api/src/catalog/` — modes Steam, durées, conditions SQL des filtres (ET genres/modes, OR durées), libellés de genres, agrégation des facettes
 - `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId` et `/achievements`
 - `api/src/achievements/` — cache du schéma, compteurs, TTL, liste détaillée (`GetSchemaForGame` / `GetPlayerAchievements`)
 - `api/src/users/` — upsert utilisateur, `syncStatus`
-- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j)
+- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j, `remainingToday`, réservation de 80 % à l'import)
 - `api/src/search/` — `GET /api/search` (nom/sémantique/série), filtres partagés, limite par `steamId`, cache d'embeddings de requête, DTO
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
 - `api/src/db/pg-utc.ts` — lecture UTC des `timestamp` sans fuseau (OID 1114)
-- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0009 ; 0005 compteurs de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité + drop `last_played_at`)
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0010 ; 0005 compteurs de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité + drop `last_played_at`, 0010 import robuste)
 - `render.yaml` — blueprint Render (API seule)
 - `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
 - `web/src/auth/` — provider et contexte de session
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
+- `web/src/import.ts` — `etatImport` : bandeau d'import (erreur, reliquats, reprise)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
 - `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
@@ -180,6 +189,7 @@ continu front prêts, rien n'est encore réellement déployé).
 - `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync, grille/liste)
 - `web/src/pages/JeuDetail.tsx` — page `/jeu/:appId` (fiche et succès chargés séparément)
 - `web/src/pages/Recherche.tsx` — page `/recherche` (filtres partagés, pagination, états)
+- `docs/analyse-donnees-steam.md` — analyse Steam + section « Import volumineux »
 - `docs/features/recherche-vectorielle.md` — fiche de la fonctionnalité recherche
 - `docs/features/filtres-recherche.md` — fiche de la fonctionnalité filtres/facettes
 - `docs/features/refonte-bibliotheque.md` — fiche du prototype bibliothèque
@@ -301,6 +311,22 @@ d'activité sont en `timestamptz` ; `unlocked_at` reste un `timestamp` sans fuse
 `last_seen_at` (première sync) ni si `playtime_forever` baisse. Le champ lu dans
 `GetOwnedGames` est `playtime_2weeks`, la colonne DB garde `playtime_last_2_weeks`.
 
+**`sql<Date>` n'est pas un cast runtime.** Drizzle renvoie la valeur brute du pilote
+(`string` pour un `timestamp` sans fuseau). Utilise `max(colonne)` ou
+`.mapWith(parseTimestampUtc)` ; n'utilise **jamais** `new Date(chaine)` pour une date UTC
+(le processus l'interpréterait en heure locale). Le correctif est `normaliserDernierSucces`.
+
+**Boucle de lots de succès.** Chaque lot doit exclure les jeux déjà tentés
+(`notInArray`), sinon la boucle resélectionne les mêmes jeux à l'infini. Un 429 peut
+laisser `processed` égal au total alors que `pending*` reste > 0 : traiter les reliquats,
+pas `processed`, comme source de vérité. Le budget d'étape (`SYNC_STEP_MAX_MS`) ne doit
+jamais provoquer une pause sans progrès, sous peine de boucle infinie.
+
+**Quota embeddings.** Un quota épuisé termine le job en `done` avec
+`pendingEmbeddings > 0` (et `needsEmbeddings` vrai), jamais en `error` : les jeux sans
+embedding restent intacts et seront repris. L'import réserve 80 % de la fenêtre minute
+pour ne pas affamer la recherche.
+
 **Deux cultures de lint/format différentes — ne les mélange pas.**
 - `api/` : géré par Prettier. Guillemets simples, points-virgules, virgules finales.
 - `web/` : **aucune config Prettier du tout**, donc style du scaffold Vite — pas de
@@ -414,7 +440,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Connexion : authentification via Steam (OpenID), puis **import de la bibliothèque** avec suivi de progression. » (`fiche_projet.md:15`) — « L'import se fait en **tâche de fond** avec reprise : les entrées de bibliothèque d'abord, puis les fiches manquantes, puis les embeddings. » (`fiche_projet.md:39`) |
-| **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done`, **quatre étapes** reprises (`onModuleInit` remet les jobs `running` en `pending`) : `library`, `details`, `achievements`, `embeddings`. `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). |
+| **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done`, **quatre étapes** reprises (`onModuleInit` remet les jobs `running` en `pending`) : `library`, `details`, `achievements`, `embeddings`. `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). L'import est découpé en lots de succès (200) sans plafond total, avec budget par étape (`SYNC_STEP_MAX_MS`), reprise `job.step` et reliquats exposés par `GET /api/sync`. Les limites Steam (~200 `appdetails`/5 min, 429) et Gemini (100/min, 1 000/j) sont absorbées par throttle, backoff et reprise. |
 
 #### Écart 2 — Recherche vectorielle
 
@@ -466,7 +492,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Achievement : id, gameId, apiName, displayName, description, iconUrl — Source: `GetSchemaForGame` » (`fiche_projet.md:28`) — « UserAchievement : userId, achievementId, unlockedAt — Source: `GetPlayerAchievements` » (`fiche_projet.md:29`) — « Les succès (`Achievement`, `UserAchievement`) sont chargés **à la demande**, à l'ouverture du détail d'un jeu » (`fiche_projet.md:38`) |
-| **État** | ✅ Résolu — `api/src/achievements/` : l'étape `achievements` du sync précharge les compteurs (`getUserAchievementsDetail` via `refreshForSync`), avec cache du schéma, TTL de 24 h et plafond de 200 jeux par run. `GET /api/library` expose `achievementsTotal`/`achievementsUnlocked` pour la grille et la liste. `GET /api/games/:appId/achievements` charge la liste détaillée à la demande ; `apiname` est normalisé en `apiName`. |
+| **État** | ✅ Résolu — `api/src/achievements/` : l'étape `achievements` du sync précharge les compteurs (`getUserAchievementsDetail` via `refreshForSync`), avec cache du schéma, TTL de 24 h et lots de 200 jeux sans plafond total (reliquats repris ensuite). `GET /api/library` expose `achievementsTotal`/`achievementsUnlocked` pour la grille et la liste. `GET /api/games/:appId/achievements` charge la liste détaillée à la demande ; `apiname` est normalisé en `apiName`. |
 
 #### Écart 9 — Utilisateur persisté en base — ✅ Résolu
 
@@ -579,15 +605,15 @@ classique — la spécification exige une recherche par similarité vectorielle 
 `Game.embedding`.
 
 Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
-`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0009 ; 0005 compteurs
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0010 ; 0005 compteurs
 de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité
-+ drop `last_played_at`). `npm run db:migrate`
++ drop `last_played_at`, 0010 import robuste). `npm run db:migrate`
 applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
 manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
 démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée
 `CREATE EXTENSION IF NOT EXISTS vector` — obligatoire sur une base fraîche type Neon.
-Les 0005 à 0009 sont idempotentes (`IF NOT EXISTS`) pour les bases de dev
-partagées ; l'ordre reste 0005 → 0009, la branche fiche empilant la 0006.
+Les 0005 à 0010 sont idempotentes (`IF NOT EXISTS`) pour les bases de dev
+partagées ; l'ordre reste 0005 → 0010, la branche fiche empilant la 0006.
 
 `DbModule` est global et **exige `DATABASE_URL` et une base joignable au boot** : la
 migration s'exécute immédiatement, la base doit donc être up avant l'API (c'est le cas
@@ -611,6 +637,11 @@ Sans elle, `fetchPlayerSummary` renvoie `null` et `ownedGames` lève un 503.
 `EMBEDDING_RATE_LIMIT_PER_MINUTE` et `EMBEDDING_RATE_LIMIT_PER_DAY` sont optionnels
 (défauts : `100` / `1000`) : ils plafonnent les appels Gemini, le job reprenant plus tard
 au-delà du quota.
+
+Réglages d'import, tous optionnels : `SYNC_STEP_MAX_MS` (`900000`, `0` = illimité),
+`APPDETAILS_THROTTLE_MS` (`1500`), `ACHIEVEMENTS_BATCH_SIZE` (`200`),
+`ACHIEVEMENTS_MAX_GAMES_PER_SYNC` (`0` = illimité, déprécié) et
+`ACHIEVEMENTS_THROTTLE_MS` (`200`).
 
 ## Cible de déploiement
 

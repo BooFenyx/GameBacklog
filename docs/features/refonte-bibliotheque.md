@@ -216,6 +216,9 @@ Règles :
   `Synchroniser` à droite.
 - Sous 768 px, le résumé passe sous le titre et le bouton reste accessible.
 - Le bandeau de progression d'import reste compact et ne pousse pas la grille.
+- (31/10/2026) Il affiche aussi l'erreur réelle, les reliquats (`pendingDetails`,
+  `detailsUnavailable`, `pendingAchievements`, `pendingEmbeddings`) et la reprise
+  automatique, via `etatImport` (`web/src/import.ts`).
 
 ### 5.2 Barre de résultats
 
@@ -371,10 +374,10 @@ compteurs de succès et le sync les précharge.
 ### 7.2 Étape `achievements` du sync
 
 - Nouvelle étape après `details`, avant `embeddings`.
-- Priorité aux jeux récemment lancés ; plafond
-  `ACHIEVEMENTS_MAX_GAMES_PER_SYNC` (200 jeux par défaut). Les jeux restants
-  sont repris à la prochaine synchronisation, déclenchée au login par
-  `needsAchievements`.
+- Priorité aux jeux récemment lancés ; lots de `ACHIEVEMENTS_BATCH_SIZE`
+  (200 par défaut) jusqu'à épuisement, sans plafond total
+  (`ACHIEVEMENTS_MAX_GAMES_PER_SYNC=0`). Les jeux restants sont repris à la
+  prochaine synchronisation, déclenchée au login par `needsAchievements`.
 - `GetSchemaForGame` est appelé une fois par jeu (cache global).
   `GetPlayerAchievements` est appelé par utilisateur/jeu, avec un TTL de 24 h.
 - Un jeu jamais lancé ne déclenche **pas** `GetPlayerAchievements` : le
@@ -497,8 +500,8 @@ npm run build
 - Jamais lancé, joué récemment, activité inconnue (`—` + infobulle).
 - Compteur de succès : `12 / 51`, `— / 51` avant la progression, masqué
   avant le schéma ou pour un jeu sans succès.
-- Sync : l'étape « Récupération des succès » progresse, plafonne à 200 jeux et
-  reprend au login suivant.
+- Sync : l'étape « Récupération des succès » progresse par lots, ne plafonne plus
+  à 200 jeux et reprend au login suivant.
 - Grille et liste, bascule persistée après rechargement.
 - Filtres ouverts/fermés, 3 → 4 colonnes.
 - Changement de filtre : la liste s'estompe sans disparaître.
@@ -517,7 +520,7 @@ npm run build
 | Carte trop chargée | max 2 chips de genres + `+N`, badges de mode compacts, une seule méta forte |
 | CLS sur les images | `aspect-ratio`, `width`/`height`, repli dégradé |
 | Compteur de succès indisponible | afficher `— / total` ou masquer le badge ; jamais inventer la progression |
-| Sync de succès trop longue | plafond de 200 jeux par run, priorité aux jeux récents, reprise au login |
+| Sync de succès trop longue | lots de 200, budget d'étape (`SYNC_STEP_MAX_MS`), priorité aux jeux récents, reprise au login |
 | Vue liste coûteuse sur 1 000 jeux | l'API pagine 48 par page ; la liste reste bornée |
 | Filtres et cartes se chevauchent | ne pas toucher à `SidebarFiltres`/`PanneauFiltres` |
 | Régression mobile | tester 375/768 px et le panneau de filtres existant |

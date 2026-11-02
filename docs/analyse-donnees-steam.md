@@ -494,7 +494,85 @@ champs réservés au propriétaire de la clé.
 
 ---
 
-## 7. Sources
+## 7. Import volumineux (31/10/2026)
+
+Le lot du 31/10/2026 supprime le plafond total de 200 succès : une bibliothèque de
+250, 500 ou 1 000+ jeux est traitée par lots, avec reprise et budget. Le code ne doit
+**jamais** réintroduire de limite globale de 200 jeux.
+
+### 7.1 Tailles et durées indicatives
+
+| Bibliothèque | Traitement | Durée indicative |
+|---|---|---|
+| 250 jeux | 2 lots de succès (200 + 50) | 8–12 min |
+| 500 jeux | 3 lots de succès (200 + 200 + 100) | 20–30 min |
+| 1 000+ jeux | 5 lots ou plus | 45–90 min cumulés, découpés par passes |
+
+Les durées supposent les throttles par défaut ; `SYNC_STEP_MAX_MS` découpe le travail
+en passes et le job reprend à l'étape en cours, sans perdre la progression.
+
+### 7.2 Lots de succès
+
+- `ACHIEVEMENTS_BATCH_SIZE=200` borne **la taille d'un lot**, pas le total.
+- `ACHIEVEMENTS_MAX_GAMES_PER_SYNC=0` = aucun plafond total (variable dépréciée ; une
+  valeur > 0 ne sert que de garde-fou explicite).
+- Chaque lot exclut les jeux déjà tentés (`notInArray`) : sans cette exclusion, la
+  boucle resélectionnerait les mêmes jeux et ne progresserait jamais.
+- `user_achievements` ne stocke que les succès **débloqués** du joueur ; le total
+  (`achievements_total`) vient du schéma Steam. Une bibliothèque de 250 jeux peut donc
+  produire 750 lignes `achievements` mais seulement 250 `library_entries` renseignées
+  côté progression.
+
+### 7.3 Budget et reprise
+
+- `SYNC_STEP_MAX_MS=900000` (15 min) borne **une étape** ; `0` = illimité.
+- Budget épuisé → la passe s'arrête en `paused` sans erreur ; le job reste `pending` et
+  reprend à la passe suivante. Pas de pause sans progrès, sinon boucle infinie.
+- La reprise s'appuie sur `job.step` ; au démarrage, `onModuleInit` remet les jobs
+  `running` en `pending`. Une relance manuelle (`POST /api/sync`) reprend le même job.
+
+### 7.4 Fiches Steam
+
+- `APPDETAILS_THROTTLE_MS=1500` (≈ 200 requêtes / 5 min).
+- `games.details_attempts`, `games.details_next_retry_at` et
+  `games.details_last_error` (`rate-limit` / `network` / `removed`) rendent les échecs
+  visibles et pilotent les nouvelles tentatives.
+- Un 429 respecte `Retry-After` ; trois 429 consécutifs mettent la passe en pause. Une
+  erreur réseau est retentée après 5 min.
+- Un jeu délisté (`success:false`) est retenté après 24 h, puis après 30 jours à partir
+  du troisième échec. Il est compté dans `detailsUnavailable`, pas dans `pendingDetails`.
+
+### 7.5 Embeddings
+
+- Quota Gemini : 100 appels/min et 1 000/jour, persisté dans `rate_limits`.
+- L'import réserve 80 % de la fenêtre minute (`acquire('import')`) pour laisser ~20 %
+  à la recherche ; la recherche n'est jamais bloquée par une indexation en cours.
+- Quota épuisé → le job passe `done` avec `pendingEmbeddings > 0`, **pas** `error` ;
+  `needsEmbeddings` relance l'indexation plus tard. Aucun embedding n'est supprimé.
+
+### 7.6 Contrat `GET /api/sync`
+
+La réponse expose quatre reliquats, tous à `0` quand l'import est complet :
+
+- `pendingDetails` : fiches encore à récupérer ;
+- `detailsUnavailable` : fiches définitivement indisponibles ou en attente longue ;
+- `pendingAchievements` : jeux dont les compteurs de succès manquent ;
+- `pendingEmbeddings` : jeux sans embedding.
+
+`needsAchievements` et `needsEmbeddings` sont renvoyés à l'authentification pour
+décider d'un réenfilement au login.
+
+### 7.7 Piège Drizzle — `sql<Date>` n'est pas un cast
+
+`sql<Date>\`max(...)\`` ne fait que **mentir au compilateur** : le pilote `pg` renvoie une
+**chaîne** pour un `timestamp` sans fuseau, pas un `Date`. Utiliser `max(colonne)` (Drizzle
+type correctement l'agrégat) ou `.mapWith(parseTimestampUtc)`, et **jamais**
+`new Date(chaine)` pour une date UTC (le processus l'interpréterait en heure locale).
+Le détail des pièges permanents est dans `AGENTS.md`.
+
+---
+
+## 8. Sources
 
 - IPlayerService — <https://partner.steamgames.com/doc/webapi/iplayerservice>
 - ISteamUser — <https://partner.steamgames.com/doc/webapi/isteamuser>
