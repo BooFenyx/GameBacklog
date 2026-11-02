@@ -1,0 +1,78 @@
+name: CI
+
+# Vérifications de qualité sur chaque pull request et sur la branche main :
+# lint, tests unitaires et build, côté API et côté web.
+#
+# Les tests e2e restent lancés séparément : ils exigent une base PostgreSQL
+# (pgvector) et sont sérialisés pour ne pas se voler les jobs d'import.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API — lint, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Installer les dépendances
+        working-directory: api
+        run: npm ci
+
+      - name: Lint
+        working-directory: api
+        run: npm run lint
+
+      - name: Tests unitaires
+        working-directory: api
+        run: npm test
+
+      - name: Build
+        working-directory: api
+        run: npm run build
+
+  web:
+    name: Web — lint, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Installer les dépendances
+        working-directory: web
+        run: npm ci
+
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+
+      - name: Tests unitaires
+        working-directory: web
+        run: npm test
+
+      - name: Build
+        working-directory: web
+        run: npm run build
