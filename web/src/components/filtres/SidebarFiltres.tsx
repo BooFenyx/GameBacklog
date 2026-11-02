@@ -14,6 +14,7 @@ import type { Facettes } from '../../library'
 type Props = {
   filtres: Filtres
   facettes: Facettes | null
+  ouvert: boolean
   onChanger: (filtres: Filtres) => void
   onEffacer: () => void
   onFermer: () => void
@@ -28,6 +29,7 @@ const GENRES_VISIBLES = 7
 export default function SidebarFiltres({
   filtres,
   facettes,
+  ouvert,
   onChanger,
   onEffacer,
   onFermer,
@@ -59,6 +61,7 @@ export default function SidebarFiltres({
     facettes?.etats.find((facette) => facette.value === etat)?.count ?? 0
 
   const basculerGenre = (id: number) => {
+    if (!filtres.genres.includes(id) && filtres.genres.length >= 8) return
     const genres = filtres.genres.includes(id)
       ? filtres.genres.filter((genre) => genre !== id)
       : [...filtres.genres, id]
@@ -94,7 +97,12 @@ export default function SidebarFiltres({
       : 'Tous'
 
   return (
-    <aside className="filtres-sidebar" aria-label="Filtres de la bibliothèque">
+    <aside
+      className="filtres-sidebar"
+      aria-label="Filtres de la bibliothèque"
+      aria-hidden={!ouvert}
+      inert={!ouvert}
+    >
       <div className="filtres-sidebar-entete">
         <div>
           <h2>Filtres</h2>

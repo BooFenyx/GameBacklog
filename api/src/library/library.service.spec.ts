@@ -40,9 +40,10 @@ describe('LibraryService', () => {
   };
 
   it("construit l'URL GetOwnedGames avec clé et steamid", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => ({ response: {} }) });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: { game_count: 0 } }),
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     await makeService({ STEAM_API_KEY: 'cle-secrete' }).ownedGames(
@@ -152,6 +153,31 @@ describe('LibraryService', () => {
     await expect(
       makeService({ STEAM_API_KEY: 'cle' }).ownedGames('76561199123456789'),
     ).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it('lève 503 sur un 200 avec response vide (profil privé)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
+    );
+
+    await expect(
+      makeService({ STEAM_API_KEY: 'cle' }).ownedGames('76561199123456789'),
+    ).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it('renvoie une bibliothèque vide pour game_count:0', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ response: { game_count: 0 } }),
+      }),
+    );
+
+    await expect(
+      makeService({ STEAM_API_KEY: 'cle' }).ownedGames('76561199123456789'),
+    ).resolves.toEqual([]);
   });
 
   it('lève 503 si Steam est injoignable', async () => {

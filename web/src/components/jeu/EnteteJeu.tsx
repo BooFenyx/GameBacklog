@@ -46,12 +46,15 @@ export default function EnteteJeu({ jeu, succes }: Props) {
 
         <div className="fiche-hero-meta">
           {annee && <Etiquette variante="genre">{annee}</Etiquette>}
+          {jeu.playtimeForever === 0 && (
+            <Etiquette variante="genre">Jamais lancé</Etiquette>
+          )}
           {jeu.genres.slice(0, 3).map((genre) => (
             <Etiquette key={genre} variante="genre">
               {genre}
             </Etiquette>
           ))}
-          {jeu.controllerSupport !== 'none' && (
+          {jeu.detailsAvailable && jeu.controllerSupport !== 'none' && (
             <Etiquette variante="manette">
               {LIBELLE_MANETTE[jeu.controllerSupport]}
             </Etiquette>

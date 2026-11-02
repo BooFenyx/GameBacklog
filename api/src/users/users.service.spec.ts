@@ -43,10 +43,7 @@ describe('UsersService', () => {
   beforeEach(async () => {
     const fake = fakeDb();
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        UsersService,
-        { provide: DB, useValue: fake.db },
-      ],
+      providers: [UsersService, { provide: DB, useValue: fake.db }],
     }).compile();
     service = module.get<UsersService>(UsersService);
     // conserve le fake pour les assertions du test en cours
@@ -78,6 +75,10 @@ describe('UsersService', () => {
       target: users.steamId,
       set: expect.objectContaining({ displayName: 'Test Steam' }),
     });
+    const conflit = onConflictDoUpdate.mock.calls[0][0] as {
+      set: Record<string, unknown>;
+    };
+    expect(conflit.set).not.toHaveProperty('syncStatus');
   });
 
   it('n’anonyme pas l’avatar : null quand le profil n’en a pas', async () => {

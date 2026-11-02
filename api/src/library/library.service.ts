@@ -134,6 +134,10 @@ export class LibraryService {
 
     conditions.push(...construireConditions(query, params));
 
+    // Copie des paramètres de filtres avant d'ajouter LIMIT/OFFSET : elle
+    // sert au COUNT de secours quand la page est vide au-delà du total.
+    const paramsFiltres = [...params];
+
     // Une ligne de plus que la page demandée pour calculer `hasMore` sans
     // requête COUNT supplémentaire ; `total` vient de la fenêtre SQL.
     const limitIndex = params.length + 1;
@@ -174,7 +178,22 @@ export class LibraryService {
     const rows = result.rows as BibliothequeRow[];
     const hasMore = rows.length > query.limit;
     const page = rows.slice(0, query.limit);
-    const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+    let total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+    if (rows.length === 0 && query.offset > 0) {
+      // COUNT(*) OVER() ne renvoie aucune ligne quand OFFSET dépasse la fin :
+      // on recalcule le total pour ne pas afficher « 0 résultat » à tort.
+      const compteur = await this.db.$client.query(
+        `SELECT COUNT(*)::int AS total
+         FROM library_entries le
+         JOIN games g ON g.id = le.game_id
+         WHERE ${conditions.join('\n         AND ')}`,
+        paramsFiltres,
+      );
+      total = Number(
+        (compteur.rows[0] as { total?: string | number } | undefined)?.total ??
+          0,
+      );
+    }
 
     return {
       items: page.map((row) => ({
@@ -273,7 +292,20 @@ export class LibraryService {
 
     const data = (await response.json()) as GetOwnedGamesResponse;
 
-    return (data.response?.games ?? [])
+    // Un profil privé renvoie fréquemment 200 avec `response: {}` : ce n'est
+    // pas une bibliothèque vide. Un `games` ou un `game_count` explicite
+    // suffit à distinguer une réponse valide.
+    if (
+      !data.response ||
+      (data.response.game_count === undefined &&
+        data.response.games === undefined)
+    ) {
+      throw new ServiceUnavailableException(
+        "Steam a refusé l'accès : profil privé ou clé invalide",
+      );
+    }
+
+    return (data.response.games ?? [])
       .filter((game) => typeof game.name === 'string' && game.name.length > 0)
       .map((game) => ({
         appId: game.appid,

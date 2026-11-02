@@ -5,6 +5,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useParams,
 } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { AuthProvider } from './auth/AuthProvider'
@@ -18,6 +19,12 @@ import Recherche from './pages/Recherche'
 
 function Chargement() {
   return <p className="chargement">Chargement de la session…</p>
+}
+
+/** Remonte la fiche quand l'appId change : aucun état de l'ancien jeu ne fuit. */
+function JeuDetailRoute() {
+  const { appId } = useParams()
+  return <JeuDetail key={appId} />
 }
 
 /** Route réservée : redirige vers l'écran de connexion si la session est absente. */
@@ -72,7 +79,7 @@ function App() {
               path="/jeu/:appId"
               element={
                 <RouteProtegee>
-                  <JeuDetail />
+                  <JeuDetailRoute />
                 </RouteProtegee>
               }
             />

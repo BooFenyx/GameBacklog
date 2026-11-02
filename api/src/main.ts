@@ -21,6 +21,7 @@ async function bootstrap() {
     process.env.DATABASE_URL,
   );
 
+  app.enableShutdownHooks();
   await app.listen(process.env.PORT ?? 3000);
 }
 await bootstrap();

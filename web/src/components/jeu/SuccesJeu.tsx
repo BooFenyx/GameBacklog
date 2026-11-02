@@ -26,7 +26,16 @@ function carteSucces(succes: Succes) {
     >
       <span className="succes-icone" aria-hidden="true">
         {succes.iconUrl ? (
-          <img src={succes.iconUrl} alt="" width="48" height="48" loading="lazy" />
+          <img
+            src={succes.iconUrl}
+            alt=""
+            width="48"
+            height="48"
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.display = 'none'
+            }}
+          />
         ) : (
           <IconeTrophee />
         )}
@@ -127,23 +136,32 @@ export default function SuccesJeu({ succes }: Props) {
             </button>
           </div>
 
-          <ul className="succes-grille">
-            {affiches.map((item) => carteSucces(item))}
-          </ul>
+          {visibles.length === 0 ? (
+            <p className="succes-vide">
+              Aucun succès{' '}
+              {filtre === 'debloque' ? 'débloqué' : 'verrouillé'} pour ce jeu.
+            </p>
+          ) : (
+            <>
+              <ul className="succes-grille">
+                {affiches.map((item) => carteSucces(item))}
+              </ul>
 
-          {visibles.length > LIMITE_INITIALE && (
-            <div className="succes-plus">
-              <button
-                type="button"
-                className="btn"
-                aria-expanded={toutAfficher}
-                onClick={() => setToutAfficher((valeur) => !valeur)}
-              >
-                {toutAfficher
-                  ? 'Réduire la liste'
-                  : `Afficher tous les succès (${visibles.length})`}
-              </button>
-            </div>
+              {visibles.length > LIMITE_INITIALE && (
+                <div className="succes-plus">
+                  <button
+                    type="button"
+                    className="btn"
+                    aria-expanded={toutAfficher}
+                    onClick={() => setToutAfficher((valeur) => !valeur)}
+                  >
+                    {toutAfficher
+                      ? 'Réduire la liste'
+                      : `Afficher tous les succès (${visibles.length})`}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

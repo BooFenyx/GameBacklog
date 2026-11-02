@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
+import { ouvrirSessionTest } from './session-test.js';
 
 const STEAM_ID = '76561199123456789';
 const FRONTEND_URL = 'http://localhost:5173';
@@ -12,14 +13,6 @@ const PROFILE = {
   avatarFull: 'https://cdn.example/avatar.jpg',
   profileUrl: 'https://steamcommunity.com/id/test-steam',
 };
-
-/** Requête de retour OpenID, telle que Steam la renvoie au callback. */
-const RETURN_QUERY = [
-  'openid.ns=http://specs.openid.net/auth/2.0',
-  'openid.mode=id_res',
-  `openid.claimed_id=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-  `openid.identity=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-].join('&');
 
 describe('Persistance de la session Steam (e2e)', () => {
   let app: NestExpressApplication;
@@ -54,6 +47,12 @@ describe('Persistance de la session Steam (e2e)', () => {
                 ],
               },
             }),
+          };
+        }
+        if (url.includes('GetOwnedGames')) {
+          return {
+            ok: true,
+            json: async () => ({ response: { game_count: 0 } }),
           };
         }
         throw new Error(`Appel réseau inattendu : ${url}`);
@@ -99,11 +98,10 @@ describe('Persistance de la session Steam (e2e)', () => {
 
   it('ouvre une session, la retrouve à chaque requête puis la détruit', async () => {
     const server = app.getHttpServer();
+    const agent = request.agent(server);
 
-    const retour = await request(server)
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    const retour = await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
+    expect(retour.status).toBe(302);
 
     expect(retour.headers.location).toBe(`${FRONTEND_URL}/?auth=success`);
 
@@ -169,12 +167,14 @@ describe('Persistance de la session Steam (e2e)', () => {
       vi.fn(async () => ({ text: async () => 'is_valid:false\n' })),
     );
 
-    const res = await request(app.getHttpServer())
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    const agent = request.agent(app.getHttpServer());
+    const res = await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
+    expect(res.status).toBe(302);
 
     expect(res.headers.location).toBe(`${FRONTEND_URL}/?auth=error`);
-    expect(res.headers['set-cookie']).toBeUndefined();
+    // La session ouverte par `/api/auth/steam` n'est pas authentifiée : le
+    // cookie existe, mais `/api/auth/me` doit rester anonyme.
+    const me = await agent.get('/api/auth/me').expect(200);
+    expect(me.body).toEqual({ user: null });
   });
 });

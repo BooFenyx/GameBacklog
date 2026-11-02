@@ -7,17 +7,10 @@ import { configureApp } from '../src/app.setup.js';
 import { DB, type Db } from '../src/db/db.module.js';
 import { games, libraryEntries, users } from '../src/db/schema.js';
 import { FILTERS_VERSION } from '../src/games/games.service.js';
+import { ouvrirSessionTest } from './session-test.js';
 
 const STEAM_ID = '76561199123456789';
 const FRONTEND_URL = 'http://localhost:5173';
-
-/** Requête de retour OpenID, telle que Steam la renvoie au callback. */
-const RETURN_QUERY = [
-  'openid.ns=http://specs.openid.net/auth/2.0',
-  'openid.mode=id_res',
-  `openid.claimed_id=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-  `openid.identity=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-].join('&');
 
 /** Réponse factice de `GetOwnedGames`, dans l'ordre brut de Steam. */
 const JEUX_STEAM = {
@@ -80,10 +73,7 @@ describe('Bibliothèque (e2e)', () => {
     db = moduleFixture.get<Db>(DB);
 
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const [utilisateur] = await db
       .select()
@@ -207,10 +197,7 @@ describe('Bibliothèque (e2e)', () => {
 
   it('renvoie une page enrichie (enveloppe, modes, total)', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const res = await agent.get('/api/library').expect(200);
 
@@ -247,10 +234,7 @@ describe('Bibliothèque (e2e)', () => {
 
   it('filtre par genre et par mode (ET dans le groupe)', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const parGenre = await agent.get('/api/library?genres=25').expect(200);
     expect(parGenre.body.total).toBe(1);
@@ -261,9 +245,7 @@ describe('Bibliothèque (e2e)', () => {
     expect(parMode.body.items[0].name).toBe('Jeu Coop');
 
     // Deux genres distincts ne se cumulent pas : aucun jeu ne porte les deux.
-    const deuxGenres = await agent
-      .get('/api/library?genres=1,25')
-      .expect(200);
+    const deuxGenres = await agent.get('/api/library?genres=1,25').expect(200);
     expect(deuxGenres.body.total).toBe(0);
 
     // Deux modes compatibles se cumulent en ET : Jeu Coop est multi + coop.
@@ -282,10 +264,7 @@ describe('Bibliothèque (e2e)', () => {
 
   it('combine q, manette et état', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const res = await agent
       .get('/api/library?q=jeu&manette=full&etat=joue')
@@ -298,10 +277,7 @@ describe('Bibliothèque (e2e)', () => {
 
   it('trie par temps de jeu et pagine', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const page = await agent.get('/api/library?tri=temps&limit=1').expect(200);
 
@@ -338,10 +314,7 @@ describe('Bibliothèque (e2e)', () => {
       );
 
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const res = await agent.get('/api/library?tri=recent').expect(200);
 
@@ -350,10 +323,7 @@ describe('Bibliothèque (e2e)', () => {
 
   it('refuse un filtre invalide', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     await agent.get('/api/library?genres=abc').expect(400);
     await agent.get('/api/library?modes=inconnu').expect(400);
@@ -363,10 +333,7 @@ describe('Bibliothèque (e2e)', () => {
 
   it('renvoie les facettes de la bibliothèque', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const res = await agent.get('/api/library/facets').expect(200);
 
@@ -390,8 +357,8 @@ describe('Bibliothèque (e2e)', () => {
         expect.objectContaining({ value: 'joue' }),
       ]),
     );
-    expect(
-      res.body.etats.map((etat: { value: string }) => etat.value),
-    ).toEqual(['jamais', 'joue']);
+    expect(res.body.etats.map((etat: { value: string }) => etat.value)).toEqual(
+      ['jamais', 'joue'],
+    );
   });
 });

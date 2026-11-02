@@ -84,11 +84,20 @@ export default function PanneauJeu({ jeu, succes }: Props) {
           <div>
             <dt>Manette</dt>
             <dd>
-              {LIBELLE_MANETTE[jeu.controllerSupport]}
-              {jeu.controllerSupport === 'partial' && (
-                <small className="detail-note">
-                  Certaines actions peuvent nécessiter le clavier ou la souris.
-                </small>
+              {jeu.detailsAvailable ? (
+                <>
+                  {LIBELLE_MANETTE[jeu.controllerSupport]}
+                  {jeu.controllerSupport === 'partial' && (
+                    <small className="detail-note">
+                      Certaines actions peuvent nécessiter le clavier ou la
+                      souris.
+                    </small>
+                  )}
+                </>
+              ) : (
+                <span title="La fiche Steam n'est pas encore récupérée">
+                  —
+                </span>
               )}
             </dd>
           </div>
@@ -170,7 +179,7 @@ export default function PanneauJeu({ jeu, succes }: Props) {
                 <strong>
                   {debloquesSucces ?? '—'} / {totalSucces}
                 </strong>
-                {pourcentage !== null && pourcentage > 0 && (
+                {pourcentage !== null && (
                   <> · {pourcentage} %</>
                 )}
               </span>

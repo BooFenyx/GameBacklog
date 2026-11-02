@@ -84,9 +84,10 @@ export default function Bibliotheque() {
   // Pendant un rechargement, on garde la dernière liste connue : la grille ne
   // disparaît plus (et ne « recharge » plus visuellement) à chaque filtre.
   const page = pageAJour ?? donnees?.page ?? null
-  const enRafraichissement = pageAJour === null && page !== null
   const erreurCourante =
     erreurListe?.cle === cleListe ? erreurListe.message : null
+  const enRafraichissement =
+    pageAJour === null && page !== null && erreurCourante === null
   const chargement = page === null && erreurCourante === null
 
   // Compteurs des filtres : rechargés au montage et après un import.
@@ -106,7 +107,7 @@ export default function Bibliotheque() {
         }
       })
     return () => controller.abort()
-  }, [version])
+  }, [version, recharger])
 
   // Liste : une requête par changement de filtres ou après un import.
   useEffect(() => {
@@ -120,13 +121,19 @@ export default function Bibliotheque() {
       .then((reponse) => {
         if (controller.signal.aborted) return
         setDonnees({ cle: cleListe, page: reponse })
+        setErreurListe((actuelle) =>
+          actuelle && actuelle.cle === cleListe ? null : actuelle,
+        )
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setErreurListe({ cle: cleListe, message: messageErreur(error) })
       })
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      plusController.current?.abort()
+    }
   }, [cleListe, recharger])
 
   // Suivi de l'import : on sonde tant qu'un job tourne, puis on rafraîchit la
@@ -155,6 +162,9 @@ export default function Bibliotheque() {
       } catch (error) {
         if (!actif) return
         setErreur(messageErreur(error))
+        // Une erreur transitoire ne doit pas tuer le suivi : on retente tant
+        // que le dernier job connu peut encore tourner.
+        timer = window.setTimeout(() => void interroger(), 5000)
       }
     }
 
@@ -199,6 +209,7 @@ export default function Bibliotheque() {
       placerOnglet()
       setOngletVisible(true)
       timerOnglet.current = null
+      window.requestAnimationFrame(() => ongletRef.current?.focus())
     }, 320)
   }, [placerOnglet])
 
@@ -233,12 +244,13 @@ export default function Bibliotheque() {
       facettes.lastActivityDisponible === false &&
       filtres.tri === 'recent'
     ) {
-      changerFiltres({ ...filtres, tri: 'nom' })
+      changerFiltres({ ...filtres, tri: 'nom' }, true)
     }
   }, [facettes, filtres, changerFiltres])
 
   const reessayerListe = useCallback(() => {
     setErreurListe(null)
+    setErreur(null)
     setRecharger((valeur) => valeur + 1)
   }, [])
 
@@ -278,7 +290,9 @@ export default function Bibliotheque() {
     } catch (error) {
       if (!controller.signal.aborted) setErreur(messageErreur(error))
     } finally {
-      if (!controller.signal.aborted) setChargementPlus(false)
+      // Remettre l'état même après une annulation de filtre : sinon le bouton
+      // « Afficher plus » resterait désactivé pour la nouvelle liste.
+      setChargementPlus(false)
     }
   }
 
@@ -332,6 +346,7 @@ export default function Bibliotheque() {
         <SidebarFiltres
           filtres={filtres}
           facettes={facettes}
+          ouvert={filtresOuverts}
           onChanger={changerFiltres}
           onEffacer={effacerFiltres}
           onFermer={fermerFiltres}
@@ -364,7 +379,14 @@ export default function Bibliotheque() {
             >
               <p>{bandeau.texte}</p>
               {enCours && job.totalGames > 0 && (
-                <div className="sync-barre">
+                <div
+                  className="sync-barre"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={pourcentage}
+                  aria-label={`Progression de l'import : ${pourcentage} %`}
+                >
                   <div
                     className="sync-barre-remplie"
                     style={{ width: `${pourcentage}%` }}
@@ -398,7 +420,12 @@ export default function Bibliotheque() {
           )}
 
           {erreur && !erreurCourante && (
-            <p className="message-erreur">{erreur}</p>
+            <div className="etat-erreur" role="alert">
+              <p className="message-erreur">{erreur}</p>
+              <button type="button" className="btn" onClick={reessayerListe}>
+                Réessayer
+              </button>
+            </div>
           )}
 
           {chargement && (

@@ -8,6 +8,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { randomBytes } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { AuthService, type SteamProfile } from './auth.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -43,9 +44,14 @@ export class AuthController {
    * l'authentification OpenID.
    */
   @Get('steam')
-  steamLogin(@Res() res: Response): void {
+  steamLogin(@Req() req: Request, @Res() res: Response): void {
     const realm = this.frontendUrl();
-    const returnTo = `${realm}/api/auth/steam/return`;
+    // Jeton anti-CSRF : il est stocké en session et renvoyé dans `return_to`.
+    const state = randomBytes(24).toString('hex');
+    req.session.openidState = state;
+    const returnTo = `${realm}/api/auth/steam/return?state=${encodeURIComponent(
+      state,
+    )}`;
     res.redirect(this.authService.buildSteamLoginUrl(returnTo, realm));
   }
 
@@ -58,6 +64,33 @@ export class AuthController {
     const frontendUrl = this.frontendUrl();
 
     try {
+      const state =
+        typeof req.query.state === 'string' ? req.query.state : null;
+      if (!state || state !== req.session.openidState) {
+        this.logger.warn('State OpenID absent ou invalide');
+        res.redirect(`${frontendUrl}/?auth=error`);
+        return;
+      }
+      delete req.session.openidState;
+
+      const returnTo =
+        typeof req.query['openid.return_to'] === 'string'
+          ? req.query['openid.return_to']
+          : null;
+      const realm =
+        typeof req.query['openid.realm'] === 'string'
+          ? req.query['openid.realm']
+          : null;
+      if (
+        !returnTo ||
+        !returnTo.startsWith(`${frontendUrl}/api/auth/steam/return`) ||
+        (realm !== null && !realm.startsWith(frontendUrl))
+      ) {
+        this.logger.warn('return_to/realm OpenID incohérent');
+        res.redirect(`${frontendUrl}/?auth=error`);
+        return;
+      }
+
       const steamId = await this.authService.verifySteamCallback(
         req.query as Record<string, unknown>,
       );
@@ -120,7 +153,13 @@ export class AuthController {
         activiteAMettreAJour ||
         embeddingsAMettreAJour
       ) {
-        void this.syncService.enqueue(userId);
+        void this.syncService.enqueue(userId).catch((error: unknown) => {
+          this.logger.error(
+            `Mise en file de l'import impossible: ${
+              error instanceof Error ? error.message : 'erreur inconnue'
+            }`,
+          );
+        });
       }
 
       res.redirect(`${frontendUrl}/?auth=success`);

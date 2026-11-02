@@ -124,6 +124,30 @@ describe('parseReleaseDate', () => {
     expect(parseReleaseDate('Bientôt disponible')).toBeNull();
     expect(parseReleaseDate('à venir')).toBeNull();
   });
+
+  it('refuse les dates partielles sans jour précis', () => {
+    expect(parseReleaseDate('2023')).toBeNull();
+    expect(parseReleaseDate('Oct 2023')).toBeNull();
+    expect(parseReleaseDate('2023-10')).toBeNull();
+    expect(parseReleaseDate('Q1 2023')).toBeNull();
+  });
+
+  it('refuse un jour inexistant dans le mois', () => {
+    expect(parseReleaseDate('31 févr. 2023')).toBeNull();
+    expect(parseReleaseDate('2023-02-31')).toBeNull();
+  });
+
+  it('parse le mois en premier et les formats numériques', () => {
+    expect(parseReleaseDate('Oct 26, 2023')?.toISOString()).toBe(
+      '2023-10-26T00:00:00.000Z',
+    );
+    expect(parseReleaseDate('26/10/2023')?.toISOString()).toBe(
+      '2023-10-26T00:00:00.000Z',
+    );
+    expect(parseReleaseDate('26-10-2023')?.toISOString()).toBe(
+      '2023-10-26T00:00:00.000Z',
+    );
+  });
 });
 
 describe('mapControllerSupport', () => {
@@ -142,9 +166,7 @@ describe('mapControllerSupport', () => {
   it('se replie sur les ids de catégories traduites', () => {
     expect(
       mapControllerSupport({
-        categories: [
-          { id: 28, description: 'Compat. contrôleurs complète' },
-        ],
+        categories: [{ id: 28, description: 'Compat. contrôleurs complète' }],
       } as never),
     ).toBe('full');
     expect(
@@ -208,7 +230,9 @@ describe('htmlToBlocks', () => {
 
   it('retire les balises inline et décode les entités', () => {
     expect(
-      htmlToBlocks('<p><strong>Bonjour</strong> &amp; <a href="#">lien</a></p>'),
+      htmlToBlocks(
+        '<p><strong>Bonjour</strong> &amp; <a href="#">lien</a></p>',
+      ),
     ).toEqual([{ type: 'paragraphe', texte: 'Bonjour & lien' }]);
   });
 
@@ -253,9 +277,11 @@ describe('mapScreenshots', () => {
 
 describe('mapPlatforms', () => {
   it('respecte l’ordre Windows, macOS, Linux', () => {
-    expect(
-      mapPlatforms({ windows: true, mac: true, linux: true }),
-    ).toEqual(['windows', 'mac', 'linux']);
+    expect(mapPlatforms({ windows: true, mac: true, linux: true })).toEqual([
+      'windows',
+      'mac',
+      'linux',
+    ]);
     expect(mapPlatforms({ linux: true, windows: false })).toEqual(['linux']);
     expect(mapPlatforms(undefined)).toEqual([]);
   });
@@ -326,7 +352,8 @@ describe('mapAppDetails', () => {
     expect(details.descriptionBlocks).toEqual([
       {
         type: 'paragraphe',
-        texte: 'Un jeu d’extraction dans un monde futuriste ravagé par les ARC.',
+        texte:
+          'Un jeu d’extraction dans un monde futuriste ravagé par les ARC.',
       },
     ]);
   });
@@ -416,7 +443,10 @@ describe('retirerPreambuleCommercial', () => {
   it('ne coupe pas un vrai contenu de mise à jour', () => {
     const blocs = [
       { type: 'titre' as const, texte: 'BROFORCE FOREVER' },
-      { type: 'paragraphe' as const, texte: 'La mise à jour gratuite ajoute du contenu.' },
+      {
+        type: 'paragraphe' as const,
+        texte: 'La mise à jour gratuite ajoute du contenu.',
+      },
       { type: 'titre' as const, texte: 'À propos du jeu' },
       paragrapheLong,
     ];
@@ -434,7 +464,10 @@ describe('retirerPreambuleCommercial', () => {
   it('reconnaît les titres accentués commençant par « Édition »', () => {
     const blocs = [
       { type: 'titre' as const, texte: 'Édition numérique de luxe' },
-      { type: 'paragraphe' as const, texte: 'Cette édition comprend le jeu de base.' },
+      {
+        type: 'paragraphe' as const,
+        texte: 'Cette édition comprend le jeu de base.',
+      },
       { type: 'titre' as const, texte: 'À propos du jeu' },
       paragrapheLong,
     ];
@@ -462,7 +495,10 @@ describe('retirerPreambuleCommercial', () => {
   it('est idempotent', () => {
     const blocs = [
       { type: 'titre' as const, texte: 'Édition numérique de luxe' },
-      { type: 'paragraphe' as const, texte: 'Cette édition comprend le jeu de base.' },
+      {
+        type: 'paragraphe' as const,
+        texte: 'Cette édition comprend le jeu de base.',
+      },
       { type: 'titre' as const, texte: 'À propos du jeu' },
       paragrapheLong,
     ];
@@ -611,9 +647,18 @@ describe('GamesService', () => {
     expect(details.categories).toEqual([]);
   });
 
-  it('fetchAppDetails : network si la fiche est absente ou en échec', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
-    global.fetch = mockFetch;
+  it('fetchAppDetails : removed sur 404/410, network sur 500', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'removed',
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 410 });
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'removed',
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     await expect(service.fetchAppDetails(123)).resolves.toEqual({
       kind: 'network',
     });

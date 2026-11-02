@@ -32,6 +32,8 @@ declare module 'express-session' {
     steamId?: string;
     userId?: number;
     user?: SteamProfile | null;
+    /** Jeton anti-CSRF du retour OpenID. */
+    openidState?: string;
   }
 }
 
@@ -70,7 +72,9 @@ export class AuthService {
     // Seul un retour réel (`id_res`) est accepté : un `cancel` avec un
     // `claimed_id` ne doit pas passer, même avec une signature valide.
     if (query['openid.mode'] !== 'id_res') {
-      this.logger.warn(`openid.mode inattendu: ${String(query['openid.mode'])}`);
+      this.logger.warn(
+        `openid.mode inattendu: ${String(query['openid.mode'])}`,
+      );
       return null;
     }
 
@@ -79,6 +83,18 @@ export class AuthService {
         ? query['openid.claimed_id']
         : null;
     if (!claimedId) {
+      return null;
+    }
+
+    // L'identité doit être un SteamID64 servi par le domaine Steam, pas un
+    // `claimed_id` arbitraire dont l'URL contiendrait `/id/<chiffres>`.
+    const prefixe = 'https://steamcommunity.com/openid/id/';
+    if (!claimedId.startsWith(prefixe)) {
+      this.logger.warn(`claimed_id hors Steam: ${claimedId}`);
+      return null;
+    }
+    const steamId = claimedId.slice(prefixe.length);
+    if (!/^\d{17,25}$/.test(steamId)) {
       return null;
     }
 
@@ -102,8 +118,7 @@ export class AuthService {
       return null;
     }
 
-    const match = claimedId.match(/\/id\/(\d{17,25})$/);
-    return match ? match[1] : null;
+    return steamId;
   }
 
   /**

@@ -73,7 +73,7 @@ interface ServiceOptions {
 }
 
 function makeService(options: ServiceOptions = {}) {
-  const query = vi.fn();
+  const query = vi.fn().mockResolvedValue({ rows: [] });
   const db = { $client: { query } } as unknown as Db;
   const embed = vi.fn();
   const embedding = { embed } as unknown as EmbeddingService;
@@ -395,6 +395,40 @@ describe('SearchService — recherche sémantique', () => {
       degraded: true,
       message: expect.stringContaining('indisponible'),
     });
+  });
+
+  it('conserve tous les filtres en repli dégradé', async () => {
+    const { service, query, embed } = makeService();
+    embed.mockResolvedValue(null);
+    query.mockResolvedValueOnce({ rows: [] });
+    const repli = vi
+      .spyOn(service, 'searchByName')
+      .mockResolvedValue(reponseNom());
+
+    await service.search(
+      7,
+      dto({
+        mode: 'semantic',
+        q: 'jeu calme',
+        genres: [25],
+        modes: ['coop'],
+        manette: 'full',
+        etat: 'jamais',
+        duree: ['court'],
+      }),
+    );
+
+    expect(repli).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        genres: [25],
+        modes: ['coop'],
+        manette: 'full',
+        etat: 'jamais',
+        duree: ['court'],
+        mode: 'name',
+      }),
+    );
   });
 
   it('bascule en repli quand le quota Gemini est atteint', async () => {

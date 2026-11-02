@@ -5,6 +5,7 @@ import {
   useLocation,
   useSearchParams,
 } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import BarreRecherche from './BarreRecherche'
 
@@ -21,6 +22,10 @@ export default function RootLayout() {
   const { user, loading, login, logout } = useAuth()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location.pathname])
 
   const authResult = searchParams.get('auth')
   let notice: string | null = null

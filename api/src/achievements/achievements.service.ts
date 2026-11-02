@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import {
   achievements,
@@ -118,6 +118,25 @@ const STEAM_STAT_URL = (endpoint: string, params: URLSearchParams): string =>
   `${STEAM_API_BASE}/${endpoint}?${params.toString()}`;
 
 /**
+ * Résultat d'un appel `GetPlayerAchievements` :
+ * - `ok` : progression récupérée ;
+ * - `indisponible` : profil de détails privé / succès joueur inaccessibles
+ *   (ce n'est pas « zéro succès ») ;
+ * - `reseau` : timeout, 5xx ou réponse illisible (transitoire).
+ */
+type ResultatProgression =
+  | {
+      kind: 'ok';
+      unlocks: Array<{
+        apiName?: string;
+        achieved?: number;
+        unlocktime?: number;
+      }>;
+    }
+  | { kind: 'indisponible' }
+  | { kind: 'reseau' };
+
+/**
  * Succès d'un jeu (`Achievement`) et déblocages d'un joueur
  * (`UserAchievement`).
  *
@@ -178,7 +197,11 @@ export class AchievementsService {
     userId: number,
     gameId: number,
     appId: number,
-    options: { force?: boolean; propagerRateLimit?: boolean } = {},
+    options: {
+      force?: boolean;
+      propagerRateLimit?: boolean;
+      propagerEchecReseau?: boolean;
+    } = {},
   ): Promise<SuccesDetail> {
     let schema: AchievementRow[];
     try {
@@ -216,16 +239,14 @@ export class AchievementsService {
       (!activiteSync || activiteSync <= dateProgression);
 
     // Jeu jamais lancé : le débloqué vaut 0, inutile d'appeler
-    // `GetPlayerAchievements`.
+    // `GetPlayerAchievements`. On ignore d'éventuelles lignes historiques et
+    // on remet le compteur à 0 pour qu'il ne diverge pas de la fiche.
     if (!options.force && entree && entree.playtimeForever === 0) {
-      if (!frais) await this.marquerProgression(userId, gameId, 0);
-      const debloques = frais
-        ? await this.chargerDeblocages(userId, gameId)
-        : new Map<string, Date>();
+      await this.marquerProgression(userId, gameId, 0);
       return {
         total,
-        unlocked: debloques.size,
-        list: this.listeDepuisCache(schema, debloques),
+        unlocked: 0,
+        list: this.listeDepuisCache(schema, new Map()),
       };
     }
 
@@ -238,14 +259,9 @@ export class AchievementsService {
       };
     }
 
-    type DeblocagesSteam = Array<{
-      apiName?: string;
-      achieved?: number;
-      unlocktime?: number;
-    }> | null;
-    let unlocks: DeblocagesSteam;
+    let resultat: ResultatProgression;
     try {
-      unlocks = await this.fetchPlayerStats(steamId, appId);
+      resultat = await this.fetchPlayerStats(steamId, appId);
     } catch (error) {
       if (error instanceof SteamRateLimitError && !options.propagerRateLimit) {
         // 429 sur la progression : servir le cache, comme avant le lot.
@@ -258,10 +274,27 @@ export class AchievementsService {
       }
       throw error;
     }
-    if (unlocks === null) {
-      // Échec réseau : on renvoie le cache existant plutôt que de casser la
-      // fiche. La date de récupération n'est pas avancée, donc un prochain
-      // appel retentera.
+    if (resultat.kind === 'reseau') {
+      // Échec réseau : la fiche sert le cache. En mode import, on doit au
+      // contraire signaler l'échec : sinon `stepAchievements` le compte comme
+      // un succès, la passe se réenfile et les mêmes jeux restent manquants.
+      if (options.propagerEchecReseau) {
+        throw new ServiceUnavailableException(
+          'Progression Steam indisponible pour le moment',
+        );
+      }
+      const debloques = await this.chargerDeblocages(userId, gameId);
+      return {
+        total,
+        unlocked: debloques.size,
+        list: this.listeDepuisCache(schema, debloques),
+      };
+    }
+    if (resultat.kind === 'indisponible') {
+      // Profil de détails privé : la progression n'est pas « zéro succès ».
+      // On marque le compteur indisponible (null) sans le remettre à 0, et on
+      // sert le cache à la fiche. Le marqueur évite de retenter à chaque login.
+      await this.marquerProgressionIndisponible(userId, gameId);
       const debloques = await this.chargerDeblocages(userId, gameId);
       return {
         total,
@@ -270,13 +303,17 @@ export class AchievementsService {
       };
     }
 
+    const unlocks = resultat.unlocks;
+    const nomsSchema = new Set(schema.map((jeu) => jeu.apiName));
     const unlockedAtByApiName = new Map<string, Date>();
     for (const raw of unlocks) {
-      if (raw.achieved === 1 && raw.apiName) {
-        unlockedAtByApiName.set(
-          raw.apiName,
-          new Date((raw.unlocktime ?? 0) * 1000),
-        );
+      if (
+        raw.achieved === 1 &&
+        raw.apiName &&
+        nomsSchema.has(raw.apiName) &&
+        raw.unlocktime
+      ) {
+        unlockedAtByApiName.set(raw.apiName, new Date(raw.unlocktime * 1000));
       }
     }
 
@@ -290,6 +327,28 @@ export class AchievementsService {
           target: [userAchievements.userId, userAchievements.achievementId],
           set: { unlockedAt },
         });
+    }
+
+    // Purge les déblocages qui ne sont plus renvoyés par Steam (succès
+    // reverrouillé) ou qui appartiennent à un ancien schéma du jeu.
+    const tousLesSucces = await this.loadAll(gameId);
+    const idsDebloques = new Set(
+      schema
+        .filter((jeu) => unlockedAtByApiName.has(jeu.apiName))
+        .map((jeu) => jeu.id),
+    );
+    const idsPerimes = tousLesSucces
+      .filter((jeu) => !idsDebloques.has(jeu.id))
+      .map((jeu) => jeu.id);
+    if (idsPerimes.length > 0) {
+      await this.db
+        .delete(userAchievements)
+        .where(
+          and(
+            eq(userAchievements.userId, userId),
+            inArray(userAchievements.achievementId, idsPerimes),
+          ),
+        );
     }
 
     await this.marquerProgression(userId, gameId, unlockedAtByApiName.size);
@@ -310,6 +369,7 @@ export class AchievementsService {
   ): Promise<void> {
     await this.getUserAchievementsDetail(steamId, userId, gameId, appId, {
       propagerRateLimit: true,
+      propagerEchecReseau: true,
     });
   }
 
@@ -462,6 +522,29 @@ export class AchievementsService {
       );
   }
 
+  /**
+   * Progression inaccessible (profil de détails privé) : le compteur passe à
+   * `null` — l'UI affiche `—/total` — et la date évite de retenter à chaque
+   * login. Ce n'est pas « zéro succès ».
+   */
+  private async marquerProgressionIndisponible(
+    userId: number,
+    gameId: number,
+  ): Promise<void> {
+    await this.db
+      .update(libraryEntries)
+      .set({
+        achievementsUnlocked: null,
+        achievementsFetchedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          eq(libraryEntries.gameId, gameId),
+        ),
+      );
+  }
+
   private listeDepuisCache(
     schema: AchievementRow[],
     debloques: Map<string, Date>,
@@ -511,7 +594,14 @@ export class AchievementsService {
         return null;
       }
       const body = (await response.json()) as GetSchemaForGameResponse;
-      return (body.game?.availableGameStats?.achievements ?? [])
+      // Une réponse 200 sans `game` (maintenance/erreur) ne signifie pas
+      // « zéro succès » : on la traite comme indisponible pour ne pas poser
+      // définitivement `achievements_fetched_at`.
+      if (!body.game) {
+        this.logger.warn(`GetSchemaForGame ${appId} sans bloc game`);
+        return null;
+      }
+      return (body.game.availableGameStats?.achievements ?? [])
         .map((a) => ({
           apiName: a.name ?? '',
           displayName: a.displayName ?? '',
@@ -536,16 +626,12 @@ export class AchievementsService {
   private async fetchPlayerStats(
     steamId: string,
     appId: number,
-  ): Promise<Array<{
-    apiName?: string;
-    achieved?: number;
-    unlocktime?: number;
-  }> | null> {
+  ): Promise<ResultatProgression> {
     let key: string;
     try {
       key = this.apiKey();
     } catch {
-      return null;
+      return { kind: 'reseau' };
     }
     const url = STEAM_STAT_URL(
       'ISteamUserStats/GetPlayerAchievements/v1',
@@ -568,25 +654,29 @@ export class AchievementsService {
       }
       if (!response.ok) {
         this.logger.warn(`GetPlayerAchievements a répondu ${response.status}`);
-        return null;
+        return { kind: 'reseau' };
       }
       const body = (await response.json()) as GetPlayerAchievementsResponse;
-      // `success: false` → profil privé ou jeu sans succès : à traiter comme
-      // vide, mais on peut marquer la progression comme récupérée.
-      if (!body.playerstats?.success) return [];
+      // `success: false` → profil de détails privé : ce n'est pas « zéro
+      // succès ». On marque la progression indisponible, sans écraser le
+      // compteur.
+      if (!body.playerstats?.success) return { kind: 'indisponible' };
       // Steam renvoie `apiname` : on normalise vers `apiName` pour le reste du
       // service.
-      return (body.playerstats.achievements ?? []).map((raw) => ({
-        apiName: raw.apiname,
-        achieved: raw.achieved,
-        unlocktime: raw.unlocktime,
-      }));
+      return {
+        kind: 'ok',
+        unlocks: (body.playerstats.achievements ?? []).map((raw) => ({
+          apiName: raw.apiname,
+          achieved: raw.achieved,
+          unlocktime: raw.unlocktime,
+        })),
+      };
     } catch (error) {
       if (error instanceof SteamRateLimitError) throw error;
       this.logger.warn(
         `GetPlayerAchievements ${appId} injoignable: ${error instanceof Error ? error.message : 'erreur inconnue'}`,
       );
-      return null;
+      return { kind: 'reseau' };
     }
   }
 

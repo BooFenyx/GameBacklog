@@ -93,49 +93,77 @@ interface AppdetailsData {
 
 const FRENCH_MONTHS: Array<[RegExp, number]> = [
   [/jan/i, 0],
-  [/f[eé]v/i, 1],
-  [/mars/i, 2],
-  [/avr/i, 3],
-  [/mai/i, 4],
-  [/juin/i, 5],
-  [/juil/i, 6],
-  [/ao[uû]t/i, 7],
-  [/sept/i, 8],
+  [/f[eé]v|feb/i, 1],
+  [/mars|mar/i, 2],
+  [/avr|apr/i, 3],
+  [/mai|may/i, 4],
+  [/juin|jun/i, 5],
+  [/juil|jul/i, 6],
+  [/ao[uû]t|aug/i, 7],
+  [/sept|sep/i, 8],
   [/oct/i, 9],
   [/nov/i, 10],
-  [/d[eé]c/i, 11],
+  [/d[eé]c|dec/i, 11],
 ];
 
-/** Parses les dates "26 Oct, 2023" (anglais, natif) et "26 oct. 2023" (français). */
+/** Construit une date UTC et vérifie qu'aucun jour n'a été « reporté ». */
+function dateUtcValide(annee: number, mois: number, jour: number): Date | null {
+  const date = new Date(Date.UTC(annee, mois, jour));
+  if (
+    date.getUTCFullYear() !== annee ||
+    date.getUTCMonth() !== mois ||
+    date.getUTCDate() !== jour
+  ) {
+    return null;
+  }
+  return date;
+}
+
+/**
+ * Parse une date de sortie Steam uniquement quand Steam fournit un **jour**
+ * précis. Les dates partielles (`2023`, `Oct 2023`, `2023-10`, `Q1 2023`) ne
+ * doivent pas être transformées en date exacte : on renvoie `null`, et la
+ * fiche affiche l'année ou « date inconnue » plutôt qu'un jour inventé.
+ *
+ * Formats acceptés : ISO complet, `26 Oct, 2023`, `Oct 26, 2023`,
+ * `26 oct. 2023`, `26/10/2023`, `26-10-2023`.
+ */
 export function parseReleaseDate(raw: string | undefined): Date | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (/coming|bientôt|bientot/i.test(trimmed)) return null;
+  if (/coming|bientôt|bientot|à venir/i.test(trimmed)) return null;
 
-  // Défensif : si Steam renvoie déjà une date ISO, la garder telle quelle.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return new Date(`${trimmed}T00:00:00.000Z`);
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return dateUtcValide(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
   }
 
-  // "26 Oct, 2023" : V8 le parse en heure locale ; on ne garde que le jour.
-  const native = new Date(trimmed);
-  if (!Number.isNaN(native.getTime())) {
-    return new Date(
-      Date.UTC(native.getFullYear(), native.getMonth(), native.getDate()),
+  const numerique = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (numerique) {
+    return dateUtcValide(
+      Number(numerique[3]),
+      Number(numerique[2]) - 1,
+      Number(numerique[1]),
     );
   }
 
-  const match = trimmed.match(
+  const jourMoisAnnee = trimmed.match(
     /^(\d{1,2})\s+([a-zàâäéèêëîïôöùûüç]+)\.?,?\s*,?\s*(\d{4})$/i,
   );
+  const moisJourAnnee = trimmed.match(
+    /^([a-zàâäéèêëîïôöùûüç]+)\.?\s+(\d{1,2})\s*,?\s*(\d{4})$/i,
+  );
+  const match = jourMoisAnnee ?? moisJourAnnee;
   if (!match) return null;
 
-  const month = FRENCH_MONTHS.find(([regex]) => regex.test(match[2]));
-  if (!month) return null;
+  const moisTexte = jourMoisAnnee ? match[2] : match[1];
+  const jour = Number(jourMoisAnnee ? match[1] : match[2]);
+  const annee = Number(match[3]);
+  const mois = FRENCH_MONTHS.find(([regex]) => regex.test(moisTexte));
+  if (!mois) return null;
 
-  const date = new Date(Date.UTC(Number(match[3]), month[1], Number(match[1])));
-  return Number.isNaN(date.getTime()) ? null : date;
+  return dateUtcValide(annee, mois[1], jour);
 }
 
 /** Déduit le support manette du champ dédié puis des catégories Steam. */
@@ -182,7 +210,10 @@ export function decodeEntities(value: string): string {
     (match, raw: string) => {
       if (raw[0] === '#') {
         const hexadecimal = raw[1] === 'x' || raw[1] === 'X';
-        const code = Number.parseInt(raw.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+        const code = Number.parseInt(
+          raw.slice(hexadecimal ? 2 : 1),
+          hexadecimal ? 16 : 10,
+        );
         if (Number.isInteger(code) && code >= 0 && code <= 0x10ffff) {
           try {
             return String.fromCodePoint(code);
@@ -236,9 +267,7 @@ export function htmlToBlocks(html: string | undefined): DescriptionBlock[] {
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
     .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, ' ');
 
-  const tokens = propre.split(
-    /(<\/?(?:p|div|br|h[1-4]|ul|ol|li)\b[^>]*>)/gi,
-  );
+  const tokens = propre.split(/(<\/?(?:p|div|br|h[1-4]|ul|ol|li)\b[^>]*>)/gi);
   const blocks: DescriptionBlock[] = [];
   let mode: 'paragraphe' | 'titre' | 'liste' | null = null;
   let texte = '';
@@ -313,7 +342,9 @@ export function htmlToBlocks(html: string | undefined): DescriptionBlock[] {
       continue;
     }
 
-    if (['</h1>', '</h2>', '</h3>', '</h4>'].some((tag) => bas.startsWith(tag))) {
+    if (
+      ['</h1>', '</h2>', '</h3>', '</h4>'].some((tag) => bas.startsWith(tag))
+    ) {
       viderTexte();
       mode = null;
       continue;
@@ -398,9 +429,7 @@ export function retirerPreambuleCommercial(
     if (premier.type !== 'titre') return blocks;
 
     const premierEstCommercial = TITRE_PREAMBULE_COMMERCIAL.test(premier.texte);
-    const seulementDesTitres = preambule.every(
-      (bloc) => bloc.type === 'titre',
-    );
+    const seulementDesTitres = preambule.every((bloc) => bloc.type === 'titre');
     const titreCommercialDansPreambule = seulementDesTitres
       ? preambule.some(
           (bloc) =>
@@ -446,7 +475,9 @@ export function mapScreenshots(
 }
 
 /** Plateformes Steam, dans l'ordre d'affichage Windows → macOS → Linux. */
-export function mapPlatforms(platforms: SteamPlatforms | undefined): Plateforme[] {
+export function mapPlatforms(
+  platforms: SteamPlatforms | undefined,
+): Plateforme[] {
   const resultat: Plateforme[] = [];
   if (platforms?.windows) resultat.push('windows');
   if (platforms?.mac) resultat.push('mac');
@@ -557,6 +588,8 @@ export interface UserGameDetail {
   genres: string[];
   categories: string[];
   controllerSupport: 'none' | 'partial' | 'full';
+  /** Faux tant que `appdetails` n'a pas été récupéré : le support manette est inconnu. */
+  detailsAvailable: boolean;
   /** Date seule `YYYY-MM-DD`, à minuit UTC côté base. */
   releaseDate: string | null;
   headerImageUrl: string | null;
@@ -602,10 +635,7 @@ export class GamesService {
    * discriminé pour que l'import distingue un 429, un jeu délisté et une erreur
    * réseau. `tentative` ne sert qu'à calculer le backoff sans `Retry-After`.
    */
-  async fetchAppDetails(
-    appId: number,
-    tentative = 0,
-  ): Promise<ResultatFiche> {
+  async fetchAppDetails(appId: number, tentative = 0): Promise<ResultatFiche> {
     const url = `${STEAM_STORE_APPDETAILS}?appids=${appId}&l=french`;
     try {
       const response = await fetch(url, {
@@ -618,6 +648,11 @@ export class GamesService {
           `appdetails ${appId} limité (429), nouvel essai dans ${retryAfterMs} ms`,
         );
         return { kind: 'rate-limit', retryAfterMs };
+      }
+      if (response.status === 404 || response.status === 410) {
+        // Fiche supprimée du Store : ce n'est pas une erreur réseau
+        // transitoire. Elle doit pouvoir entrer en quarantaine.
+        return { kind: 'removed' };
       }
       if (!response.ok) {
         this.logger.warn(`appdetails a répondu ${response.status}`);
@@ -760,6 +795,7 @@ export class GamesService {
         genres: games.genres,
         categories: games.categories,
         controllerSupport: games.controllerSupport,
+        detailsFetchedAt: games.detailsFetchedAt,
         releaseDate: games.releaseDate,
         headerImageUrl: games.headerImageUrl,
         playtimeForever: libraryEntries.playtimeForever,
@@ -780,20 +816,20 @@ export class GamesService {
     const {
       gameAchievementsFetchedAt,
       progressFetchedAt,
+      detailsFetchedAt,
       releaseDate,
       ...reste
     } = row;
     return {
       ...reste,
+      detailsAvailable: detailsFetchedAt !== null,
       releaseDate: releaseDate ? releaseDate.toISOString().slice(0, 10) : null,
       website: row.website || null,
       platforms: row.platforms as Plateforme[],
       achievementsTotal: gameAchievementsFetchedAt
         ? row.achievementsTotal
         : null,
-      achievementsUnlocked: progressFetchedAt
-        ? row.achievementsUnlocked
-        : null,
+      achievementsUnlocked: progressFetchedAt ? row.achievementsUnlocked : null,
     };
   }
 }

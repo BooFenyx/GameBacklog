@@ -161,13 +161,13 @@ export function filtresVides(filtres: Filtres): boolean {
  * une saisie dans le champ « Filtrer par nom » ne relancerait pas la requête.
  */
 export function cleFiltres(filtres: Filtres): string {
-  return [
+  return JSON.stringify([
     filtres.q,
-    filtres.genres.join(','),
-    filtres.modes.join(','),
-    filtres.manette ?? '',
-    filtres.etat ?? '',
-    filtres.duree.join(','),
+    filtres.genres,
+    filtres.modes,
+    filtres.manette,
+    filtres.etat,
+    filtres.duree,
     filtres.tri,
-  ].join('|')
+  ])
 }

@@ -12,6 +12,7 @@ import {
   and,
   desc,
   eq,
+  gt,
   gte,
   isNotNull,
   isNull,
@@ -266,16 +267,16 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     userId: number,
     options: { autoriserEcheanceDue?: boolean } = {},
   ): Promise<void> {
-    this.annulerReprise(userId);
-    const prochaine = await this.prochaineRepriseFiche(userId);
+    // On ne touche pas au timer existant avant d'avoir la réponse : une erreur
+    // de requête ne doit pas faire perdre une échéance future valide.
+    const prochaine = await this.prochaineRepriseFiche(
+      userId,
+      options.autoriserEcheanceDue ?? true,
+    );
     if (!prochaine) {
       return;
     }
-    if (prochaine.getTime() <= Date.now() && !options.autoriserEcheanceDue) {
-      // Échéance déjà due : le timer qui a tiré, le scan de démarrage ou
-      // `needsDetails` au login la prend en charge. La replanifier à 0 après
-      // un job en échec (ex. profil privé à l'étape library) créerait une
-      // boucle serrée.
+    if (!options.autoriserEcheanceDue && prochaine.getTime() <= Date.now()) {
       return;
     }
     this.planifierAvecEcheance(userId, prochaine);
@@ -283,6 +284,9 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
 
   /** Pose le timer (borné à `MAX_TIMEOUT_MS`) pour une échéance connue. */
   private planifierAvecEcheance(userId: number, prochaine: Date): void {
+    // Remplace un éventuel timer existant : les appels concurrents ne doivent
+    // pas laisser deux timers pour le même utilisateur.
+    this.annulerReprise(userId);
     const delai = Math.max(0, prochaine.getTime() - Date.now());
     const attente = Math.min(delai, MAX_TIMEOUT_MS);
     const timer = setTimeout(() => {
@@ -315,21 +319,35 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Plus proche échéance de reprise d'une fiche pour un utilisateur. */
-  private async prochaineRepriseFiche(userId: number): Promise<Date | null> {
+  private async prochaineRepriseFiche(
+    userId: number,
+    autoriserEcheanceDue = true,
+  ): Promise<Date | null> {
+    const conditions = [
+      eq(libraryEntries.userId, userId),
+      or(
+        isNull(games.detailsFetchedAt),
+        lt(games.filtersVersion, FILTERS_VERSION),
+      ),
+    ];
+    if (!autoriserEcheanceDue) {
+      conditions.push(
+        isNotNull(games.detailsNextRetryAt),
+        gt(games.detailsNextRetryAt, new Date()),
+      );
+    }
     const [row] = await this.db
-      .select({ prochaine: min(games.detailsNextRetryAt) })
+      .select({
+        prochaine: min(games.detailsNextRetryAt),
+        sansEcheance: sql<number>`count(*) filter (where ${games.detailsNextRetryAt} is null)`,
+      })
       .from(libraryEntries)
       .innerJoin(games, eq(libraryEntries.gameId, games.id))
-      .where(
-        and(
-          eq(libraryEntries.userId, userId),
-          or(
-            isNull(games.detailsFetchedAt),
-            lt(games.filtersVersion, FILTERS_VERSION),
-          ),
-          isNotNull(games.detailsNextRetryAt),
-        ),
-      );
+      .where(and(...conditions));
+    // Une fiche sans échéance (jamais tentée / remap) est due maintenant.
+    if (Number(row?.sansEcheance ?? 0) > 0) {
+      return new Date();
+    }
     return row?.prochaine ?? null;
   }
 
@@ -343,22 +361,22 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
         .select({
           userId: libraryEntries.userId,
           prochaine: min(games.detailsNextRetryAt),
+          sansEcheance: sql<number>`count(*) filter (where ${games.detailsNextRetryAt} is null)`,
         })
         .from(libraryEntries)
         .innerJoin(games, eq(libraryEntries.gameId, games.id))
         .where(
-          and(
-            or(
-              isNull(games.detailsFetchedAt),
-              lt(games.filtersVersion, FILTERS_VERSION),
-            ),
-            isNotNull(games.detailsNextRetryAt),
+          or(
+            isNull(games.detailsFetchedAt),
+            lt(games.filtersVersion, FILTERS_VERSION),
           ),
         )
         .groupBy(libraryEntries.userId);
 
       for (const row of rows) {
-        if (row.prochaine) {
+        if (Number(row.sansEcheance ?? 0) > 0) {
+          this.planifierAvecEcheance(row.userId, new Date());
+        } else if (row.prochaine) {
           this.planifierAvecEcheance(row.userId, row.prochaine);
         }
       }
@@ -620,19 +638,32 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     let job: SyncJobRow | undefined;
     try {
-      do {
-        this.rerun = false;
+      // Traite tous les jobs pending du tour, pas seulement le premier : au
+      // redémarrage, plusieurs utilisateurs peuvent avoir un job à reprendre.
+      // On avance par id croissant puis on repart au début pour ne pas
+      // reprendre immédiatement un job pausé au détriment des autres.
+      let dernierId = 0;
+      for (let tours = 0; tours < 10_000; tours += 1) {
+        job = undefined;
         const [prochain] = await this.db
           .select()
           .from(syncJobs)
-          .where(eq(syncJobs.status, 'pending'))
+          .where(
+            and(eq(syncJobs.status, 'pending'), gt(syncJobs.id, dernierId)),
+          )
           .orderBy(syncJobs.id)
           .limit(1);
-        job = prochain as SyncJobRow | undefined;
-        if (job) {
-          await this.processJob(job);
+        if (!prochain) {
+          if (dernierId === 0) {
+            break;
+          }
+          dernierId = 0;
+          continue;
         }
-      } while (this.rerun);
+        job = prochain as SyncJobRow;
+        dernierId = job.id;
+        await this.processJob(job);
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -989,10 +1020,27 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
 
     if (cause === 'removed') {
       const [row] = await this.db
-        .select({ attempts: games.detailsAttempts })
+        .select({
+          attempts: games.detailsAttempts,
+          detailsFetchedAt: games.detailsFetchedAt,
+        })
         .from(games)
         .where(eq(games.appId, appId))
         .limit(1);
+
+      // Une fiche déjà récupérée mais à remapper n'est pas un « jeu délisté » :
+      // on ne pollue pas `details_attempts` et on la retente après 24 h.
+      if (row?.detailsFetchedAt) {
+        await this.db
+          .update(games)
+          .set({
+            detailsNextRetryAt: new Date(maintenant + RETRY_FICHE_DELISTEE_MS),
+            detailsLastError: 'removed',
+          })
+          .where(eq(games.appId, appId));
+        return;
+      }
+
       const attempts = (row?.attempts ?? 0) + 1;
       const delai =
         attempts >= SEUIL_FICHE_DELISTEE

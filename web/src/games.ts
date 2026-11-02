@@ -42,6 +42,7 @@ export type FicheJeu = {
   genres: string[]
   categories: string[]
   controllerSupport: 'none' | 'partial' | 'full'
+  detailsAvailable: boolean
   releaseDate: string | null
   headerImageUrl: string | null
   playtimeForever: number
