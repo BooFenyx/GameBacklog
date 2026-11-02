@@ -67,7 +67,8 @@ export interface AchievementDto {
 /** Compteurs + liste détaillée d'un jeu pour un utilisateur. */
 export interface SuccesDetail {
   total: number;
-  unlocked: number;
+  /** `null` quand Steam ne permet pas de lire la progression (profil privé). */
+  unlocked: number | null;
   list: AchievementDto[];
 }
 
@@ -298,7 +299,7 @@ export class AchievementsService {
       const debloques = await this.chargerDeblocages(userId, gameId);
       return {
         total,
-        unlocked: debloques.size,
+        unlocked: null,
         list: this.listeDepuisCache(schema, debloques),
       };
     }
@@ -329,16 +330,24 @@ export class AchievementsService {
         });
     }
 
-    // Purge les déblocages qui ne sont plus renvoyés par Steam (succès
-    // reverrouillé) ou qui appartiennent à un ancien schéma du jeu.
+    // Purge uniquement les déblocages explicites : un succès revenu à
+    // `achieved: 0` (reverrouillé) ou absent du schéma courant (ancien
+    // schéma). Une réponse `success: true` incomplète ne doit pas effacer des
+    // déblocages valides.
     const tousLesSucces = await this.loadAll(gameId);
-    const idsDebloques = new Set(
-      schema
-        .filter((jeu) => unlockedAtByApiName.has(jeu.apiName))
-        .map((jeu) => jeu.id),
+    const idsReverrouilles = new Set(
+      unlocks
+        .filter(
+          (raw) =>
+            raw.achieved === 0 && raw.apiName && nomsSchema.has(raw.apiName),
+        )
+        .map((raw) => schema.find((jeu) => jeu.apiName === raw.apiName)?.id)
+        .filter((id): id is number => id !== undefined),
     );
     const idsPerimes = tousLesSucces
-      .filter((jeu) => !idsDebloques.has(jeu.id))
+      .filter(
+        (jeu) => !nomsSchema.has(jeu.apiName) || idsReverrouilles.has(jeu.id),
+      )
       .map((jeu) => jeu.id);
     if (idsPerimes.length > 0) {
       await this.db

@@ -88,13 +88,40 @@ export class AuthService {
 
     // L'identité doit être un SteamID64 servi par le domaine Steam, pas un
     // `claimed_id` arbitraire dont l'URL contiendrait `/id/<chiffres>`.
-    const prefixe = 'https://steamcommunity.com/openid/id/';
-    if (!claimedId.startsWith(prefixe)) {
+    // Steam documente `http://` mais émet généralement `https://` : on accepte
+    // les deux protocoles, sans accepter un autre hôte.
+    let urlClaimed: URL;
+    try {
+      urlClaimed = new URL(claimedId);
+    } catch {
+      this.logger.warn('claimed_id illisible');
+      return null;
+    }
+    if (
+      (urlClaimed.protocol !== 'https:' && urlClaimed.protocol !== 'http:') ||
+      urlClaimed.hostname !== 'steamcommunity.com'
+    ) {
       this.logger.warn(`claimed_id hors Steam: ${claimedId}`);
       return null;
     }
-    const steamId = claimedId.slice(prefixe.length);
-    if (!/^\d{17,25}$/.test(steamId)) {
+    const matchSteamId = urlClaimed.pathname.match(
+      /^\/openid\/id\/(\d{17,25})$/,
+    );
+    if (!matchSteamId) {
+      return null;
+    }
+    const steamId = matchSteamId[1];
+
+    // Un flux OpenID normal ne porte ni `invalidate_handle`, ni un
+    // `op_endpoint` différent de Steam, et `identity` vaut `claimed_id`.
+    // Ces contrôles ferment l'injection de `is_valid:true` via un handle
+    // répercuté par `check_authentication`.
+    if (
+      query['openid.invalidate_handle'] !== undefined ||
+      query['openid.op_endpoint'] !== STEAM_OPENID_ENDPOINT ||
+      query['openid.identity'] !== claimedId
+    ) {
+      this.logger.warn('Assertion OpenID incohérente');
       return null;
     }
 
@@ -113,7 +140,17 @@ export class AuthService {
       signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
     });
     const text = await response.text();
-    if (!/is_valid\s*:\s*true/i.test(text)) {
+    // Steam répond `ns:…\nis_valid:true`. On exige une **seule** ligne
+    // `is_valid`, exactement `true` : un regex sur tout le corps laisserait
+    // passer une valeur injectée dans un autre champ.
+    const lignesValidation = text
+      .split(/\r?\n/)
+      .map((ligne) => ligne.trim())
+      .filter((ligne) => /^is_valid\s*:/i.test(ligne));
+    if (
+      lignesValidation.length !== 1 ||
+      !/^is_valid\s*:\s*true$/i.test(lignesValidation[0])
+    ) {
       this.logger.warn('Réponse OpenID invalide');
       return null;
     }

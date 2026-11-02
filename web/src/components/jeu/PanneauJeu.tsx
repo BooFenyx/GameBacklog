@@ -19,7 +19,9 @@ export default function PanneauJeu({ jeu, succes }: Props) {
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const activite = libelleActivite(jeu)
   const totalSucces = succes?.total ?? jeu.achievementsTotal
-  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
+  // Ne pas utiliser `??` : si la fiche détaillée dit « indisponible » (null),
+  // un ancien compteur de bibliothèque ne doit pas reprendre la main.
+  const debloquesSucces = succes ? succes.unlocked : jeu.achievementsUnlocked
   const aDesCompteurs = totalSucces !== null && totalSucces > 0
   const complet =
     aDesCompteurs &&

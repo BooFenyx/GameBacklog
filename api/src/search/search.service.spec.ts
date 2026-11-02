@@ -414,7 +414,7 @@ describe('SearchService — recherche sémantique', () => {
         modes: ['coop'],
         manette: 'full',
         etat: 'jamais',
-        duree: ['court'],
+        duree: ['0-2'],
       }),
     );
 
@@ -425,7 +425,7 @@ describe('SearchService — recherche sémantique', () => {
         modes: ['coop'],
         manette: 'full',
         etat: 'jamais',
-        duree: ['court'],
+        duree: ['0-2'],
         mode: 'name',
       }),
     );

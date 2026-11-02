@@ -73,19 +73,21 @@ boot. Chaque étape respecte un budget (`SYNC_STEP_MAX_MS`, 15 min par défaut,
 plafond total. Les fiches Steam gèrent les 429 et les jeux délistés
 (`details_attempts`, `details_next_retry_at`, `details_last_error`) ; les
 embeddings s'arrêtent proprement sur quota (`done` + `pendingEmbeddings`).
-`needsFilters`, `needsDetails`, `needsAchievements` et `needsEmbeddings`
-relancent la sync au login s'il reste des reliquats ; `needsEmbeddings` est faux
-sans `EMBEDDING_API_KEY`. `pendingDetails` compte toutes les fiches encore
-récupérables, y compris celles en backoff (`details_next_retry_at` futur) : un
+`needsFilters`, `needsDetails`, `needsAchievements`, `needsLibraryActivity` et
+`needsEmbeddings` relancent la sync au login s'il reste des reliquats ;
+`needsEmbeddings` est faux sans `EMBEDDING_API_KEY`. `pendingDetails` compte toutes les
+fiches encore récupérables, y compris celles en backoff (`details_next_retry_at`
+futur) : un
 scheduler en mémoire relit les échéances persistées au démarrage, prend en
 compte les fiches sans échéance (`next_retry = NULL`), conserve les timers
 futurs et évite les doublons, puis réenfile automatiquement l'import à la
 prochaine date, sans clic. `POST /api/sync` force en plus les fiches en backoff
 (`details_attempts < 3`) et reste une relance depuis `library`. `drain` traite
-tous les jobs `pending` d'un tour, pas seulement le premier ; une erreur de job
-n'est jamais rétrogradée par le `catch` de la boucle. Les 429 de succès
-respectent `Retry-After` et les erreurs fatales de la boucle de lots ne sont
-plus avalées.
+tous les jobs `pending` d'un tour, pas seulement le premier ; un job enfilé
+pendant le dernier `SELECT` lève `rerun` et relance un drain à la fin, et une
+erreur de job n'est jamais rétrogradée par le `catch` de la boucle. Les 429 de
+succès respectent `Retry-After`, trois échecs réseau consécutifs mettent la
+passe en pause et les erreurs fatales de la boucle de lots ne sont plus avalées.
 
 **Activité dérivée.** `library_entries` ne stocke plus `last_played_at` : elle expose
 `last_activity_at`, `last_activity_source` (`sync_delta` / `recent_window` /
@@ -107,16 +109,18 @@ Un jeu jamais lancé n'appelle pas `GetPlayerAchievements` : seul le schéma est
 demandé. Un `success: false` (profil de détails privé) n'est **pas** « zéro succès » :
 le compteur passe à `null` (migration 0011, colonne nullable) et l'UI affiche `— / total`,
 sans retenter à chaque login. Les déblocages absents du schéma courant ou reverrouillés
-sont purgés ; un `unlocktime` absent n'est pas transformé en date invalide et le succès
-n'est pas enregistré. `GET /api/library` renvoie `achievementsTotal` et
-`achievementsUnlocked` (`null` tant que la donnée n'est pas prête ou si elle est
-inaccessible) ; les cartes et la liste affichent `12 / 51`, `— / total` ou masquent le
-badge. `GET /api/games/:appId` ne charge plus les succès : il renvoie la fiche, les
-compteurs et `detailsAvailable` (faux tant que `appdetails` n'est pas récupéré — le
-support manette est alors inconnu). `GET /api/games/:appId/achievements` charge la liste
-détaillée à la demande, avec le cache et le TTL de l'étape `achievements` ; une panne
-réseau ou un 429 y répond 503 (cache conservé) au lieu d'être compté comme un succès
-d'import.
+sont purgés (un succès simplement absent d'une réponse partielle est conservé) ; un
+`unlocktime` absent n'est pas transformé en date invalide et le succès n'est pas
+enregistré. `GET /api/library` renvoie `achievementsTotal` et `achievementsUnlocked`
+(`null` tant que la donnée n'est pas prête ou si elle est inaccessible) ; les cartes et
+la liste affichent `12 / 51`, `— / total` ou masquent le badge. `GET /api/games/:appId`
+ne charge plus la liste des succès : il renvoie la fiche, les compteurs et
+`detailsAvailable` (faux tant que `appdetails` n'est pas récupéré — le support manette
+est alors inconnu). `GET /api/games/:appId/achievements` charge la liste détaillée à la
+demande, avec le cache et le TTL de l'étape `achievements` ; il renvoie `unlocked: null`
+quand la progression est inaccessible (la fiche garde `— / total`, sans pourcentage ni
+barre), et une panne réseau ou un 429 y répond 503 (cache conservé) au lieu d'être
+compté comme un succès d'import.
 
 **Front.** Pages Connexion, accueil, bibliothèque, détail d'un jeu (`/jeu/:appId`) et 404,
 avec React Router et un provider de session. La bibliothèque sonde `GET /api/sync` toutes
@@ -124,7 +128,8 @@ les 2 s (le polling survit à une erreur transitoire) ; elle est filtrée, trié
 via l'URL (`/bibliotheque?genres=25&modes=coop&tri=temps`) et s'affiche dès que l'étape
 `library` est passée. La page fiche est remontée quand `appId` change (aucun état de
 l'ancien jeu ne fuit) et remet le scroll en haut ; sur mobile, l'ordre est
-description/galerie → informations → succès. Le bandeau d'import affiche l'erreur
+description/galerie → informations → succès, sans dépendre de la présence des sections
+(une classe dédiée aux succès, pas `nth-child`). Le bandeau d'import affiche l'erreur
 réelle et les reliquats (`pendingDetails`, `detailsUnavailable`, `pendingAchievements`,
 `pendingEmbeddings`) via `web/src/import.ts` (`etatImport` et `messageErreurImport`,
 qui réutilise l'aide « profil privé » / quota). Sur desktop, une **colonne de filtres**
@@ -173,10 +178,12 @@ dégradé/quota/erreur).
 **Sécurité.** CSP de production en place : stricte côté API (`app.setup.ts`, `default-src
 'none'`, prod uniquement) et via les en-têtes Vercel côté front (CSP SPA + `nosniff` +
 `Referrer-Policy`). Le flux OpenID porte un `state` anti-CSRF stocké en session et vérifie
-`return_to`/`realm` ainsi que l'origine Steam du `claimed_id` ; `SessionGuard` exige
-`steamId` **et** `userId`. Rate limiting en place sur `GET /api/search` par `steamId`
-(voir Écart 10) ; les autres routes ne sont pas limitées. `enableShutdownHooks` est activé
-dans `main.ts` (annulation des timers du scheduler).
+`return_to`/`realm`, l'origine Steam du `claimed_id` (`http`/`https`), `op_endpoint`,
+`identity` et l'absence d'`invalidate_handle` ; la réponse `check_authentication` est
+parsée ligne par ligne. `SessionGuard` exige `steamId` **et** `userId`. Rate limiting en
+place sur `GET /api/search` par `steamId` (voir Écart 10) ; les autres routes ne sont pas
+limitées. `enableShutdownHooks` est activé dans `main.ts` (annulation des timers du
+scheduler).
 
 **Non implémenté :** accueil calculé (sources autorisées : `playtime_forever`,
 `playtime_2weeks`, `last_activity_source` ; dates exactes interdites), amélioration des
@@ -339,8 +346,11 @@ extension.
 **OpenID : le callback exige un `state` de session.** `/api/auth/steam` génère un jeton
 aléatoire, le stocke dans `req.session.openidState` et l'inclut dans `return_to`. Le
 callback refuse un `state` absent ou différent, un `return_to` hors de
-`${FRONTEND_URL}/api/auth/steam/return` ou un `claimed_id` qui n'est pas
-`https://steamcommunity.com/openid/id/<17-25 chiffres>`. Conséquence pour les tests :
+`${FRONTEND_URL}/api/auth/steam/return`, un `claimed_id` hors
+`(http|https)://steamcommunity.com/openid/id/<17-25 chiffres>`, un `op_endpoint` autre
+que Steam, un `identity` différent du `claimed_id` ou un `invalidate_handle`. La réponse
+`check_authentication` est parsée ligne par ligne (une seule ligne `is_valid:true`).
+Conséquence pour les tests :
 on n'appelle **jamais** `/api/auth/steam/return` directement avec une requête fabriquée.
 Utilise `ouvrirSessionTest(agent, frontendUrl, steamId)` (`api/test/session-test.ts`), qui
 suit d'abord `/api/auth/steam` pour récupérer le cookie et le `state`, puis rejoue le
@@ -563,7 +573,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec **temps de jeu, activité récente (approximative), genres, filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastActivityAt`, `lastActivitySource`, `lastActivityPrecision`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs et `lastActivityDisponible`. Le tri `recent` utilise `last_activity_at DESC NULLS LAST, playtime_last_2_weeks DESC` ; l'option est masquée quand `lastActivityDisponible` est faux, avec repli sur `nom`. Le front (`web/src/pages/Bibliotheque.tsx`) affiche une colonne de filtres repliable sur desktop, la barre de résultats, les filtres actifs, le tri, la pagination et les états vides/erreur. La colonne se ferme en glissant à gauche ; un onglet vertical la rouvre et la grille gagne une colonne. Sur mobile, le panneau `<dialog>` est utilisé. La refonte visuelle des cartes est prévue en PR2. |
+| **État** | ✅ Résolu — `GET /api/library` renvoie une page `{ items, total, limit, offset, hasMore }` avec `playtimeForever`, `playtimeLast2Weeks`, `lastActivityAt`, `lastActivitySource`, `lastActivityPrecision`, `genres`, `modes`, `controllerSupport`, `headerImageUrl`, `achievementsUnlocked`. `GET /api/library/facets` fournit les compteurs et `lastActivityDisponible`. Le tri `recent` utilise `last_activity_at DESC NULLS LAST, playtime_last_2_weeks DESC` ; l'option est masquée quand `lastActivityDisponible` est faux, avec repli sur `nom`. Le front (`web/src/pages/Bibliotheque.tsx`) affiche une colonne de filtres repliable sur desktop, la barre de résultats, les filtres actifs, le tri, la pagination et les états vides/erreur. La colonne se ferme en glissant à gauche ; un onglet vertical la rouvre et la grille gagne une colonne. Sur mobile, le panneau `<dialog>` est utilisé. La refonte visuelle des cartes et la vue liste sont déjà en place. |
 
 #### Écart 6 — Succès à la demande — ✅ Résolu
 
@@ -652,7 +662,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Bibliothèque : liste des jeux avec temps de jeu, dernière utilisation, genres, **filtres et tri classiques**. » (`fiche_projet.md:17`) |
-| **État** | ✅ Résolu — `LibraryQueryDto` (`api/src/library/dto/`) valide `q`, `genres`, `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`. `LibraryService.savedLibrary` applique les filtres en SQL (`construireConditions`), trie (`nom`/`temps`/`recent`) et pagine. **Genres et modes sont combinés en ET exclusif** (`genre_ids @>`, une condition par mode) ; les durées restent en OR. Les facettes sont exposées par `GET /api/library/facets`. Le front sérialise les filtres dans l'URL et réutilise le même panneau sur `/recherche`. |
+| **État** | ✅ Résolu — `LibraryQueryDto` (`api/src/library/dto/`) valide `q`, `genres`, `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`. `LibraryService.savedLibrary` applique les filtres en SQL (`construireConditions`), trie (`nom`/`temps`/`recent`) et pagine. **Genres et modes sont combinés en ET exclusif** (`genre_ids @>`, une condition par mode) ; les durées restent en OR. Les facettes sont exposées par `GET /api/library/facets`. Le front sérialise les filtres dans l'URL ; le panneau n'est utilisé que par la bibliothèque. |
 
 #### Écart 20 — Jeux à relancer / à découvrir absents
 
@@ -667,7 +677,7 @@ reste à corriger).
 Ordre recommandé pour combler les écarts restants :
 
 1. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
-2. **Finaliser la refonte visuelle de la bibliothèque** : préciser les champs exacts des cartes/listes, purger le CSS mort et valider la fiche de jeu sur sa branche.
+2. **Dette visuelle** : purger le CSS mort et stabiliser les champs exacts des cartes/listes (la refonte bibliothèque et la fiche sont déjà en place).
 3. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
 
 ## Base de données

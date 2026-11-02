@@ -578,7 +578,8 @@
   transform: translateY(-1px);
 }
 
-.succes-carte.verrouille {
+.succes-carte.verrouille,
+.succes-carte--inconnu {
   border-style: dashed;
   background: color-mix(in oklab, var(--couleur-surface-1) 68%, transparent);
 }
@@ -761,19 +762,19 @@
     display: contents;
   }
 
-  .fiche-principale > .fiche-section:nth-child(1) {
+  /* Description et galerie gardent l'ordre du DOM (order 1) ; les
+     informations passent après, les succès en dernier. Ne pas dépendre de
+     `nth-child` : `DescriptionJeu`/`GalerieJeu` retournent `null` quand leur
+     contenu manque, ce qui décalait les index. */
+  .fiche-principale > .fiche-section {
     order: 1;
-  }
-
-  .fiche-principale > .fiche-section:nth-child(2) {
-    order: 2;
   }
 
   .fiche-laterale > * {
     order: 3;
   }
 
-  .fiche-principale > .fiche-section:nth-child(3) {
+  .fiche-principale > .fiche-section--succes {
     order: 4;
   }
 

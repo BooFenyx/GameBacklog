@@ -324,9 +324,17 @@ describe('AchievementsService', () => {
         }),
       );
 
-      const result = await service.getUserAchievements('7656119', 3, 7, 620);
-      expect(result).toHaveLength(2);
-      expect(result.every((succes) => succes.unlockedAt === null)).toBe(true);
+      const detail = await service.getUserAchievementsDetail(
+        '7656119',
+        3,
+        7,
+        620,
+      );
+      expect(detail.unlocked).toBeNull();
+      expect(detail.list).toHaveLength(2);
+      expect(detail.list.every((succes) => succes.unlockedAt === null)).toBe(
+        true,
+      );
       expect(fake.set).toHaveBeenCalledWith(
         expect.objectContaining({
           achievementsUnlocked: null,
@@ -404,6 +412,34 @@ describe('AchievementsService', () => {
       await service.getUserAchievements('7656119', 3, 7, 620);
 
       expect(fake.delete).toHaveBeenCalled();
+    });
+
+    it('ne purge pas un succès simplement absent d’une réponse partielle', async () => {
+      const fake = fakeDb([...schemaEnCache, LIGNE_DETAIL]);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            playerstats: {
+              success: true,
+              achievements: [
+                {
+                  apiname: 'PORTAL_PUZZLE',
+                  achieved: 1,
+                  unlocktime: 1_700_000_000,
+                },
+              ],
+            },
+          }),
+        }),
+      );
+
+      await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(fake.delete).not.toHaveBeenCalled();
     });
 
     it('ne rappelle pas Steam quand la progression est fraîche', async () => {

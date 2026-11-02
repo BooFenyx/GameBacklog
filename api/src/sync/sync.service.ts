@@ -55,6 +55,8 @@ const DEFAULT_APPDETAILS_THROTTLE_MS = 1500;
 const DEFAULT_ACHIEVEMENTS_THROTTLE_MS = 200;
 /** Trois 429 consécutifs : la passe s'arrête pour ne pas marteler Steam. */
 const MAX_429_CONSECUTIFS = 3;
+/** Trois échecs réseau consécutifs : la passe s'arrête au lieu de balayer tout. */
+const MAX_ERREURS_RESEAU_CONSECUTIVES = 3;
 /** Attente maximale imposée par un `Retry-After` pendant une passe. */
 const MAX_ATTENTE_429_MS = 5 * 60 * 1000;
 /** Délais avant de retenter une fiche en échec. */
@@ -274,6 +276,9 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       options.autoriserEcheanceDue ?? true,
     );
     if (!prochaine) {
+      // Plus aucune fiche à reprendre : un timer posé avant un remap ou une
+      // relance ne doit pas réveiller un job `done` pour rien.
+      this.annulerReprise(userId);
       return;
     }
     if (!options.autoriserEcheanceDue && prochaine.getTime() <= Date.now()) {
@@ -680,6 +685,13 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       }
     } finally {
       this.running = false;
+      // Un job a pu être enfilé pendant le dernier SELECT vide : `enqueue` a
+      // alors posé `rerun` au lieu de relancer un drain concurrent. Sans cette
+      // reprise, le job resterait `pending` jusqu'au prochain login.
+      if (this.rerun) {
+        this.rerun = false;
+        void this.drain();
+      }
     }
   }
 
@@ -1117,7 +1129,9 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     const deadline = this.creerDeadline();
     let dejaTraite = false;
     let limitesConsecutives = 0;
+    let erreursReseauConsecutives = 0;
     let limiteAtteinte = false;
+    let arretReseau = false;
     let attente429Ms = 0;
 
     const resultat = await traiterSuccesParLots({
@@ -1138,10 +1152,12 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
             row.appId,
           );
           limitesConsecutives = 0;
+          erreursReseauConsecutives = 0;
         } catch (error) {
           if (error instanceof SteamRateLimitError) {
             attente429Ms = Math.max(attente429Ms, error.retryAfterMs);
             limitesConsecutives += 1;
+            erreursReseauConsecutives = 0;
             if (limitesConsecutives >= MAX_429_CONSECUTIFS) {
               limiteAtteinte = true;
               this.logger.warn(
@@ -1150,6 +1166,18 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
             }
           } else {
             limitesConsecutives = 0;
+            // Un 5xx/timeout répété ne doit pas balayer 1 000 jeux à chaque
+            // login : après trois échecs réseau consécutifs, on rend la main.
+            erreursReseauConsecutives += 1;
+            if (erreursReseauConsecutives >= MAX_ERREURS_RESEAU_CONSECUTIVES) {
+              // Arrêt sans `pauseJob` : un job repassé en `pending` serait
+              // repris immédiatement par `drain` et martèlerait Steam. Le job
+              // termine ; `needsAchievements` reprendra au prochain login.
+              arretReseau = true;
+              this.logger.warn(
+                `Étape succès : ${MAX_ERREURS_RESEAU_CONSECUTIVES} échecs réseau consécutifs, arrêt de la passe`,
+              );
+            }
           }
           throw error;
         }
@@ -1168,7 +1196,8 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
           }`,
         );
       },
-      doitPause: () => limiteAtteinte || this.budgetDepasse(deadline),
+      doitPause: () =>
+        limiteAtteinte || arretReseau || this.budgetDepasse(deadline),
       // Les erreurs Steam transitoires restent des échecs de jeu ; une erreur
       // DB ou de programmation doit faire échouer le job, pas finir en `done`.
       estFatal: (error) =>
@@ -1186,7 +1215,8 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     await this.marquerActiviteSucces(userId);
 
     return {
-      paused: resultat.paused,
+      // Un arrêt réseau termine la passe sans remettre le job en `pending`.
+      paused: resultat.paused && !arretReseau,
       progressed: resultat.reussis > 0,
     };
   }

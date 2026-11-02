@@ -22,7 +22,9 @@ export default function EnteteJeu({ jeu, succes }: Props) {
   const annee = formaterAnnee(jeu.releaseDate)
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const totalSucces = succes?.total ?? jeu.achievementsTotal
-  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
+  // `succes.unlocked === null` signifie « progression indisponible » : on ne
+  // retombe pas sur un compteur de bibliothèque potentiellement obsolète.
+  const debloquesSucces = succes ? succes.unlocked : jeu.achievementsUnlocked
   const complet =
     totalSucces !== null &&
     totalSucces > 0 &&

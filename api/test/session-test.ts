@@ -30,6 +30,7 @@ export async function ouvrirSessionTest(
     'openid.mode': 'id_res',
     'openid.claimed_id': `https://steamcommunity.com/openid/id/${steamId}`,
     'openid.identity': `https://steamcommunity.com/openid/id/${steamId}`,
+    'openid.op_endpoint': 'https://steamcommunity.com/openid/login',
     'openid.return_to': returnTo,
     'openid.realm': frontendUrl,
     state,

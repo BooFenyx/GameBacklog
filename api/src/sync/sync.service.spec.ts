@@ -950,6 +950,58 @@ describe('SyncService', () => {
 
       expect(processJob).toHaveBeenCalledTimes(2);
     });
+
+    it('relance un drain quand un job est enfilé pendant la boucle', async () => {
+      const jobs: JobRow[] = [
+        {
+          id: 1,
+          userId: 1,
+          status: 'pending',
+          step: 'library',
+          totalGames: 0,
+          processedGames: 0,
+          error: null,
+          startedAt: null,
+          finishedAt: null,
+        },
+      ];
+      const db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: () => {
+                  const suivant = jobs.shift();
+                  return Promise.resolve(suivant ? [suivant] : []);
+                },
+              }),
+            }),
+          }),
+        }),
+      };
+      const service = new SyncService(
+        db as unknown as Db,
+        { get: () => undefined } as unknown as ConfigService,
+        {} as LibraryService,
+        {} as GamesService,
+        {} as AchievementsService,
+        {} as EmbeddingService,
+        { setStatus: async () => {} } as unknown as UsersService,
+        {} as RateLimitService,
+      );
+      const drain = vi.spyOn(
+        service as never as { drain: () => Promise<void> },
+        'drain',
+      );
+      vi.spyOn(service as never, 'processJob').mockImplementation(async () => {
+        // Simule un `enqueue` concurrent : le drain doit se relancer.
+        (service as never as { rerun: boolean }).rerun = true;
+      });
+
+      await (service as never as { drain: () => Promise<void> }).drain();
+
+      expect(drain).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('fiches Steam', () => {

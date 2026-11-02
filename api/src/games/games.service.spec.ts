@@ -785,6 +785,7 @@ describe('GamesService', () => {
         genres: ['Puzzle'],
         categories: ['Solo'],
         controllerSupport: 'full',
+        detailsFetchedAt: new Date('2011-04-18T00:00:00.000Z'),
         releaseDate: new Date('2011-04-18T00:00:00.000Z'),
         headerImageUrl: null,
         playtimeForever: 10,
@@ -804,6 +805,23 @@ describe('GamesService', () => {
     expect(detail?.releaseDate).toBe('2011-04-18');
     expect(detail?.shortDescription).toBe('Des énigmes.');
     expect(detail?.lastActivitySource).toBe('sync_delta');
+    expect(detail?.detailsAvailable).toBe(true);
+  });
+
+  it('userGameDetail signale une fiche Steam non récupérée', async () => {
+    const { limit } = faireDbFake();
+    limit.mockResolvedValue([
+      {
+        detailsFetchedAt: null,
+        releaseDate: null,
+        gameAchievementsFetchedAt: null,
+        progressFetchedAt: null,
+      },
+    ]);
+
+    const detail = await service.userGameDetail(621, 1);
+
+    expect(detail?.detailsAvailable).toBe(false);
   });
 
   it('userGameDetail renvoie null sans date de sortie', async () => {

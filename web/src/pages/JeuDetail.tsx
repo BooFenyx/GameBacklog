@@ -177,14 +177,20 @@ export default function JeuDetail() {
           />
 
           {succes.statut === 'chargement' && (
-            <section className="fiche-section" aria-busy="true">
+            <section
+              className="fiche-section fiche-section--succes"
+              aria-busy="true"
+            >
               <h2 className="titre-section">Succès</h2>
               <p className="succes-vide">Chargement des succès…</p>
             </section>
           )}
 
           {succes.statut === 'erreur' && (
-            <section className="fiche-section" role="alert">
+            <section
+              className="fiche-section fiche-section--succes"
+              role="alert"
+            >
               <h2 className="titre-section">Succès</h2>
               <p className="succes-vide">{succes.message}</p>
               <div className="succes-plus">

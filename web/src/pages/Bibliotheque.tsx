@@ -142,12 +142,16 @@ export default function Bibliotheque() {
     let actif = true
     let timer: number | undefined
     let aVoirEnCours = false
+    let tentatives = 0
 
     const interroger = async (): Promise<void> => {
       try {
         const courant = await lireSync()
         if (!actif) return
         setJob(courant)
+        // La lecture a réussi : l'erreur transitoire précédente est périmée.
+        tentatives = 0
+        setErreur(null)
 
         if (estEnCours(courant)) {
           aVoirEnCours = true
@@ -162,9 +166,13 @@ export default function Bibliotheque() {
       } catch (error) {
         if (!actif) return
         setErreur(messageErreur(error))
-        // Une erreur transitoire ne doit pas tuer le suivi : on retente tant
-        // que le dernier job connu peut encore tourner.
-        timer = window.setTimeout(() => void interroger(), 5000)
+        // Une erreur transitoire ne doit pas tuer le suivi, mais on borne les
+        // relances : une API durablement indisponible ne doit pas être
+        // martelée toutes les 5 s par un onglet resté ouvert.
+        tentatives += 1
+        if (tentatives < 6) {
+          timer = window.setTimeout(() => void interroger(), 5000)
+        }
       }
     }
 

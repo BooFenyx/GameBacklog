@@ -177,4 +177,30 @@ describe('Persistance de la session Steam (e2e)', () => {
     const me = await agent.get('/api/auth/me').expect(200);
     expect(me.body).toEqual({ user: null });
   });
+
+  it('refuse un callback OpenID sans state', async () => {
+    const agent = request.agent(app.getHttpServer());
+    const res = await agent
+      .get('/api/auth/steam/return?openid.mode=id_res')
+      .redirects(0)
+      .expect(302);
+
+    expect(res.headers.location).toBe(`${FRONTEND_URL}/?auth=error`);
+    const me = await agent.get('/api/auth/me').expect(200);
+    expect(me.body).toEqual({ user: null });
+  });
+
+  it('refuse un callback avec un state qui ne correspond pas à la session', async () => {
+    const agent = request.agent(app.getHttpServer());
+    await agent.get('/api/auth/steam').redirects(0).expect(302);
+
+    const res = await agent
+      .get('/api/auth/steam/return?openid.mode=id_res&state=mauvais')
+      .redirects(0)
+      .expect(302);
+
+    expect(res.headers.location).toBe(`${FRONTEND_URL}/?auth=error`);
+    const me = await agent.get('/api/auth/me').expect(200);
+    expect(me.body).toEqual({ user: null });
+  });
 });
