@@ -857,6 +857,84 @@ describe('SyncService', () => {
     });
   });
 
+  describe('succès volumineux', () => {
+    type Resultat = { paused: boolean; progressed: boolean };
+
+    it('1 000 jeux dont 50 en échec : tous tentés, 950 compteurs, 50 en attente', async () => {
+      const db = {
+        update: () => ({
+          set: () => ({ where: () => Promise.resolve() }),
+        }),
+        $client: {
+          query: () => Promise.resolve({ rowCount: 0, rows: [] }),
+        },
+      };
+      const pool = Array.from({ length: 1000 }, (_, index) => ({
+        gameId: index + 1,
+        appId: 940001 + index,
+      }));
+      // Un échec tous les 20 jeux : jamais trois 429 consécutifs, donc pas de
+      // pause, et exactement 50 jeux restent manquants.
+      const echecs = new Set(
+        pool.filter((_, index) => index % 20 === 0).map((jeu) => jeu.gameId),
+      );
+      const refreshForSync = vi.fn(
+        async (_steamId: string, _userId: number, gameId: number) => {
+          if (echecs.has(gameId)) throw new Error('429');
+        },
+      );
+      const service = new SyncService(
+        db as unknown as Db,
+        {
+          get: (cle: string) =>
+            cle === 'ACHIEVEMENTS_THROTTLE_MS' ? '0' : undefined,
+        } as unknown as ConfigService,
+        {} as LibraryService,
+        {} as GamesService,
+        { refreshForSync } as unknown as AchievementsService,
+        {} as EmbeddingService,
+        {} as UsersService,
+        {} as RateLimitService,
+      );
+      const compter = vi
+        .spyOn(service as never, 'compterSuccesManquants')
+        .mockResolvedValue(1000);
+      const selectionner = vi.fn(
+        async (_userId: number, dejaTentes: number[], limite: number) =>
+          pool
+            .filter((jeu) => !dejaTentes.includes(jeu.gameId))
+            .slice(0, limite),
+      );
+      vi.spyOn(
+        service as never,
+        'selectionnerSuccesManquants',
+      ).mockImplementation(selectionner as never);
+
+      const resultat = await (
+        service as never as {
+          stepAchievements: (
+            j: number,
+            u: number,
+            s: string,
+          ) => Promise<Resultat>;
+        }
+      ).stepAchievements(1, 1, 'steam-1');
+
+      expect(resultat).toEqual({ paused: false, progressed: true });
+      expect(selectionner).toHaveBeenCalledTimes(5);
+      expect(refreshForSync).toHaveBeenCalledTimes(1000);
+      expect(
+        new Set(refreshForSync.mock.calls.map((appel) => appel[2])).size,
+      ).toBe(1000);
+      expect(echecs.size).toBe(50);
+
+      // Les 50 échecs restent manquants : `pendingAchievements` vaut 50 et une
+      // nouvelle sync est nécessaire.
+      compter.mockResolvedValue(50);
+      await expect(service.needsAchievements(1)).resolves.toBe(true);
+    });
+  });
+
   describe('embeddings et quota', () => {
     type Resultat = { paused: boolean; progressed: boolean };
 
