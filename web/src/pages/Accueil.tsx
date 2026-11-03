@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import CategoriesAccueil from '../components/accueil/CategoriesAccueil'
-import MenuSoir from '../components/accueil/MenuSoir'
+import DialogueSources from '../components/accueil/DialogueSources'
 import SelectionChef from '../components/accueil/SelectionChef'
-import { chargerAccueil, salutation, type HomeAnchor, type HomeResponse } from '../home'
+import { chargerAccueil, salutation, type HomeResponse } from '../home'
 import { etatImport, messageErreurImport } from '../import'
 import { chargerFacettes, type Facettes } from '../library'
 import {
@@ -21,7 +21,7 @@ function messageAccueil(erreur: unknown): string {
 }
 
 /**
- * Page d'accueil : jeu du moment, sélection du chef, catégories et menu.
+ * Page d'accueil : jeu du moment, sélection du chef et catégories.
  *
  * Tout est calculé côté serveur à partir de la bibliothèque importée. La page
  * n’appelle ni Steam ni Gemini ; elle ne fait que lire `/api/home`.
@@ -30,7 +30,7 @@ export default function Accueil() {
   const { user } = useAuth()
   const [home, setHome] = useState<HomeResponse | null>(null)
   const [facettes, setFacettes] = useState<Facettes | null>(null)
-  const [ancreActive, setAncreActive] = useState<HomeAnchor | null>(null)
+  const [sourcesOuvertes, setSourcesOuvertes] = useState(false)
   const [job, setJob] = useState<JobSync | null>(null)
   const [erreur, setErreur] = useState<string | null>(null)
   const [chargement, setChargement] = useState(true)
@@ -44,7 +44,6 @@ export default function Accueil() {
       .then((reponse) => {
         if (controller.signal.aborted) return
         setHome(reponse)
-        setAncreActive(reponse.selection.anchor)
         setErreur(null)
       })
       .catch((error: unknown) => {
@@ -224,16 +223,10 @@ export default function Accueil() {
               key={`selection-${version}`}
               selectionInitial={home.selection}
               facettes={facettes}
-              ancresRecentes={home.ancresRecentes}
-              onAncreChange={setAncreActive}
             />
             <CategoriesAccueil
               categories={home.categories}
               nomAncre={home.jeuDuMoment.name}
-            />
-            <MenuSoir
-              menuInitial={home.menu}
-              anchor={ancreActive ?? home.selection.anchor}
             />
           </>
         ) : (
@@ -264,6 +257,22 @@ export default function Accueil() {
             </div>
           </div>
         ))}
+
+      <footer className="accueil-pied">
+        <span>GameBacklog · données Steam et imports locaux.</span>
+        <button
+          type="button"
+          className="accueil-lien"
+          onClick={() => setSourcesOuvertes(true)}
+        >
+          Sources
+        </button>
+      </footer>
+
+      <DialogueSources
+        open={sourcesOuvertes}
+        onFermer={() => setSourcesOuvertes(false)}
+      />
     </section>
   )
 }

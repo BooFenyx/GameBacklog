@@ -9,22 +9,18 @@ import {
 import {
   SELECTION_DEFAUT,
   chargerSelection,
-  messageCopilote,
   metaJeu,
   parametresDepuisSelection,
-  presetCopilote,
   raisonJeu,
   sousTitreSelection,
   titreSelection,
-  type HomeAnchor,
   type HomeGame,
-  type HomeGenre,
   type HomeSelection,
   type ParametresSelection,
 } from '../../home'
 import type { Facettes } from '../../library'
+import { IconeFiltre } from '../ui/Icones'
 import CarteSelection from './CarteSelection'
-import CopiloteBarre from './CopiloteBarre'
 import DialogueAffiner from './DialogueAffiner'
 import DialogueAncre from './DialogueAncre'
 import DialoguePourquoi from './DialoguePourquoi'
@@ -41,8 +37,6 @@ type VariablesGlisse = CSSProperties & {
 type Props = {
   selectionInitial: HomeSelection
   facettes: Facettes | null
-  ancresRecentes: HomeGame[]
-  onAncreChange?: (anchor: HomeAnchor | null) => void
 }
 
 type PropsDeck = {
@@ -146,6 +140,10 @@ function Deck({ items, nomAncre }: PropsDeck) {
     if (!(cible instanceof Element)) return
     if (cible.closest('a, button')) return
     if (!cible.closest('.accueil-deck-carte[data-position="0"]')) return
+
+    // Évite la sélection de texte et le drag natif de l'image pendant le geste.
+    evenement.preventDefault()
+    window.getSelection()?.removeAllRanges()
 
     glisseRef.current = {
       id: evenement.pointerId,
@@ -270,6 +268,7 @@ function Deck({ items, nomAncre }: PropsDeck) {
           aria-label="Sélection du chef"
           aria-keyshortcuts="ArrowLeft ArrowRight"
           onKeyDown={surTouche}
+          onDragStart={(evenement) => evenement.preventDefault()}
           onPointerDown={demarrerGlisse}
           onPointerMove={deplacerGlisse}
           onPointerUp={terminerGlisse}
@@ -334,37 +333,6 @@ function Deck({ items, nomAncre }: PropsDeck) {
   )
 }
 
-const GENRES_CALMES = ['Aventure', 'Simulation', 'Occasionnel']
-
-function sansAccents(texte: string): string {
-  return texte
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
-
-/** Premier genre « calme » disponible dans les facettes ou dans l'ancre. */
-function trouverGenreCalme(
-  facettes: Facettes | null,
-  anchor: HomeAnchor | null,
-): HomeGenre | null {
-  const options =
-    facettes && facettes.genres.length > 0
-      ? facettes.genres.map(({ id, label }) => ({ id, label }))
-      : (anchor?.genres ?? []).flatMap((label, index) => {
-          const id = anchor?.genreIds[index]
-          return id === undefined || id <= 0 ? [] : [{ id, label }]
-        })
-
-  for (const cible of GENRES_CALMES) {
-    const trouve = options.find(
-      (option) => sansAccents(option.label) === sansAccents(cible),
-    )
-    if (trouve) return { id: trouve.id, label: trouve.label }
-  }
-  return null
-}
-
 /**
  * Sélection du chef : en-tête, deck portrait, panneau Affiner et changement
  * d'ancre. Chaque réglage relance `/api/home/selection` ; l'ancien deck reste
@@ -373,8 +341,6 @@ function trouverGenreCalme(
 export default function SelectionChef({
   selectionInitial,
   facettes,
-  ancresRecentes,
-  onAncreChange,
 }: Props) {
   const [parametres, setParametres] = useState<ParametresSelection>(() =>
     parametresDepuisSelection(selectionInitial),
@@ -386,14 +352,8 @@ export default function SelectionChef({
   const [dialogueAncre, setDialogueAncre] = useState(false)
   const [dialogueAffiner, setDialogueAffiner] = useState(false)
   const [dialoguePourquoi, setDialoguePourquoi] = useState(false)
-  const [reponseCopilote, setReponseCopilote] = useState<string | null>(null)
   const premierRendu = useRef(true)
-  const onAncreChangeRef = useRef(onAncreChange)
   const selectionRef = useRef(selection)
-
-  useEffect(() => {
-    onAncreChangeRef.current = onAncreChange
-  })
 
   useEffect(() => {
     selectionRef.current = selection
@@ -413,7 +373,6 @@ export default function SelectionChef({
           if (controller.signal.aborted) return
           setSelection(reponse)
           setErreur(null)
-          onAncreChangeRef.current?.(reponse.anchor)
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return
@@ -463,62 +422,6 @@ export default function SelectionChef({
     })
   }
 
-  const appliquerDemande = (demande: string): void => {
-    const preset = presetCopilote(demande)
-    if (!preset) {
-      setReponseCopilote(
-        'Je n’ai pas compris. Essaie « plus calme », « plus court » ou « surprends-moi ».',
-      )
-      return
-    }
-
-    if (preset === 'calme') {
-      const calme = trouverGenreCalme(facettes, selectionRef.current.anchor)
-      setParametres((actuels) => ({
-        ...actuels,
-        genreId: calme?.id ?? null,
-        decouverte: 10,
-      }))
-      setReponseCopilote(messageCopilote('calme', calme !== null))
-      return
-    }
-
-    if (preset === 'court') {
-      setParametres((actuels) => ({
-        ...actuels,
-        decouverte: 100,
-        lancement: 'tous',
-      }))
-      setReponseCopilote(messageCopilote('court'))
-      return
-    }
-
-    if (preset === 'surprends') {
-      const ancreActuelle = selectionRef.current.anchor?.appId ?? null
-      const autres = ancresRecentes.filter(
-        (jeu) => jeu.appId !== ancreActuelle,
-      )
-      const choix =
-        autres.length > 0
-          ? autres[Math.floor(Math.random() * autres.length)]
-          : null
-      setParametres((actuels) => ({
-        ...actuels,
-        anchor: choix?.appId ?? actuels.anchor,
-        genreId: null,
-        decouverte: 100,
-      }))
-      setReponseCopilote(messageCopilote('surprends'))
-      return
-    }
-
-    setParametres({
-      ...SELECTION_DEFAUT,
-      anchor: selectionRef.current.anchor?.appId ?? null,
-    })
-    setReponseCopilote(messageCopilote('defaut'))
-  }
-
   const nomAncre = selection.anchor?.name ?? 'ton jeu du moment'
 
   return (
@@ -535,20 +438,6 @@ export default function SelectionChef({
         </header>
 
         <div className="accueil-section-actions">
-          <button
-            type="button"
-            className="accueil-lien"
-            onClick={() => setDialogueAffiner(true)}
-          >
-            Affiner
-          </button>
-          <button
-            type="button"
-            className="accueil-lien"
-            onClick={() => setDialogueAncre(true)}
-          >
-            Changer de jeu
-          </button>
           <button
             type="button"
             className="accueil-lien"
@@ -591,7 +480,22 @@ export default function SelectionChef({
         />
       )}
 
-      <CopiloteBarre message={reponseCopilote} onDemande={appliquerDemande} />
+      <div className="accueil-actions-selection">
+        <button
+          type="button"
+          className="btn btn-principal accueil-action-principale"
+          onClick={() => setDialogueAffiner(true)}
+        >
+          <IconeFiltre /> Affiner la sélection
+        </button>
+        <button
+          type="button"
+          className="btn accueil-action-secondaire"
+          onClick={() => setDialogueAncre(true)}
+        >
+          Changer de jeu
+        </button>
+      </div>
 
       <DialogueAncre
         open={dialogueAncre}
@@ -612,10 +516,8 @@ export default function SelectionChef({
 
       <DialoguePourquoi
         open={dialoguePourquoi}
-        mode="selection"
         onFermer={() => setDialoguePourquoi(false)}
         selection={selection}
-        menu={null}
       />
     </section>
   )

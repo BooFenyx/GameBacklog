@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MENU_DEFAUT,
   SELECTION_DEFAUT,
   imagePortrait,
   libelleManette,
-  messageCopilote,
   metaJeu,
   metaSucces,
   parametresDepuisSelection,
-  parametresMenu,
   parametresSelection,
-  presetCopilote,
   raisonJeu,
   salutation,
   sousTitreSelection,
@@ -196,60 +192,8 @@ describe('parametresSelection', () => {
   })
 })
 
-describe('parametresMenu', () => {
-  it('n’écrit aucune valeur par défaut', () => {
-    expect(parametresMenu(MENU_DEFAUT).toString()).toBe('')
-  })
-
-  it('sérialise temps, intention et manette', () => {
-    const query = parametresMenu({
-      anchor: 252950,
-      temps: 120,
-      intention: 'decouvrir',
-      manette: true,
-    })
-
-    expect(query.get('anchor')).toBe('252950')
-    expect(query.get('temps')).toBe('120')
-    expect(query.get('intention')).toBe('decouvrir')
-    expect(query.get('manette')).toBe('true')
-  })
-})
-
-describe('copilote', () => {
-  it('reconnaît les demandes rapides', () => {
-    expect(presetCopilote('plus calme')).toBe('calme')
-    expect(presetCopilote('Paisible')).toBe('calme')
-    expect(presetCopilote('plus court')).toBe('court')
-    expect(presetCopilote('un jeu rapide')).toBe('court')
-    expect(presetCopilote('surprends-moi')).toBe('surprends')
-    expect(presetCopilote('autre chose')).toBe('surprends')
-    expect(presetCopilote('comme d’habitude')).toBe('defaut')
-    expect(presetCopilote('défaut')).toBe('defaut')
-    expect(presetCopilote('un jeu de course')).toBeNull()
-  })
-
-  it('répond sans promettre de durée de session', () => {
-    expect(messageCopilote('calme')).toBe(
-      'J’ai privilégié un genre plus calme.',
-    )
-    expect(messageCopilote('calme', false)).toBe(
-      'Je suis resté proche de ton jeu.',
-    )
-    expect(messageCopilote('court')).toBe(
-      'J’ai privilégié les jeux que tu as le moins joués.',
-    )
-    expect(messageCopilote('surprends')).toBe(
-      'Je t’ai préparé une autre sélection.',
-    )
-    expect(messageCopilote('defaut')).toBe(
-      'J’ai gardé les plus proches de ton jeu.',
-    )
-    expect(messageCopilote('court')).not.toMatch(/minutes?|heures?/)
-  })
-})
-
-describe('raisonJeu et imagePortrait', () => {  it('retombe sur une raison honnête sans raison serveur', () => {
+describe('raisonJeu et imagePortrait', () => {
+  it('retombe sur une raison honnête sans raison serveur', () => {
     expect(raisonJeu(jeu({ reason: null }), 'Hades')).toBe('Proche de Hades')
     expect(raisonJeu(jeu(), 'Hades')).toBe(
       'Voisin de Hades · 2 genres en commun',

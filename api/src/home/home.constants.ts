@@ -6,8 +6,8 @@ export const HOME_SELECTION_TAILLE = 5;
 /** Nombre d'ancres proposées pour le sélecteur et le copilote. */
 export const HOME_ANCRES_TAILLE = 5;
 
-/** Nombre de jeux par catégorie (À finir / À découvrir / À retrouver). */
-export const HOME_CATEGORIE_TAILLE = 3;
+/** Nombre de jeux par catégorie (l'UI en affiche 3 à la fois et fait défiler). */
+export const HOME_CATEGORIE_TAILLE = 9;
 
 /** Préférence de découverte par défaut, en pourcentage. */
 export const HOME_DECOUVERTE_DEFAUT = 30;

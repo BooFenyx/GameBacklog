@@ -50,6 +50,8 @@ function ImagePortrait({ jeu }: { jeu: HomeGame }) {
       alt=""
       loading="eager"
       decoding="async"
+      draggable={false}
+      onDragStart={(evenement) => evenement.preventDefault()}
       onError={() => setIndex((valeur) => valeur + 1)}
     />
   )
@@ -66,6 +68,7 @@ export default function CarteSelection({ jeu, nomAncre, position }: Props) {
       data-position={position}
       aria-hidden={!devant}
       inert={!devant}
+      onDragStart={(evenement) => evenement.preventDefault()}
     >
       <div className="accueil-deck-image">
         <ImagePortrait jeu={jeu} />

@@ -92,13 +92,6 @@ export type ParametresSelection = {
   progression: boolean
 }
 
-export type ParametresMenu = {
-  anchor: number | null
-  temps: HomeTemps
-  intention: HomeIntention
-  manette: boolean
-}
-
 export const SELECTION_DEFAUT: ParametresSelection = {
   anchor: null,
   genreId: null,
@@ -107,29 +100,6 @@ export const SELECTION_DEFAUT: ParametresSelection = {
   lancement: 'tous',
   progression: false,
 }
-
-export const MENU_DEFAUT: ParametresMenu = {
-  anchor: null,
-  temps: 45,
-  intention: 'continuer',
-  manette: false,
-}
-
-export const TEMPS_LABELS: Record<HomeTemps, string> = {
-  30: '30 min',
-  45: '45 min',
-  60: '1 h',
-  120: '2 h+',
-}
-
-/** Ordre d'affichage des choix de temps. */
-export const TEMPS: HomeTemps[] = [30, 45, 60, 120]
-
-export const INTENTIONS: { value: HomeIntention; label: string }[] = [
-  { value: 'continuer', label: 'Continuer' },
-  { value: 'decouvrir', label: 'Découvrir' },
-  { value: 'finir', label: 'Finir' },
-]
 
 export const LANCEMENTS: { value: HomeLancement; label: string }[] = [
   { value: 'tous', label: 'Tous' },
@@ -204,35 +174,6 @@ export function chargerSelection(
   const suffixe = query.toString()
   return lire<HomeSelection>(
     `/api/home/selection${suffixe ? `?${suffixe}` : ''}`,
-    signal,
-  )
-}
-
-/** Sérialise les réglages du menu, en omettant les valeurs par défaut. */
-export function parametresMenu(parametres: ParametresMenu): URLSearchParams {
-  const query = new URLSearchParams()
-  if (parametres.anchor !== null) {
-    query.set('anchor', String(parametres.anchor))
-  }
-  if (parametres.temps !== MENU_DEFAUT.temps) {
-    query.set('temps', String(parametres.temps))
-  }
-  if (parametres.intention !== MENU_DEFAUT.intention) {
-    query.set('intention', parametres.intention)
-  }
-  if (parametres.manette) query.set('manette', 'true')
-  return query
-}
-
-/** `GET /api/home/menu` — menu du soir. */
-export function chargerMenu(
-  parametres: ParametresMenu,
-  signal?: AbortSignal,
-): Promise<HomeMenuResponse> {
-  const query = parametresMenu(parametres)
-  const suffixe = query.toString()
-  return lire<HomeMenuResponse>(
-    `/api/home/menu${suffixe ? `?${suffixe}` : ''}`,
     signal,
   )
 }
@@ -315,46 +256,4 @@ export function raisonJeu(jeu: HomeGame, nomAncre: string): string {
 /** Affiche portrait Steam d'un jeu, avec repli géré par le composant. */
 export function imagePortrait(appId: number): string {
   return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`
-}
-
-export type PresetCopilote = 'calme' | 'court' | 'surprends' | 'defaut'
-
-/** Normalise une demande libre : minuscules, sans accents. */
-function normaliserDemande(texte: string): string {
-  return texte
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
-
-/**
- * Parseur d'intentions du copilote, local et déterministe. Il ne résout jamais
- * un titre : pour choisir un jeu précis, on passe par « Changer de jeu ».
- */
-export function presetCopilote(demande: string): PresetCopilote | null {
-  const texte = normaliserDemande(demande)
-  if (/\b(calme|paisible|zen|doux)\b/.test(texte)) return 'calme'
-  if (/\b(court|rapide|petit)\b/.test(texte)) return 'court'
-  if (/\b(surprends|surprend|autre|change)\b/.test(texte)) return 'surprends'
-  if (/\b(comme|defaut|pareil|habituel)\b/.test(texte)) return 'defaut'
-  return null
-}
-
-/** Réponse honnête du copilote : aucune promesse de durée de session. */
-export function messageCopilote(
-  preset: PresetCopilote,
-  genreCalmeTrouve = true,
-): string {
-  switch (preset) {
-    case 'calme':
-      return genreCalmeTrouve
-        ? 'J’ai privilégié un genre plus calme.'
-        : 'Je suis resté proche de ton jeu.'
-    case 'court':
-      return 'J’ai privilégié les jeux que tu as le moins joués.'
-    case 'surprends':
-      return 'Je t’ai préparé une autre sélection.'
-    case 'defaut':
-      return 'J’ai gardé les plus proches de ton jeu.'
-  }
 }
