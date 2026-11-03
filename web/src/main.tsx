@@ -5,6 +5,7 @@ import './index.css'
 import './App.css'
 import './styles/bibliotheque.css'
 import './styles/fiche.css'
+import './styles/accueil.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
