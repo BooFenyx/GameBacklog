@@ -110,19 +110,6 @@
   height: 12px;
 }
 
-.accueil-carte-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--espace-2);
-  margin-top: auto;
-  padding-top: var(--espace-2);
-}
-
-.accueil-carte-actions .btn {
-  height: 34px;
-  font-size: 0.8125rem;
-}
-
 .accueil-vide {
   margin: 0;
   padding: var(--espace-5);
@@ -965,50 +952,6 @@
   gap: var(--espace-2);
 }
 
-.accueil-chip {
-  position: relative;
-  cursor: pointer;
-}
-
-.accueil-chip input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.accueil-chip span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0 13px;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: var(--rayon-pilule);
-  background: color-mix(in oklab, var(--couleur-surface-2) 55%, transparent);
-  color: var(--couleur-texte);
-  font-size: 0.8125rem;
-  transition:
-    border-color 140ms ease,
-    background 140ms ease,
-    color 140ms ease;
-}
-
-.accueil-chip:hover span {
-  border-color: var(--couleur-accent-bordure);
-}
-
-.accueil-chip input:checked + span {
-  border-color: var(--couleur-accent);
-  background: var(--couleur-accent-doux);
-  color: var(--couleur-texte-fort);
-  box-shadow: inset 0 0 0 1px var(--couleur-accent-bordure);
-}
-
-.accueil-chip input:focus-visible + span {
-  outline: 2px solid var(--couleur-accent);
-  outline-offset: 2px;
-}
-
 .accueil-interrupteur {
   display: inline-flex;
   align-items: center;
@@ -1557,11 +1500,6 @@
     grid-template-columns: 1fr;
   }
 
-
-  .accueil-carte-actions .btn {
-    flex: 1 1 auto;
-  }
-
   .accueil-categories-grille {
     grid-template-columns: 1fr;
   }
@@ -1659,7 +1597,6 @@
     animation: none;
   }
 
-  .accueil-chip span,
   .accueil-rail,
   .accueil-rail::after,
   .accueil-deck-carte,

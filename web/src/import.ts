@@ -39,6 +39,7 @@ function pluriel(nombre: number, mot: string, suffixe = 's'): string {
  */
 export function etatImport(job: JobSync | null): EtatImport {
   if (!job) return VIDE
+  const raison = job.error?.trim() || null
 
   if (job.status === 'error') {
     return {
@@ -61,6 +62,7 @@ export function etatImport(job: JobSync | null): EtatImport {
     }
 
     const morceaux: string[] = []
+    if (raison) morceaux.push(raison)
     if (aReprendre.length > 0) {
       morceaux.push(`${aReprendre.join(', ')} à reprendre`)
     }
@@ -73,7 +75,7 @@ export function etatImport(job: JobSync | null): EtatImport {
     if (morceaux.length === 0) return VIDE
 
     return {
-      texte: `Import terminé — ${morceaux.join(', ')}`,
+      texte: `Import terminé — ${morceaux.join(' — ')}`,
       action: aReprendre.length > 0 ? 'reprendre' : 'aucune',
       alerte: true,
     }
@@ -81,8 +83,9 @@ export function etatImport(job: JobSync | null): EtatImport {
 
   const progression =
     job.totalGames > 0 ? ` — ${job.processedGames}/${job.totalGames}` : ''
+  const motif = raison ? ` — ${raison}` : ''
   return {
-    texte: `${libelleEtape[job.step]}${progression}`,
+    texte: `${libelleEtape[job.step]}${motif}${progression}`,
     action: 'aucune',
     alerte: false,
   }

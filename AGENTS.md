@@ -227,7 +227,7 @@ ligne `session`. Le callback vérifie `return_to`/`realm`, l'origine Steam du `c
 lectures `/api/library`, `/api/games`, `/api/home` (120/120/180 par défaut, configurables)
 et `/api/sync` (120/min par défaut), avec `429` + `Retry-After`. Un **limiteur IP** borne
 `/api/auth/*` avant le middleware de session (`AUTH_RATE_LIMIT_PER_MINUTE`, 60/min par
-défaut), et `POST /api/sync` a un cooldown de 5 min par utilisateur. Côté Gemini, le quota
+défaut), et `POST /api/sync` a un cooldown de 90 s par utilisateur. Côté Gemini, le quota
 quotidien global est complété par un **quota par utilisateur**
 (`EMBEDDING_USER_RATE_LIMIT_PER_DAY`, 100/j) pour qu'un compte ne dégrade pas la recherche
 de tous. `GET /api/health` vérifie réellement la base (`SELECT 1`, 503 sinon) et sert de
@@ -448,7 +448,7 @@ du proxy et créer un bucket global. `/api/health` reste public et non limité.
 
 **Sync : `GET` limité, `POST` avec cooldown.** `SyncController` porte
 `@LimiteLecture('sync')` (120/min par défaut) pour le polling 2 s. `POST /api/sync` a un
-cooldown de 5 min par utilisateur : une seconde relance renvoie `429` sans toucher au
+cooldown de 90 s par utilisateur : une seconde relance renvoie `429` sans toucher au
 backoff des fiches. Un job `done` reprend à l'étape réellement incomplète (`depart`
 calculé au login) ; une relance manuelle force `library`.
 
@@ -628,7 +628,7 @@ recherche (`SearchRateLimitService`, 20/min sémantique et 120/min nom), les lec
 (`ReadRateLimitService`, 120/min bibliothèque et fiches, 180/min accueil et 120/min sync,
 configurables). Un **limiteur IP** couvre `/api/auth/*` avant la session
 (`AUTH_RATE_LIMIT_PER_MINUTE`, 60/min par défaut) et `POST /api/sync` a un cooldown de
-5 min par utilisateur. Les fenêtres sont en mémoire : elles sont perdues au redémarrage et
+90 s par utilisateur. Les fenêtres sont en mémoire : elles sont perdues au redémarrage et
 supposent une seule instance API ; une réplication demanderait un compteur persisté.
 `/api/health` est public et non limité (sonde Render). Les quotas Gemini sont persistés
 (`rate_limits`) avec un plafond global et un plafond par utilisateur.
@@ -717,7 +717,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Entrée : phrase libre, longueur limitée (ex. 300 caractères), **limitée en fréquence par utilisateur**. » (`fiche_projet.md:44`) |
-| **État** | ✅ Résolu — `SearchRateLimitService` (`api/src/search/search-rate-limit.service.ts`) limite `GET /api/search` par `steamId` (clé de session, pas par IP) : 20/min en sémantique, 120/min en nom, compteur en mémoire. Dépassement → `429` + `Retry-After`. `@nestjs/throttler` n'a pas été installé (il raisonne par IP). `ReadRateLimitService` couvre en plus les lectures `/api/library`, `/api/games`, `/api/home` et `/api/sync` par `steamId`. `IpRateLimit` borne `/api/auth/*` par IP avant la session, et `POST /api/sync` a un cooldown de 5 min par utilisateur. Côté Gemini, `EMBEDDING_USER_RATE_LIMIT_PER_DAY` ajoute un quota par utilisateur au quota global. |
+| **État** | ✅ Résolu — `SearchRateLimitService` (`api/src/search/search-rate-limit.service.ts`) limite `GET /api/search` par `steamId` (clé de session, pas par IP) : 20/min en sémantique, 120/min en nom, compteur en mémoire. Dépassement → `429` + `Retry-After`. `@nestjs/throttler` n'a pas été installé (il raisonne par IP). `ReadRateLimitService` couvre en plus les lectures `/api/library`, `/api/games`, `/api/home` et `/api/sync` par `steamId`. `IpRateLimit` borne `/api/auth/*` par IP avant la session, et `POST /api/sync` a un cooldown de 90 s par utilisateur. Côté Gemini, `EMBEDDING_USER_RATE_LIMIT_PER_DAY` ajoute un quota par utilisateur au quota global. |
 
 #### Écart 11 — Repli si échec de la recherche — ✅ Résolu
 

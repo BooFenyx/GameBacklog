@@ -531,22 +531,6 @@
   gap: 18px;
 }
 
-.succes-texte {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-
-  em {
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  small {
-    font-size: 13px;
-    color: var(--text);
-  }
-}
-
 /* --- Barre de recherche globale --- */
 
 .barre-recherche {

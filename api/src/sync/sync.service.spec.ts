@@ -525,6 +525,7 @@ describe('SyncService', () => {
       expect(updates).toContainEqual({
         status: 'pending',
         step: 'details',
+        error: null,
         finishedAt: null,
       });
       expect(updates.some((u) => u.status === 'done')).toBe(false);
@@ -736,6 +737,7 @@ describe('SyncService', () => {
       expect(updates).toContainEqual({
         status: 'pending',
         step: 'details',
+        error: null,
         finishedAt: null,
       });
       expect(updates.some((u) => u.status === 'done')).toBe(false);
@@ -764,6 +766,7 @@ describe('SyncService', () => {
       expect(updates[0]).toEqual({
         status: 'pending',
         step: 'details',
+        error: null,
         finishedAt: null,
       });
       expect((service as never as { rerun: boolean }).rerun).toBe(true);
@@ -1225,7 +1228,11 @@ describe('SyncService', () => {
 
       const resultat = await lancer(service);
 
-      expect(resultat).toEqual({ paused: true, progressed: true });
+      expect(resultat).toEqual({
+        paused: true,
+        progressed: true,
+        reason: 'Limite API Steam atteinte',
+      });
       // 1 succès + 3 jeux × 2 tentatives ; le 5e n'est pas tenté.
       expect(fetchAppDetails).toHaveBeenCalledTimes(7);
     });
@@ -1248,7 +1255,11 @@ describe('SyncService', () => {
 
       const resultat = await lancer(service);
 
-      expect(resultat).toEqual({ paused: false, progressed: false });
+      expect(resultat).toEqual({
+        paused: false,
+        progressed: false,
+        reason: 'Limite API Steam atteinte',
+      });
       expect(fetchAppDetails).toHaveBeenCalledTimes(6);
     });
 
@@ -1299,7 +1310,11 @@ describe('SyncService', () => {
         }
       ).stepAchievements(1, 1, 'steam-1');
 
-      expect(resultat).toEqual({ paused: false, progressed: false });
+      expect(resultat).toEqual({
+        paused: false,
+        progressed: false,
+        reason: 'Limite API Steam atteinte',
+      });
       expect(refreshForSync).toHaveBeenCalledTimes(3);
     });
 
@@ -1368,6 +1383,7 @@ describe('SyncService', () => {
         await expect(promesse).resolves.toEqual({
           paused: true,
           progressed: true,
+          reason: 'Limite API Steam atteinte',
         });
       } finally {
         vi.useRealTimers();
@@ -1556,7 +1572,11 @@ describe('SyncService', () => {
         }
       ).stepEmbeddings(1, 1);
 
-      expect(resultat).toEqual({ paused: false, progressed: false });
+      expect(resultat).toEqual({
+        paused: false,
+        progressed: false,
+        reason: 'Limite API Gemini atteinte',
+      });
       expect(embedGame).toHaveBeenCalledTimes(3);
     });
 

@@ -60,7 +60,7 @@ const MAX_429_CONSECUTIFS = 3;
 /** Trois échecs réseau consécutifs : la passe s'arrête au lieu de balayer tout. */
 const MAX_ERREURS_RESEAU_CONSECUTIVES = 3;
 /** Délai minimal entre deux relances manuelles d'un même utilisateur. */
-const RELANCE_MANUELLE_COOLDOWN_MS = 5 * 60 * 1000;
+const RELANCE_MANUELLE_COOLDOWN_MS = 90 * 1000;
 /** Attente maximale imposée par un `Retry-After` pendant une passe. */
 const MAX_ATTENTE_429_MS = 5 * 60 * 1000;
 /** Délais avant de retenter une fiche en échec. */
@@ -87,6 +87,8 @@ const DEFAULT_SYNC_STEP_MAX_MS = 900_000;
 interface ResultatEtape {
   paused: boolean;
   progressed: boolean;
+  /** Motif affichable quand la passe s'arrête sur une limite externe. */
+  reason?: string;
 }
 
 /** État d'un job renvoyé au front (suivi de progression). */
@@ -758,6 +760,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
   /** Déroule les quatre étapes. Aucune suppression nulle part. */
   private async processJob(job: SyncJobRow): Promise<void> {
     let enErreur = false;
+    let motif: string | null = null;
     try {
       const [user] = await this.db
         .select({ steamId: users.steamId })
@@ -784,9 +787,14 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       if (etape === 'details') {
         const resultat = await this.stepDetails(job.id, job.userId);
         if (resultat.paused) {
-          await this.pauseJob(job.id, 'details');
+          await this.pauseJob(
+            job.id,
+            'details',
+            resultat.reason ?? motif,
+          );
           return;
         }
+        motif = resultat.reason ?? motif;
         etape = 'achievements';
       }
 
@@ -797,21 +805,31 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
           user.steamId,
         );
         if (resultat.paused) {
-          await this.pauseJob(job.id, 'achievements');
+          await this.pauseJob(
+            job.id,
+            'achievements',
+            resultat.reason ?? motif,
+          );
           return;
         }
+        motif = resultat.reason ?? motif;
         etape = 'embeddings';
       }
 
       if (etape === 'embeddings') {
         const resultat = await this.stepEmbeddings(job.id, job.userId);
         if (resultat.paused) {
-          await this.pauseJob(job.id, 'embeddings');
+          await this.pauseJob(
+            job.id,
+            'embeddings',
+            resultat.reason ?? motif,
+          );
           return;
         }
+        motif = resultat.reason ?? motif;
       }
 
-      await this.finish(job.id, 'done', 'done', null, new Date());
+      await this.finish(job.id, 'done', 'done', motif, new Date());
       await this.users.setStatus(job.userId, 'done', {
         lastSyncAt: new Date(),
       });
@@ -1031,7 +1049,11 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `Étape fiches : ${MAX_429_CONSECUTIFS} 429 consécutifs, pause de la passe`,
         );
-        return { paused: progressed, progressed };
+        return {
+          paused: progressed,
+          progressed,
+          reason: 'Limite API Steam atteinte',
+        };
       }
     }
     return { paused: false, progressed };
@@ -1272,6 +1294,11 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       // Un arrêt réseau termine la passe sans remettre le job en `pending`.
       paused: resultat.paused && !arretReseau,
       progressed: resultat.reussis > 0,
+      reason: limiteAtteinte
+        ? 'Limite API Steam atteinte'
+        : arretReseau
+          ? 'Steam injoignable (réseau)'
+          : undefined,
     };
   }
 
@@ -1366,7 +1393,11 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
         processedGames: processed,
       });
     }
-    return { paused: false, progressed: !quotaAtteint && progressed };
+    return {
+      paused: false,
+      progressed: !quotaAtteint && progressed,
+      reason: quotaAtteint ? 'Limite API Gemini atteinte' : undefined,
+    };
   }
 
   /** `appId` de la bibliothèque dont la fiche manque ou est à remapper. */
@@ -1474,10 +1505,16 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
   private async pauseJob(
     jobId: number,
     step: SyncJobRow['step'],
+    reason?: string | null,
   ): Promise<void> {
     await this.db
       .update(syncJobs)
-      .set({ status: 'pending', step, finishedAt: null })
+      .set({
+        status: 'pending',
+        step,
+        error: reason ?? null,
+        finishedAt: null,
+      })
       .where(eq(syncJobs.id, jobId));
     this.rerun = true;
   }
