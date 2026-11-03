@@ -79,12 +79,20 @@ describe('etatImport', () => {
     expect(etat.alerte).toBe(true)
   })
 
-  it('signale les fiches indisponibles sans proposer de reprise', () => {
+  it('n’affiche pas de bandeau pour des fiches indisponibles', () => {
     const etat = etatImport(job({ detailsUnavailable: 2 }))
 
-    expect(etat.texte).toContain('2 fiches indisponibles')
-    expect(etat.action).toBe('aucune')
-    expect(etat.alerte).toBe(true)
+    expect(etat).toEqual({ texte: '', action: 'aucune', alerte: false })
+  })
+
+  it('affiche les reliquats sans les fiches indisponibles', () => {
+    const etat = etatImport(
+      job({ detailsUnavailable: 2, pendingEmbeddings: 8 }),
+    )
+
+    expect(etat.texte).toBe('Import terminé — 8 embeddings à reprendre')
+    expect(etat.texte).not.toContain('indisponible')
+    expect(etat.action).toBe('reprendre')
   })
 
   it('propose de reprendre s’il ne reste que des embeddings', () => {

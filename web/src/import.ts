@@ -34,8 +34,9 @@ function pluriel(nombre: number, mot: string, suffixe = 's'): string {
  * Traduit l'état d'un job d'import en bandeau lisible.
  *
  * Un job `done` avec un reliquat n'est pas « en cours » : il propose une
- * reprise, sans relancer le polling. Les fiches indisponibles sont définitives
- * et ne justifient pas une reprise.
+ * reprise, sans relancer le polling. Les fiches définitivement indisponibles
+ * (délistées, quarantaine à 3 échecs) n'ont aucune action possible : elles ne
+ * produisent plus de bandeau, pour ne pas alarmer sans issue.
  */
 export function etatImport(job: JobSync | null): EtatImport {
   if (!job) return VIDE
@@ -65,11 +66,6 @@ export function etatImport(job: JobSync | null): EtatImport {
     if (raison) morceaux.push(raison)
     if (aReprendre.length > 0) {
       morceaux.push(`${aReprendre.join(', ')} à reprendre`)
-    }
-    if (job.detailsUnavailable > 0) {
-      morceaux.push(
-        `${pluriel(job.detailsUnavailable, 'fiche')} indisponible${job.detailsUnavailable > 1 ? 's' : ''}`,
-      )
     }
 
     if (morceaux.length === 0) return VIDE

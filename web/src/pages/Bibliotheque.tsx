@@ -354,10 +354,9 @@ export default function Bibliotheque() {
         <button
           type="button"
           className="btn"
-          disabled={enCours}
           onClick={() => void relancer()}
         >
-          {enCours ? 'Synchronisation…' : 'Synchroniser'}
+          {enCours ? 'Relancer' : 'Synchroniser'}
         </button>
       </div>
 
@@ -499,10 +498,9 @@ export default function Bibliotheque() {
                   <button
                     type="button"
                     className="btn btn-principal"
-                    disabled={enCours}
                     onClick={() => void relancer()}
                   >
-                    {enCours ? 'Synchronisation…' : 'Synchroniser'}
+                    {enCours ? 'Relancer' : 'Synchroniser'}
                   </button>
                 </>
               )}

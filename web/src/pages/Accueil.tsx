@@ -253,15 +253,13 @@ export default function Accueil() {
                 : 'Lance un import Steam ou vérifie que ton profil est public.'}
             </p>
             <div className="accueil-vide-actions">
-              {!enCours && (
-                <button
-                  type="button"
-                  className="btn btn-principal"
-                  onClick={() => void relancer()}
-                >
-                  Synchroniser
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn btn-principal"
+                onClick={() => void relancer()}
+              >
+                {enCours ? 'Relancer' : 'Synchroniser'}
+              </button>
               <Link className="btn" to="/bibliotheque">
                 Voir la bibliothèque
               </Link>
