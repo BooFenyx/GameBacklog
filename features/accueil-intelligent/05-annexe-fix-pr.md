@@ -122,6 +122,9 @@ branchées avec le panneau « Affiner » (tranche 6), sans double appel.
 
 ### D13. Le menu garde son ancien résultat pendant un fetch
 
+> Historique : `MenuSoir` a été retiré de l’interface (voir D36). Le principe
+> reste valable pour tout fetch avec debounce.
+
 `MenuSoir` initialise son état avec `home.menu` (aucun appel au montage), puis
 débounce 150 ms + `AbortController` sur tout changement de temps, d’intention,
 de manette ou d’ancre. L’ancien résultat reste affiché pendant le calcul ; une
@@ -206,12 +209,17 @@ précédemment affiché avec un message non bloquant et un bouton « Réessayer 
 
 ### D25. Le menu suit l’ancre du deck
 
+> Historique : le menu du soir a été retiré de l’interface (voir D36).
+
 `SelectionChef` remonte l’ancre de chaque réponse via `onAncreChange` ;
 `Accueil` la passe à `MenuSoir`. Les réglages du menu (temps, intention,
 manette) restent indépendants de ceux du deck. Le menu ne se recharge pas
 quand seul un réglage du deck change (dépendance sur `anchor.appId`).
 
 ## Tranche 7 — Copilote
+
+> Historique : le copilote a été retiré de l’interface (voir D35). Les helpers
+> et tests correspondants ont été supprimés.
 
 ### D26. Parseur local, aucun LLM
 
@@ -239,6 +247,105 @@ cohérent avec le deck.
 Les réponses sont templatées côté front (`messageCopilote`) et ne contiennent
 aucune durée de session ni date exacte. Aucun appel réseau propre au copilote :
 il réutilise `/api/home/selection`.
+
+## Tranche 8 — Transparence et polish
+
+### D29. « Pourquoi » ne montre que des signaux lisibles
+
+`DialoguePourquoi` affiche les `reason` du deck et les `signals` du menu. Aucun
+score brut n’est exposé, ni dans l’API ni dans le front. Le détail technique
+(embedding, pgvector, genre bonus) est replié dans un `<details>`.
+
+### D30. Sources statiques
+
+`DialogueSources` décrit la provenance réelle : `GetOwnedGames`, `appdetails`,
+schémas et progression de succès, activité dérivée, embeddings d’import. Il
+rappelle qu’aucun appel Steam/Gemini n’est fait au chargement, qu’aucune durée
+de session n’existe et qu’aucune date exacte n’est affichée.
+
+### D31. Rechargement dès la fin de l’étape `library`
+
+Le polling `/api/sync` déclenche un rechargement de l’accueil dès que le job
+quitte l’étape `library`, sans attendre `details`, `achievements` et
+`embeddings`. Les cartes apparaissent donc dès que la bibliothèque est
+affichable.
+
+### D32. CSS mort purgé
+
+La liste socle de la tranche 4 (`.accueil-selection-liste`, `.accueil-carte`,
+`.accueil-carte-media/corps/genres/titre/raison/meta`) a été retirée : le deck
+la remplace. `.accueil-carte-badges` et `.accueil-carte-actions` restent
+partagés par le deck et le menu.
+
+### D33. `AGENTS.md` mis à jour
+
+Après validation du développeur, `AGENTS.md` reflète l'accueil et Node 24 : sections
+« État du projet », « Fichiers clés », « Structure » (`engines >=24.0.0`, `.nvmrc`),
+« Pièges techniques » (Node 24), « Cible de déploiement » (`NODE_VERSION=24`), et
+Écarts 3/20 passés en ✅ Résolu. L'accueil n'est plus listé dans « Non implémenté ».
+
+### D34. Petits correctifs de la revue finale
+
+- Les deux instances de `DialoguePourquoi` (deck et menu) ont des `id` de titre
+  distincts : plus de doublon d’`id` dans le DOM.
+- L’`autoFocus` du champ de recherche d’ancre a été retiré : le dialogue fermé
+  ne peut plus voler le focus au chargement de la page.
+- « Réessayer » efface l’erreur avant de relancer : le squelette de chargement
+  réapparaît au lieu de laisser la carte d’erreur pendant la requête.
+
+## Refonte UI du 3 novembre 2026
+
+### D35. Copilote retiré
+
+`CopiloteBarre` et ses presets (« plus calme », « plus court »,
+« surprends-moi ») sont supprimés : la barre « Une autre envie » ne servait pas
+assez. Les helpers `presetCopilote` / `messageCopilote` et leurs tests sont
+retirés. Les boutons **Affiner la sélection** et **Changer de jeu** prennent sa
+place sous le deck, en évidence ; **Pourquoi ces jeux ?** reste discret dans
+l’en-tête.
+
+### D36. Menu du soir retiré de l’interface
+
+`MenuSoir` n’est plus affiché ; le composant et son CSS sont supprimés. Les
+endpoints `GET /api/home/menu` et les types associés restent côté API pour un
+usage futur. Les sources sont déplacées dans un discret pied de page.
+
+### D37. Catégories enrichies et dynamiques
+
+`CategoriesAccueil` devient une vraie section : cartes **de taille fixe**
+(image 150 px + contenu 128 px), raison lisible, progression réelle des succès
+pour « À finir », genres pour « À découvrir », activité et temps pour
+« À retrouver ». L'API renvoie jusqu'à **9 jeux par catégorie** ; le front les
+affiche par **pages de 3**. Un bouton **D’autres jeux** fait tourner les pages
+à la demande (pas de flèches par section). La pagination est testée dans
+`categories.ts`/`categories.test.ts` ; les liens filtrent la bibliothèque
+(`etat=jamais`, `tri=recent`, `tri=temps`).
+
+### D38. Swipe corrigé
+
+Le geste ne sélectionne plus le texte et ne déclenche plus le drag natif de
+l’image : `user-select: none`, `-webkit-user-drag: none`, `draggable={false}`,
+`onDragStart` annulé, `preventDefault()` au `pointerdown` hors liens/boutons,
+nettoyage de la sélection et capture du pointeur. Le reste (seuil, `pointerup`
+global, `releasePointerCapture`, clic accidentel) est conservé.
+
+## Reste à faire avant merge
+
+### `AGENTS.md`
+
+Mis à jour (État du projet, Fichiers clés, Node 24, écarts 3/20). Aucune action
+restante.
+
+### Vérifications manuelles restantes
+
+- Connexion Steam réelle, import terminé, page à 390 px sans scroll horizontal.
+- Flèches, swipe gauche/droite, clavier, points, `prefers-reduced-motion`.
+- Changer de jeu, Affiner, catégories, dialogues Pourquoi/Sources.
+- Lighthouse accessibilité et console propre (non exécutés dans cet
+  environnement).
+
+
+
 
 
 
