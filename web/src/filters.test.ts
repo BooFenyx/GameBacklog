@@ -79,4 +79,11 @@ describe('filtres — URL', () => {
       cleFiltres({ ...base, q: 'portal' }),
     )
   })
+
+  it('ne confond pas un texte contenant le séparateur avec un filtre', () => {
+    const base = { ...FILTRES_VIDES }
+    expect(cleFiltres({ ...base, q: 'a|25' })).not.toBe(
+      cleFiltres({ ...base, q: 'a', genres: [25] }),
+    )
+  })
 })

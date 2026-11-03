@@ -113,6 +113,8 @@ export class SearchService {
 
     const criteres = await this.criteresPour(userId, dto);
 
+    const paramsFiltres = [...params];
+
     // On demande une ligne de plus que la page pour calculer `hasMore` sans
     // exécuter une requête COUNT supplémentaire.
     const limitIndex = params.length + 1;
@@ -151,7 +153,10 @@ export class SearchService {
     const result = await this.db.$client.query(sql, params);
     const rows = result.rows as NameSearchRow[];
     const hasMore = rows.length > dto.limit;
-    const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+    let total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+    if (rows.length === 0 && dto.offset > 0) {
+      total = await this.compterResultatsNom(conditions, paramsFiltres);
+    }
 
     return {
       mode: 'name',
@@ -164,6 +169,46 @@ export class SearchService {
       total,
       degraded: false,
     };
+  }
+
+  /** COUNT de secours quand OFFSET dépasse la fin des résultats par nom. */
+  private async compterResultatsNom(
+    conditions: string[],
+    params: unknown[],
+  ): Promise<number> {
+    const result = await this.db.$client.query(
+      `SELECT COUNT(*)::int AS total
+       FROM library_entries le
+       JOIN games g ON g.id = le.game_id
+       WHERE ${conditions.join('\n       AND ')}`,
+      params,
+    );
+    return Number(
+      (result.rows[0] as { total?: string | number } | undefined)?.total ?? 0,
+    );
+  }
+
+  /**
+   * COUNT de secours pour la recherche sémantique. Les paramètres `$1`
+   * (vecteur) et `$3` (référence) sont référencés pour respecter le nombre de
+   * paramètres déjà liés, même s'ils ne filtrent pas le COUNT.
+   */
+  private async compterResultatsSemantiques(
+    conditions: string[],
+    params: unknown[],
+  ): Promise<number> {
+    const result = await this.db.$client.query(
+      `SELECT COUNT(*)::int AS total
+       FROM library_entries le
+       JOIN games g ON g.id = le.game_id
+       WHERE ${conditions.join('\n       AND ')}
+         AND ($1::vector IS NOT NULL)
+         AND ($3::text IS NULL OR $3::text IS NOT NULL)`,
+      params,
+    );
+    return Number(
+      (result.rows[0] as { total?: string | number } | undefined)?.total ?? 0,
+    );
   }
 
   /**
@@ -217,6 +262,8 @@ export class SearchService {
       params.push(minScore);
     }
 
+    const paramsFiltres = [...params];
+
     const limitIndex = params.length + 1;
     params.push(dto.limit + 1);
     const offsetIndex = params.length + 1;
@@ -259,7 +306,10 @@ export class SearchService {
     const result = await this.db.$client.query(sql, params);
     const rows = result.rows as SemanticSearchRow[];
     const hasMore = rows.length > dto.limit;
-    const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+    let total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+    if (rows.length === 0 && dto.offset > 0) {
+      total = await this.compterResultatsSemantiques(conditions, paramsFiltres);
+    }
 
     return {
       mode: 'semantic',
@@ -298,9 +348,13 @@ export class SearchService {
     const dtoNom: SearchQueryDto = {
       q: requeteNom,
       mode: 'name',
-      manette: dto.manette,
       limit: dto.limit,
       offset: dto.offset,
+      genres: dto.genres,
+      modes: dto.modes,
+      manette: dto.manette,
+      etat: dto.etat,
+      duree: dto.duree,
     };
     const response = await this.searchByName(userId, dtoNom);
 

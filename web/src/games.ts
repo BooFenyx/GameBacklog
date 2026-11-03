@@ -42,6 +42,7 @@ export type FicheJeu = {
   genres: string[]
   categories: string[]
   controllerSupport: 'none' | 'partial' | 'full'
+  detailsAvailable: boolean
   releaseDate: string | null
   headerImageUrl: string | null
   playtimeForever: number
@@ -56,7 +57,8 @@ export type FicheJeu = {
 
 export type SuccesDetail = {
   total: number
-  unlocked: number
+  /** `null` quand Steam ne permet pas de lire la progression (profil privé). */
+  unlocked: number | null
   list: Succes[]
 }
 

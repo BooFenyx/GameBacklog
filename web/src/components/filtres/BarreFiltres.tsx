@@ -80,8 +80,11 @@ export default function BarreFiltres({
   useEffect(() => {
     if (texte === derniereQ.current) return
     const timer = window.setTimeout(() => {
-      derniereQ.current = texte
-      onChanger({ ...filtresRef.current, q: texte }, true)
+      // `ecrireFiltres` trim `q` : on mémorise la valeur réellement écrite
+      // dans l'URL, sinon le prochain caractère serait concaténé sans l'espace.
+      const valeur = texte.trim()
+      derniereQ.current = valeur
+      onChanger({ ...filtresRef.current, q: valeur }, true)
     }, 250)
     return () => window.clearTimeout(timer)
   }, [texte, onChanger])

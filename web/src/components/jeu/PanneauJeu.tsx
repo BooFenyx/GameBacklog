@@ -19,7 +19,9 @@ export default function PanneauJeu({ jeu, succes }: Props) {
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const activite = libelleActivite(jeu)
   const totalSucces = succes?.total ?? jeu.achievementsTotal
-  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
+  // Ne pas utiliser `??` : si la fiche détaillée dit « indisponible » (null),
+  // un ancien compteur de bibliothèque ne doit pas reprendre la main.
+  const debloquesSucces = succes ? succes.unlocked : jeu.achievementsUnlocked
   const aDesCompteurs = totalSucces !== null && totalSucces > 0
   const complet =
     aDesCompteurs &&
@@ -84,11 +86,20 @@ export default function PanneauJeu({ jeu, succes }: Props) {
           <div>
             <dt>Manette</dt>
             <dd>
-              {LIBELLE_MANETTE[jeu.controllerSupport]}
-              {jeu.controllerSupport === 'partial' && (
-                <small className="detail-note">
-                  Certaines actions peuvent nécessiter le clavier ou la souris.
-                </small>
+              {jeu.detailsAvailable ? (
+                <>
+                  {LIBELLE_MANETTE[jeu.controllerSupport]}
+                  {jeu.controllerSupport === 'partial' && (
+                    <small className="detail-note">
+                      Certaines actions peuvent nécessiter le clavier ou la
+                      souris.
+                    </small>
+                  )}
+                </>
+              ) : (
+                <span title="La fiche Steam n'est pas encore récupérée">
+                  —
+                </span>
               )}
             </dd>
           </div>
@@ -170,7 +181,7 @@ export default function PanneauJeu({ jeu, succes }: Props) {
                 <strong>
                   {debloquesSucces ?? '—'} / {totalSucces}
                 </strong>
-                {pourcentage !== null && pourcentage > 0 && (
+                {pourcentage !== null && (
                   <> · {pourcentage} %</>
                 )}
               </span>

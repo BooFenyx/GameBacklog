@@ -16,6 +16,7 @@ import {
 import { EmbeddingService } from '../src/embedding/embedding.service.js';
 import { RateLimitService } from '../src/embedding/rate-limiter.service.js';
 import { SyncService } from '../src/sync/sync.service.js';
+import { ouvrirSessionTest } from './session-test.js';
 
 const STEAM_ID = '76561199000000100';
 const FRONTEND_URL = 'http://localhost:5173';
@@ -24,14 +25,6 @@ const PREMIER_APP_ID = 940001;
 /** Borne haute exclue : 940001 → 940250. */
 const FIN_APP_ID = PREMIER_APP_ID + NB_JEUX;
 const TIMEOUT_JOB_MS = 120_000;
-
-/** Requête de retour OpenID, telle que Steam la renvoie au callback. */
-const RETURN_QUERY = [
-  'openid.ns=http://specs.openid.net/auth/2.0',
-  'openid.mode=id_res',
-  `openid.claimed_id=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-  `openid.identity=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-].join('&');
 
 /**
  * Throttles et budget à zéro : l'import doit rester rapide et déterministe en
@@ -201,10 +194,7 @@ describe('Import volumineux (e2e)', () => {
     await supprimerDonnees();
 
     agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const [utilisateur] = await db
       .select()

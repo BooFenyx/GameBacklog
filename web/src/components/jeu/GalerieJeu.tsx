@@ -40,6 +40,9 @@ export default function GalerieJeu({ captures, nom }: Props) {
               alt={`Capture d'écran ${index + 1} de ${nom}`}
               loading="lazy"
               decoding="async"
+              onError={(event) => {
+                event.currentTarget.style.display = 'none'
+              }}
             />
           </button>
         ))}

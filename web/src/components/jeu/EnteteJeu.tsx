@@ -22,7 +22,9 @@ export default function EnteteJeu({ jeu, succes }: Props) {
   const annee = formaterAnnee(jeu.releaseDate)
   const storeUrl = `https://store.steampowered.com/app/${jeu.appId}`
   const totalSucces = succes?.total ?? jeu.achievementsTotal
-  const debloquesSucces = succes?.unlocked ?? jeu.achievementsUnlocked
+  // `succes.unlocked === null` signifie « progression indisponible » : on ne
+  // retombe pas sur un compteur de bibliothèque potentiellement obsolète.
+  const debloquesSucces = succes ? succes.unlocked : jeu.achievementsUnlocked
   const complet =
     totalSucces !== null &&
     totalSucces > 0 &&
@@ -46,12 +48,15 @@ export default function EnteteJeu({ jeu, succes }: Props) {
 
         <div className="fiche-hero-meta">
           {annee && <Etiquette variante="genre">{annee}</Etiquette>}
+          {jeu.playtimeForever === 0 && (
+            <Etiquette variante="genre">Jamais lancé</Etiquette>
+          )}
           {jeu.genres.slice(0, 3).map((genre) => (
             <Etiquette key={genre} variante="genre">
               {genre}
             </Etiquette>
           ))}
-          {jeu.controllerSupport !== 'none' && (
+          {jeu.detailsAvailable && jeu.controllerSupport !== 'none' && (
             <Etiquette variante="manette">
               {LIBELLE_MANETTE[jeu.controllerSupport]}
             </Etiquette>

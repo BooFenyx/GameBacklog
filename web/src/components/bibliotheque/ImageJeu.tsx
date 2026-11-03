@@ -1,11 +1,16 @@
+import { useState } from 'react'
+
 type Props = {
   src: string | null
   nom: string
 }
 
-/** Image 16:9 d'un jeu, avec repli dégradé + initiale si l'URL manque. */
+/** Image 16:9 d'un jeu, avec repli dégradé + initiale si l'URL manque ou casse. */
 export default function ImageJeu({ src, nom }: Props) {
-  if (!src) {
+  const [erreurSrc, setErreurSrc] = useState<string | null>(null)
+  const erreur = src !== null && erreurSrc === src
+
+  if (!src || erreur) {
     return (
       <span className="image-jeu image-jeu--vide" aria-hidden="true">
         {nom.slice(0, 1).toUpperCase()}
@@ -22,6 +27,7 @@ export default function ImageJeu({ src, nom }: Props) {
       height="215"
       loading="lazy"
       decoding="async"
+      onError={() => setErreurSrc(src)}
     />
   )
 }

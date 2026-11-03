@@ -11,6 +11,7 @@ import {
   mapPlatforms,
   mapScreenshots,
   parseReleaseDate,
+  retirerPreambuleCommercial,
 } from './games.service.js';
 
 function fakeDb(returnedId = 7) {
@@ -123,6 +124,30 @@ describe('parseReleaseDate', () => {
     expect(parseReleaseDate('Bientôt disponible')).toBeNull();
     expect(parseReleaseDate('à venir')).toBeNull();
   });
+
+  it('refuse les dates partielles sans jour précis', () => {
+    expect(parseReleaseDate('2023')).toBeNull();
+    expect(parseReleaseDate('Oct 2023')).toBeNull();
+    expect(parseReleaseDate('2023-10')).toBeNull();
+    expect(parseReleaseDate('Q1 2023')).toBeNull();
+  });
+
+  it('refuse un jour inexistant dans le mois', () => {
+    expect(parseReleaseDate('31 févr. 2023')).toBeNull();
+    expect(parseReleaseDate('2023-02-31')).toBeNull();
+  });
+
+  it('parse le mois en premier et les formats numériques', () => {
+    expect(parseReleaseDate('Oct 26, 2023')?.toISOString()).toBe(
+      '2023-10-26T00:00:00.000Z',
+    );
+    expect(parseReleaseDate('26/10/2023')?.toISOString()).toBe(
+      '2023-10-26T00:00:00.000Z',
+    );
+    expect(parseReleaseDate('26-10-2023')?.toISOString()).toBe(
+      '2023-10-26T00:00:00.000Z',
+    );
+  });
 });
 
 describe('mapControllerSupport', () => {
@@ -141,9 +166,7 @@ describe('mapControllerSupport', () => {
   it('se replie sur les ids de catégories traduites', () => {
     expect(
       mapControllerSupport({
-        categories: [
-          { id: 28, description: 'Compat. contrôleurs complète' },
-        ],
+        categories: [{ id: 28, description: 'Compat. contrôleurs complète' }],
       } as never),
     ).toBe('full');
     expect(
@@ -207,7 +230,9 @@ describe('htmlToBlocks', () => {
 
   it('retire les balises inline et décode les entités', () => {
     expect(
-      htmlToBlocks('<p><strong>Bonjour</strong> &amp; <a href="#">lien</a></p>'),
+      htmlToBlocks(
+        '<p><strong>Bonjour</strong> &amp; <a href="#">lien</a></p>',
+      ),
     ).toEqual([{ type: 'paragraphe', texte: 'Bonjour & lien' }]);
   });
 
@@ -252,9 +277,11 @@ describe('mapScreenshots', () => {
 
 describe('mapPlatforms', () => {
   it('respecte l’ordre Windows, macOS, Linux', () => {
-    expect(
-      mapPlatforms({ windows: true, mac: true, linux: true }),
-    ).toEqual(['windows', 'mac', 'linux']);
+    expect(mapPlatforms({ windows: true, mac: true, linux: true })).toEqual([
+      'windows',
+      'mac',
+      'linux',
+    ]);
     expect(mapPlatforms({ linux: true, windows: false })).toEqual(['linux']);
     expect(mapPlatforms(undefined)).toEqual([]);
   });
@@ -314,6 +341,169 @@ describe('mapAppDetails', () => {
     expect(details.metacriticScore).toBeNull();
     expect(details.metacriticUrl).toBeNull();
     expect(details.backgroundImageUrl).toBeNull();
+  });
+
+  it('retire le préambule commercial avant « À propos du jeu »', () => {
+    const details = mapAppDetails(1808500, {
+      name: 'ARC Raiders',
+      detailed_description:
+        '<h3>ARC Raiders Deluxe Edition</h3><p>Includes the base game and cosmetics.</p><h3>À propos du jeu</h3><p>Un jeu d’extraction dans un monde futuriste ravagé par les ARC.</p>',
+    });
+    expect(details.descriptionBlocks).toEqual([
+      {
+        type: 'paragraphe',
+        texte:
+          'Un jeu d’extraction dans un monde futuriste ravagé par les ARC.',
+      },
+    ]);
+  });
+});
+
+describe('retirerPreambuleCommercial', () => {
+  const paragrapheLong = {
+    type: 'paragraphe' as const,
+    texte:
+      'Un long paragraphe qui décrit réellement le jeu, ses mécaniques, son monde et ses personnages.',
+  };
+
+  it('coupe avant « À propos du jeu » quand le premier titre est commercial', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'ARC Raiders Deluxe Edition' },
+      { type: 'paragraphe' as const, texte: 'Includes the base game.' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('reconnaît les variantes anglaises et la casse', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'DIGITAL DELUXE EDITION' },
+      { type: 'paragraphe' as const, texte: 'Includes the base game.' },
+      { type: 'titre' as const, texte: 'ABOUT THIS GAME' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('reconnaît les pluriels et les renvois vers d’autres jeux', () => {
+    expect(
+      retirerPreambuleCommercial([
+        { type: 'titre', texte: 'Explore our Special Editions!' },
+        { type: 'titre', texte: 'À propos du jeu' },
+        paragrapheLong,
+      ]),
+    ).toEqual([paragrapheLong]);
+
+    expect(
+      retirerPreambuleCommercial([
+        { type: 'titre', texte: 'Our games you might like' },
+        { type: 'titre', texte: 'À propos du jeu' },
+        paragrapheLong,
+      ]),
+    ).toEqual([paragrapheLong]);
+  });
+
+  it('coupe un préambule composé uniquement de titres commerciaux', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'INTRODUCING: KING OF THE CASTLE' },
+      { type: 'titre' as const, texte: 'Join the Discord Community' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('garde un titre non commercial isolé', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Apex Legends : Traque' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('ne coupe pas sans titre « À propos »', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition collector' },
+      { type: 'paragraphe' as const, texte: 'Contenu de l’édition.' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('retire un titre « À propos » déjà en tête', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('ne coupe pas un vrai contenu de mise à jour', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'BROFORCE FOREVER' },
+      {
+        type: 'paragraphe' as const,
+        texte: 'La mise à jour gratuite ajoute du contenu.',
+      },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('ne coupe pas si le reste ne contient plus de texte descriptif', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'ARC Raiders Deluxe Edition' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('reconnaît les titres accentués commençant par « Édition »', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition numérique de luxe' },
+      {
+        type: 'paragraphe' as const,
+        texte: 'Cette édition comprend le jeu de base.',
+      },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toEqual([paragrapheLong]);
+  });
+
+  it('ne confond pas un mot contenant « edition » avec une édition', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Expedition 33' },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('ne confond pas un titre sur le studio avec « À propos du jeu »', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition numérique de luxe' },
+      { type: 'titre' as const, texte: 'À PROPOS DE HAZELIGHT' },
+      paragrapheLong,
+    ];
+    expect(retirerPreambuleCommercial(blocs)).toBe(blocs);
+  });
+
+  it('est idempotent', () => {
+    const blocs = [
+      { type: 'titre' as const, texte: 'Édition numérique de luxe' },
+      {
+        type: 'paragraphe' as const,
+        texte: 'Cette édition comprend le jeu de base.',
+      },
+      { type: 'titre' as const, texte: 'À propos du jeu' },
+      paragrapheLong,
+    ];
+    const uneFois = retirerPreambuleCommercial(blocs);
+    expect(retirerPreambuleCommercial(uneFois)).toEqual(uneFois);
   });
 });
 
@@ -457,9 +647,18 @@ describe('GamesService', () => {
     expect(details.categories).toEqual([]);
   });
 
-  it('fetchAppDetails : network si la fiche est absente ou en échec', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
-    global.fetch = mockFetch;
+  it('fetchAppDetails : removed sur 404/410, network sur 500', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'removed',
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 410 });
+    await expect(service.fetchAppDetails(123)).resolves.toEqual({
+      kind: 'removed',
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     await expect(service.fetchAppDetails(123)).resolves.toEqual({
       kind: 'network',
     });
@@ -586,6 +785,7 @@ describe('GamesService', () => {
         genres: ['Puzzle'],
         categories: ['Solo'],
         controllerSupport: 'full',
+        detailsFetchedAt: new Date('2011-04-18T00:00:00.000Z'),
         releaseDate: new Date('2011-04-18T00:00:00.000Z'),
         headerImageUrl: null,
         playtimeForever: 10,
@@ -605,6 +805,23 @@ describe('GamesService', () => {
     expect(detail?.releaseDate).toBe('2011-04-18');
     expect(detail?.shortDescription).toBe('Des énigmes.');
     expect(detail?.lastActivitySource).toBe('sync_delta');
+    expect(detail?.detailsAvailable).toBe(true);
+  });
+
+  it('userGameDetail signale une fiche Steam non récupérée', async () => {
+    const { limit } = faireDbFake();
+    limit.mockResolvedValue([
+      {
+        detailsFetchedAt: null,
+        releaseDate: null,
+        gameAchievementsFetchedAt: null,
+        progressFetchedAt: null,
+      },
+    ]);
+
+    const detail = await service.userGameDetail(621, 1);
+
+    expect(detail?.detailsAvailable).toBe(false);
   });
 
   it('userGameDetail renvoie null sans date de sortie', async () => {

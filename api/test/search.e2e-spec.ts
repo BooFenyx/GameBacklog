@@ -11,17 +11,11 @@ import { games, libraryEntries, users } from '../src/db/schema.js';
 import { EmbeddingService } from '../src/embedding/embedding.service.js';
 import { FILTERS_VERSION } from '../src/games/games.service.js';
 import { SearchRateLimitService } from '../src/search/search-rate-limit.service.js';
+import { ouvrirSessionTest } from './session-test.js';
 
 const STEAM_ID = '76561199000000003';
 const FRONTEND_URL = 'http://localhost:5173';
 const VECTOR_DIMENSIONS = 1024;
-
-const RETURN_QUERY = [
-  'openid.ns=http://specs.openid.net/auth/2.0',
-  'openid.mode=id_res',
-  `openid.claimed_id=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-  `openid.identity=https://steamcommunity.com/openid/id/${STEAM_ID}`,
-].join('&');
 
 function vecteur(index: number): number[] {
   return Array.from({ length: VECTOR_DIMENSIONS }, (_, i) =>
@@ -190,10 +184,7 @@ describe('Recherche (e2e)', () => {
     userId: number;
   }> {
     const agent = request.agent(app.getHttpServer());
-    await agent
-      .get(`/api/auth/steam/return?${RETURN_QUERY}`)
-      .redirects(0)
-      .expect(302);
+    await ouvrirSessionTest(agent, FRONTEND_URL, STEAM_ID);
 
     const db = moduleFixture.get<Db>(DB);
     const [utilisateur] = await db
@@ -245,7 +236,9 @@ describe('Recherche (e2e)', () => {
     const { agent } = await ouvrirSession();
 
     await agent.get('/api/search?q=portal&mode=name&inconnu=1').expect(400);
-    await agent.get('/api/search?q=portal&mode=name&manette=partial').expect(400);
+    await agent
+      .get('/api/search?q=portal&mode=name&manette=partial')
+      .expect(400);
   });
 
   it('recherche par nom sans appeler Gemini', async () => {

@@ -3,7 +3,12 @@ import { eq } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import { users } from '../db/schema.js';
 
-export const SYNC_STATUS_ENUM = ['pending', 'running', 'done', 'error'] as const;
+export const SYNC_STATUS_ENUM = [
+  'pending',
+  'running',
+  'done',
+  'error',
+] as const;
 export type SyncStatus = (typeof SYNC_STATUS_ENUM)[number];
 
 /** Champs de profil suffisant pour créer/mettre à jour un utilisateur. */
@@ -18,9 +23,11 @@ export class UsersService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   /**
-   * Crée l'utilisateur s'il n'existe pas, sinon met à jour profil et statut de
-   * sync. Upsert volontaire : aucune suppression, aucun doublon (`steamId`
-   * unique). Renvoie l'identifiant de la ligne `users`.
+   * Crée l'utilisateur s'il n'existe pas, sinon met à jour le profil. Le
+   * statut de sync n'est **pas** réinitialisé à chaque login : il est piloté
+   * par le `SyncService` (`done`/`error`). Upsert volontaire : aucune
+   * suppression, aucun doublon (`steamId` unique). Renvoie l'identifiant de la
+   * ligne `users`.
    */
   async upsertFromProfile(profile: ProfileForUpsert): Promise<number> {
     // Chaîne vide ou absente → null en base (pas d'URL d'avatar significative).
@@ -38,7 +45,6 @@ export class UsersService {
         set: {
           displayName: profile.displayName,
           avatarUrl,
-          syncStatus: 'pending',
         },
       })
       .returning({ id: users.id });

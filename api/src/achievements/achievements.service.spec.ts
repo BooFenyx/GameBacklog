@@ -49,6 +49,8 @@ function fakeDb(reponses: unknown[][]) {
   const update = vi.fn();
   const set = vi.fn();
   const whereSet = vi.fn();
+  const del = vi.fn();
+  const whereDelete = vi.fn();
 
   const file = [...reponses];
   const suivant = (): Promise<unknown[]> => Promise.resolve(file.shift() ?? []);
@@ -73,13 +75,16 @@ function fakeDb(reponses: unknown[][]) {
   update.mockReturnValue({ set });
   set.mockReturnValue({ where: whereSet });
   whereSet.mockResolvedValue(undefined);
+  del.mockReturnValue({ where: whereDelete });
+  whereDelete.mockResolvedValue(undefined);
 
   return {
-    db: { select, insert, update } as unknown as Db,
+    db: { select, insert, update, delete: del } as unknown as Db,
     insert,
     values,
     onConflictDoUpdate,
     set,
+    delete: del,
     limit,
     select,
   };
@@ -212,6 +217,33 @@ describe('AchievementsService', () => {
         ServiceUnavailableException,
       );
     });
+
+    it('traite une réponse 200 sans game comme indisponible', async () => {
+      const fake = fakeDb([[{ fetchedAt: null, total: 0 }], []]);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({}),
+        }),
+      );
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AchievementsService,
+          { provide: DB, useValue: fake.db },
+          {
+            provide: ConfigService,
+            useValue: makeConfig({ STEAM_API_KEY: 'cle' }),
+          },
+        ],
+      }).compile();
+      service = module.get<AchievementsService>(AchievementsService);
+
+      await expect(service.getGameAchievements(7, 620)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+    });
   });
 
   describe('getUserAchievements', () => {
@@ -280,7 +312,7 @@ describe('AchievementsService', () => {
       expect(result[1].unlockedAt).toBeNull();
     });
 
-    it('renvoie une liste verrouillée si le profil est privé (success:false)', async () => {
+    it('marque la progression indisponible si le profil est privé (success:false)', async () => {
       const fake = fakeDb(schemaEnCache);
       await creerService(fake);
 
@@ -292,15 +324,122 @@ describe('AchievementsService', () => {
         }),
       );
 
-      const result = await service.getUserAchievements('7656119', 3, 7, 620);
-      expect(result).toHaveLength(2);
-      expect(result.every((succes) => succes.unlockedAt === null)).toBe(true);
+      const detail = await service.getUserAchievementsDetail(
+        '7656119',
+        3,
+        7,
+        620,
+      );
+      expect(detail.unlocked).toBeNull();
+      expect(detail.list).toHaveLength(2);
+      expect(detail.list.every((succes) => succes.unlockedAt === null)).toBe(
+        true,
+      );
       expect(fake.set).toHaveBeenCalledWith(
         expect.objectContaining({
-          achievementsUnlocked: 0,
+          achievementsUnlocked: null,
           achievementsFetchedAt: expect.any(Date),
         }),
       );
+    });
+
+    it('ignore les succès inconnus du schéma et ceux sans unlocktime', async () => {
+      const fake = fakeDb(schemaEnCache);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            playerstats: {
+              success: true,
+              achievements: [
+                { apiname: 'INCONNU', achieved: 1, unlocktime: 1_700_000_000 },
+                { apiname: 'PORTAL_PUZZLE', achieved: 1 },
+              ],
+            },
+          }),
+        }),
+      );
+
+      const result = await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(result.every((succes) => succes.unlockedAt === null)).toBe(true);
+      expect(fake.values).not.toHaveBeenCalled();
+      expect(fake.set).toHaveBeenCalledWith(
+        expect.objectContaining({ achievementsUnlocked: 0 }),
+      );
+    });
+
+    it('purge les déblocages absents du schéma ou reverrouillés', async () => {
+      const fake = fakeDb([
+        [{ fetchedAt: new Date(), total: 2 }],
+        LIGNE_DETAIL,
+        [{ playtimeForever: 60, achievementsFetchedAt: null }],
+        [
+          {
+            id: 99,
+            gameId: 7,
+            apiName: 'VIEUX',
+            displayName: 'Vieux',
+            description: null,
+            iconUrl: null,
+          },
+        ],
+      ]);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            playerstats: {
+              success: true,
+              achievements: [
+                {
+                  apiname: 'PORTAL_PUZZLE',
+                  achieved: 1,
+                  unlocktime: 1_700_000_000,
+                },
+              ],
+            },
+          }),
+        }),
+      );
+
+      await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(fake.delete).toHaveBeenCalled();
+    });
+
+    it('ne purge pas un succès simplement absent d’une réponse partielle', async () => {
+      const fake = fakeDb([...schemaEnCache, LIGNE_DETAIL]);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            playerstats: {
+              success: true,
+              achievements: [
+                {
+                  apiname: 'PORTAL_PUZZLE',
+                  achieved: 1,
+                  unlocktime: 1_700_000_000,
+                },
+              ],
+            },
+          }),
+        }),
+      );
+
+      await service.getUserAchievements('7656119', 3, 7, 620);
+
+      expect(fake.delete).not.toHaveBeenCalled();
     });
 
     it('ne rappelle pas Steam quand la progression est fraîche', async () => {
@@ -382,6 +521,23 @@ describe('AchievementsService', () => {
       await expect(
         service.refreshForSync('7656119', 3, 7, 620),
       ).rejects.toBeInstanceOf(SteamRateLimitError);
+    });
+
+    it('propage un échec réseau à l’import via refreshForSync', async () => {
+      const fake = fakeDb(schemaEnCache);
+      await creerService(fake);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(
+        service.refreshForSync('7656119', 3, 7, 620),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
   });
 });

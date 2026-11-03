@@ -144,7 +144,7 @@ export const libraryEntries = pgTable(
     }),
     /** Dernière synchronisation réussie : point de départ du prochain `sync_delta`. */
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-    achievementsUnlocked: integer('achievements_unlocked').notNull().default(0),
+    achievementsUnlocked: integer('achievements_unlocked').default(0),
     /** Date de la dernière récupération des succès du joueur pour ce jeu. */
     achievementsFetchedAt: timestamp('achievements_fetched_at'),
   },

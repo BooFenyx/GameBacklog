@@ -578,8 +578,10 @@
   transform: translateY(-1px);
 }
 
-.succes-carte.verrouille {
-  opacity: 0.56;
+.succes-carte.verrouille,
+.succes-carte--inconnu {
+  border-style: dashed;
+  background: color-mix(in oklab, var(--couleur-surface-1) 68%, transparent);
 }
 
 .succes-icone {
@@ -751,6 +753,29 @@
 
   .fiche-layout {
     padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fiche-principale,
+  .fiche-laterale {
+    display: contents;
+  }
+
+  /* Description et galerie gardent l'ordre du DOM (order 1) ; les
+     informations passent après, les succès en dernier. Ne pas dépendre de
+     `nth-child` : `DescriptionJeu`/`GalerieJeu` retournent `null` quand leur
+     contenu manque, ce qui décalait les index. */
+  .fiche-principale > .fiche-section {
+    order: 1;
+  }
+
+  .fiche-laterale > * {
+    order: 3;
+  }
+
+  .fiche-principale > .fiche-section--succes {
+    order: 4;
   }
 
   .fiche-section {

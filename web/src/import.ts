@@ -13,7 +13,11 @@ const VIDE: EtatImport = { texte: '', action: 'aucune', alerte: false }
  * la liste et par le bandeau, pour que le profil privé soit toujours expliqué.
  */
 export function messageErreurImport(texte: string): string {
-  if (texte.includes('profil privé') || texte.includes('privé')) {
+  if (
+    texte.includes('profil privé') ||
+    texte.includes('profil Steam est privé') ||
+    texte.includes('clé invalide')
+  ) {
     return 'Ton profil Steam est privé. Rends-le public dans les paramètres Steam pour importer ta bibliothèque.'
   }
   if (texte.includes('quota')) {

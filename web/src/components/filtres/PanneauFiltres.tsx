@@ -50,6 +50,7 @@ export default function PanneauFiltres({
     facettes?.durees.find((facette) => facette.value === duree)?.count ?? 0
 
   const basculerGenre = (id: number) => {
+    if (!filtres.genres.includes(id) && filtres.genres.length >= 8) return
     const genres = filtres.genres.includes(id)
       ? filtres.genres.filter((genre) => genre !== id)
       : [...filtres.genres, id]

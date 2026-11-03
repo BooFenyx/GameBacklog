@@ -5,6 +5,7 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  Max,
   Min,
 } from 'class-validator';
 import { DUREE_VALUES, type DureeJeu } from '../duree.js';
@@ -24,7 +25,7 @@ function csvToStrings(value: unknown): unknown {
 function csvToNumbers(value: unknown): unknown {
   const valeurs = csvToStrings(value);
   return Array.isArray(valeurs)
-    ? valeurs.map((entree) => Number(entree))
+    ? [...new Set(valeurs.map((entree) => Number(entree)))]
     : valeurs;
 }
 
@@ -43,6 +44,7 @@ export class FiltersQueryDto {
   @ArrayMaxSize(8)
   @IsInt({ each: true })
   @Min(1, { each: true })
+  @Max(2_147_483_647, { each: true })
   genres?: number[];
 
   @IsOptional()

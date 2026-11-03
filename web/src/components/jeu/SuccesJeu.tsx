@@ -1,32 +1,43 @@
 import { useMemo, useState } from 'react'
 import { formaterDate } from '../../format'
-import type { Succes } from '../../games'
+import type { Succes, SuccesDetail } from '../../games'
 import { IconeTrophee } from '../ui/Icones'
 import BarreProgression from '../ui/BarreProgression'
 
 type FiltreSucces = 'tous' | 'debloque' | 'verrouille'
 
 type Props = {
-  succes: {
-    total: number
-    unlocked: number
-    list: Succes[]
-  }
+  succes: SuccesDetail
 }
 
 const LIMITE_INITIALE = 12
 
-function carteSucces(succes: Succes) {
+function carteSucces(succes: Succes, progressionInconnue: boolean) {
   const debloque = Boolean(succes.unlockedAt)
   const date = formaterDate(succes.unlockedAt)
   return (
     <li
       key={succes.apiName}
-      className={debloque ? 'succes-carte' : 'succes-carte verrouille'}
+      className={
+        progressionInconnue
+          ? 'succes-carte succes-carte--inconnu'
+          : debloque
+            ? 'succes-carte'
+            : 'succes-carte verrouille'
+      }
     >
       <span className="succes-icone" aria-hidden="true">
         {succes.iconUrl ? (
-          <img src={succes.iconUrl} alt="" width="48" height="48" loading="lazy" />
+          <img
+            src={succes.iconUrl}
+            alt=""
+            width="48"
+            height="48"
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.display = 'none'
+            }}
+          />
         ) : (
           <IconeTrophee />
         )}
@@ -35,7 +46,11 @@ function carteSucces(succes: Succes) {
         <strong>{succes.displayName}</strong>
         {succes.description && <p>{succes.description}</p>}
         <small>
-          {debloque && date ? `Débloqué le ${date}` : 'Verrouillé'}
+          {progressionInconnue
+            ? 'Progression indisponible'
+            : debloque && date
+              ? `Débloqué le ${date}`
+              : 'Verrouillé'}
         </small>
       </div>
     </li>
@@ -47,14 +62,22 @@ export default function SuccesJeu({ succes }: Props) {
   const [filtre, setFiltre] = useState<FiltreSucces>('tous')
   const [toutAfficher, setToutAfficher] = useState(false)
 
-  const verrouilles = Math.max(0, succes.total - succes.unlocked)
+  const progressionDisponible = succes.unlocked !== null
+  const debloques = succes.unlocked ?? 0
+  const verrouilles = progressionDisponible
+    ? Math.max(0, succes.total - debloques)
+    : null
   const pourcentage =
-    succes.total > 0
-      ? Math.round((succes.unlocked / succes.total) * 100)
-      : 0
-  const complet = succes.total > 0 && succes.unlocked === succes.total
+    progressionDisponible && succes.total > 0
+      ? Math.round((debloques / succes.total) * 100)
+      : null
+  const complet =
+    progressionDisponible && succes.total > 0 && debloques === succes.total
 
   const visibles = useMemo(() => {
+    if (!progressionDisponible) {
+      return succes.list
+    }
     if (filtre === 'debloque') {
       return succes.list.filter((item) => Boolean(item.unlockedAt))
     }
@@ -62,7 +85,7 @@ export default function SuccesJeu({ succes }: Props) {
       return succes.list.filter((item) => !item.unlockedAt)
     }
     return succes.list
-  }, [filtre, succes.list])
+  }, [filtre, progressionDisponible, succes.list])
 
   const affiches = toutAfficher
     ? visibles
@@ -74,15 +97,18 @@ export default function SuccesJeu({ succes }: Props) {
   }
 
   return (
-    <section className="fiche-section" aria-labelledby="titre-succes">
+    <section
+      className="fiche-section fiche-section--succes"
+      aria-labelledby="titre-succes"
+    >
       <div className="succes-entete">
         <h2 className="titre-section" id="titre-succes">
           Succès
         </h2>
-        {succes.total > 0 && (
+        {progressionDisponible && succes.total > 0 && (
           <div className="succes-progression">
             <BarreProgression
-              valeur={succes.unlocked}
+              valeur={debloques}
               max={succes.total}
               label="Progression des succès"
               className={
@@ -90,11 +116,17 @@ export default function SuccesJeu({ succes }: Props) {
               }
             />
             <span className="texte-doux">
-              {succes.unlocked} sur {succes.total} · {pourcentage} %
+              {debloques} sur {succes.total} · {pourcentage} %
             </span>
           </div>
         )}
       </div>
+
+      {!progressionDisponible && (
+        <p className="succes-vide">
+          Progression indisponible : ton profil Steam cache les détails de jeu.
+        </p>
+      )}
 
       {succes.list.length === 0 ? (
         <p className="succes-vide">
@@ -103,47 +135,64 @@ export default function SuccesJeu({ succes }: Props) {
         </p>
       ) : (
         <>
-          <div className="succes-filtres" role="group" aria-label="Filtrer les succès">
-            <button
-              type="button"
-              aria-pressed={filtre === 'tous'}
-              onClick={() => changerFiltre('tous')}
+          {progressionDisponible && (
+            <div
+              className="succes-filtres"
+              role="group"
+              aria-label="Filtrer les succès"
             >
-              Tous <span>{succes.total}</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={filtre === 'debloque'}
-              onClick={() => changerFiltre('debloque')}
-            >
-              Débloqués <span>{succes.unlocked}</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={filtre === 'verrouille'}
-              onClick={() => changerFiltre('verrouille')}
-            >
-              Verrouillés <span>{verrouilles}</span>
-            </button>
-          </div>
-
-          <ul className="succes-grille">
-            {affiches.map((item) => carteSucces(item))}
-          </ul>
-
-          {visibles.length > LIMITE_INITIALE && (
-            <div className="succes-plus">
               <button
                 type="button"
-                className="btn"
-                aria-expanded={toutAfficher}
-                onClick={() => setToutAfficher((valeur) => !valeur)}
+                aria-pressed={filtre === 'tous'}
+                onClick={() => changerFiltre('tous')}
               >
-                {toutAfficher
-                  ? 'Réduire la liste'
-                  : `Afficher tous les succès (${visibles.length})`}
+                Tous <span>{succes.total}</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={filtre === 'debloque'}
+                onClick={() => changerFiltre('debloque')}
+              >
+                Débloqués <span>{debloques}</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={filtre === 'verrouille'}
+                onClick={() => changerFiltre('verrouille')}
+              >
+                Verrouillés <span>{verrouilles ?? 0}</span>
               </button>
             </div>
+          )}
+
+          {visibles.length === 0 ? (
+            <p className="succes-vide">
+              Aucun succès{' '}
+              {filtre === 'debloque' ? 'débloqué' : 'verrouillé'} pour ce jeu.
+            </p>
+          ) : (
+            <>
+              <ul className="succes-grille">
+                {affiches.map((item) =>
+                  carteSucces(item, !progressionDisponible),
+                )}
+              </ul>
+
+              {visibles.length > LIMITE_INITIALE && (
+                <div className="succes-plus">
+                  <button
+                    type="button"
+                    className="btn"
+                    aria-expanded={toutAfficher}
+                    onClick={() => setToutAfficher((valeur) => !valeur)}
+                  >
+                    {toutAfficher
+                      ? 'Réduire la liste'
+                      : `Afficher tous les succès (${visibles.length})`}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
