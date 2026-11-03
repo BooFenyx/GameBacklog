@@ -16,22 +16,29 @@
 services:
   - type: web
     runtime: node
-    name: gamebacklog-api
+    # Nom réel du service Render (l'URL publique doit rester
+    # fst-2026-groupe-08.onrender.com, utilisé par web/vercel.json). Si le
+    # service est recréé avec un autre nom, mettre à jour le rewrite Vercel.
+    name: fst-2026-groupe-08
     plan: free
+    region: oregon
+    # Redéploie uniquement quand les checks CI de la branche passent. Le front
+    # Vercel attend aussi une CI verte (workflow_run dans deploy.yml).
+    autoDeployTrigger: checksPass
     rootDir: api
     # `--include=dev` est indispensable : NODE_ENV=production fait omettre les
     # devDependencies par `npm ci`, or `nest build` a besoin de `@nestjs/cli` et
     # `typescript` (tous deux en devDependencies).
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:prod
-    healthCheckPath: /api
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       # Render ne lit pas forcément `engines.node` : on fixe la version requise
-      # par le projet (>=22.12.0) de manière explicite.
+      # par le projet (>=24.0.0) de manière explicite.
       - key: NODE_VERSION
-        value: '22'
+        value: '24'
       - key: DATABASE_URL
         sync: false
       - key: STEAM_API_KEY

@@ -1,9 +1,21 @@
 # Feature — Recherche vectorielle
 
+> **Vision produit (2 novembre 2026) :** les filtres d'URL (genres, modes, état,
+> durée, manette) sont **réservés à la bibliothèque**. La page `/recherche` ne
+> lit que `q` et `mode` ; les sections de ce document qui décrivent des filtres
+> de recherche sont historiques et ne décrivent pas l'UI actuelle.
+> `SearchQueryDto` hérite encore de `FiltersQueryDto` pour compatibilité d'API :
+> les filtres sont appliqués si un client les envoie, mais aucun écran ne les
+> expose.
+>
 > Fiche de conception **et** plan d'implémentation. La spécification produit de
 > référence reste `fiche_projet.md` (voir §1). Ce document décrit l'expérience
 > utilisateur, le contrat d'API, la conception technique, les tests et le
 > découpage en commits.
+>
+> **Embeddings v2 (3 novembre 2026)** : le texte indexé inclut désormais la
+> description longue et il est versionné (`EMBEDDING_TEXT_VERSION`, migration
+> `0012`). Voir `embeddings-v2.md` pour le texte, le backfill et les mesures.
 
 ## 1. Contexte & objectif
 
@@ -378,10 +390,11 @@ timeout, 429/quota, `'busy'`). On réutilise la recherche par nom :
 - **`web/src/components/BarreRecherche.tsx`** : champ, bouton-icône de mode
   (étiquette / presse-papiers), annonce de bascule 2 s, aperçu 7 résultats
   (mode nom uniquement), navigation clavier, `AbortController`.
-- **`web/src/components/CarteResultatRecherche.tsx`** : présentation d'un
-  résultat, réutilisable sur la page.
-- **`web/src/pages/Recherche.tsx`** : lecture de l'URL, chargement, pagination
-  « Afficher plus », états, filtre manette.
+- **`web/src/components/CarteResultat.tsx`** (et `VedetteResultat.tsx`) :
+  présentation d'un résultat, réutilisable sur la page.
+- **`web/src/pages/Recherche.tsx`** : lecture de l'URL (`q`, `mode` uniquement),
+  chargement, pagination « Afficher plus », états. Les filtres sont réservés à la
+  bibliothèque (voir la note en tête de document).
 - **`web/src/search.ts`** : types (`ModeRecherche`, `ResultatRecherche`,
   `ReponseRecherche`) et fonction d'appel.
 - **`web/src/App.tsx`** : route protégée `/recherche`.

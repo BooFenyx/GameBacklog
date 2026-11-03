@@ -1,29 +1,42 @@
 name: Déploiement production (CLI Vercel)
 
-# Déclenchement à chaque push sur la branche de production.
-# Le déploiement passe par la CLI Vercel et un token. La CLI (>= v44) applique
-# tout de même le contrôle de l'auteur du commit : l'auteur de HEAD doit
-# correspondre au compte Vercel propriétaire du projet. On réécrit donc l'auteur
-# dans le runner avant de déployer (voir l'étape dédiée plus bas). L'intégration
-# Git native reste désactivée via "git": { "deploymentEnabled": false } dans
-# web/vercel.json.
+# Déclenché uniquement après une CI verte sur main. Le workflow de déploiement
+# n'écoute plus directement `push` : un commit rouge ne peut donc plus partir
+# en production (le build Vercel ne lance ni lint ni tests).
+#
+# La CLI Vercel (>= v44) contrôle l'auteur du commit même avec un token :
+# l'auteur de HEAD doit correspondre au compte Vercel propriétaire du projet.
+# On réécrit donc l'auteur dans le runner avant de déployer. L'amend n'est
+# jamais poussé : l'historique GitHub reste intact.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
-  group: vercel-prod-${{ github.ref }}
-  cancel-in-progress: true
+  group: vercel-prod-main
+  # Ne jamais annuler un déploiement en cours : la production resterait sur un
+  # commit antérieur sans alerte explicite.
+  cancel-in-progress: false
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  URL_PRODUCTION: ${{ vars.VERCEL_PRODUCTION_URL || 'https://fst-2026-groupe-08.vercel.app' }}
 
 jobs:
   deploy:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Vérifier la présence des secrets
         env:
@@ -37,15 +50,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 24
 
       - name: Installer la CLI Vercel
-        run: npm install --global vercel@latest
+        run: npm install --global vercel@65
 
-      # La CLI Vercel (>= v44) vérifie que l'auteur de HEAD a accès au projet
-      # Vercel, même en déploiement par token. On réécrit l'auteur uniquement
-      # dans le runner : l'amend n'est jamais poussé, l'historique GitHub et le
-      # graphe de contributions des auteurs restent intacts.
+      # La CLI Vercel vérifie que l'auteur de HEAD a accès au projet Vercel,
+      # même en déploiement par token. On réécrit l'auteur uniquement dans le
+      # runner : l'amend n'est jamais poussé.
       - name: Aligner l'auteur du commit sur le compte Vercel
         env:
           VERCEL_DEPLOYER_EMAIL: ${{ secrets.VERCEL_DEPLOYER_EMAIL }}
@@ -62,3 +74,19 @@ jobs:
 
       - name: Déployer l'artefact préconstruit
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Vérifier la production (API + front)
+        run: |
+          for tentative in $(seq 1 12); do
+            if curl -fsS "$URL_PRODUCTION/api/health" > /dev/null; then
+              echo "API en ligne (tentative $tentative)"
+              break
+            fi
+            if [ "$tentative" -eq 12 ]; then
+              echo "::error::L'API de production ne répond pas sur /api/health"
+              exit 1
+            fi
+            sleep 10
+          done
+          curl -fsS "$URL_PRODUCTION/" > /dev/null
+          echo "Front et API joignables"

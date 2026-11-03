@@ -1,10 +1,8 @@
 name: CI
 
 # Vérifications de qualité sur chaque pull request et sur la branche main :
-# lint, tests unitaires et build, côté API et côté web.
-#
-# Les tests e2e restent lancés séparément : ils exigent une base PostgreSQL
-# (pgvector) et sont sérialisés pour ne pas se voler les jobs d'import.
+# lint, tests unitaires, e2e (avec PostgreSQL/pgvector) et build, côté API et
+# côté web. Le déploiement Vercel attend la fin de ce workflow (deploy.yml).
 
 on:
   pull_request:
@@ -16,7 +14,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Sur une PR, un nouveau push annule l'ancien run. Sur main, on laisse le run
+  # aller au bout : le déploiement en dépend.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   api:
@@ -28,13 +28,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: api/package-lock.json
 
       - name: Installer les dépendances
         working-directory: api
         run: npm ci
+
+      - name: Audit des dépendances de production
+        working-directory: api
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
         working-directory: api
@@ -48,6 +52,44 @@ jobs:
         working-directory: api
         run: npm run build
 
+  api-e2e:
+    name: API — e2e PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: gamebacklog
+          POSTGRES_PASSWORD: gamebacklog
+          POSTGRES_DB: gamebacklog
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gamebacklog"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://gamebacklog:gamebacklog@localhost:5432/gamebacklog
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Installer les dépendances
+        working-directory: api
+        run: npm ci
+
+      - name: Tests e2e
+        working-directory: api
+        run: npm run test:e2e
+
   web:
     name: Web — lint, tests, build
     runs-on: ubuntu-latest
@@ -57,13 +99,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Installer les dépendances
         working-directory: web
         run: npm ci
+
+      - name: Audit des dépendances de production
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
         working-directory: web
