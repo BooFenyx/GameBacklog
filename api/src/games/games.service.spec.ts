@@ -12,6 +12,7 @@ import {
   mapScreenshots,
   parseReleaseDate,
   retirerPreambuleCommercial,
+  texteDepuisBlocs,
 } from './games.service.js';
 
 function fakeDb(returnedId = 7) {
@@ -753,6 +754,9 @@ describe('GamesService', () => {
       {
         name: 'Portal 2' as string,
         shortDescription: 'Des énigmes.' as string | null,
+        descriptionBlocks: [
+          { type: 'paragraphe' as const, texte: 'Chez Aperture Science.' },
+        ],
         genres: ['Puzzle'] as string[],
         categories: ['Co-op'] as string[],
       },
@@ -761,8 +765,42 @@ describe('GamesService', () => {
     expect(input).toMatchObject({
       name: 'Portal 2',
       shortDescription: 'Des énigmes.',
+      longDescription: 'Chez Aperture Science.',
       genres: ['Puzzle'],
     });
+  });
+
+  it('embeddingInputFor : accepte une fiche avec seulement la description longue', async () => {
+    const { limit } = faireDbFake();
+    limit.mockResolvedValue([
+      {
+        name: 'PixelJunk' as string,
+        shortDescription: null as string | null,
+        descriptionBlocks: [
+          { type: 'paragraphe' as const, texte: 'Un monde étrange.' },
+        ],
+        genres: [] as string[],
+        categories: [] as string[],
+      },
+    ]);
+
+    await expect(service.embeddingInputFor(999)).resolves.toMatchObject({
+      longDescription: 'Un monde étrange.',
+    });
+  });
+
+  it('texteDepuisBlocs : joint les blocs et borne la longueur', () => {
+    const texte = texteDepuisBlocs([
+      { type: 'titre', texte: 'À propos' },
+      { type: 'paragraphe', texte: 'Un  jeu\n étrange.' },
+      { type: 'liste', items: ['Solo', 'Coop'] },
+    ]);
+    expect(texte).toBe('À propos Un jeu étrange. Solo, Coop');
+
+    const borne = texteDepuisBlocs([
+      { type: 'paragraphe', texte: 'a'.repeat(2000) },
+    ]);
+    expect(borne).toHaveLength(1200);
   });
 
   it('userGameDetail renvoie la date de sortie en YYYY-MM-DD', async () => {

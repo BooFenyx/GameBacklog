@@ -225,7 +225,10 @@ export class SearchService {
     let vector: number[] | null;
     try {
       vector = await this.cache.getOrCompute(q, () =>
-        this.embedding.embed(q, { maxWaitMs: this.embeddingMaxWaitMs() }),
+        this.embedding.embed(q, {
+          maxWaitMs: this.embeddingMaxWaitMs(),
+          userId,
+        }),
       );
     } catch (error) {
       if (error instanceof QuotaReachedError) {

@@ -46,9 +46,18 @@ export class AuthController {
   @Get('steam')
   steamLogin(@Req() req: Request, @Res() res: Response): void {
     const realm = this.frontendUrl();
-    // Jeton anti-CSRF : il est stocké en session et renvoyé dans `return_to`.
+    // Jeton anti-CSRF : il voyage dans un cookie signé de courte durée au lieu
+    // de la session. Cela évite d'écrire une ligne `session` en base pour
+    // chaque visite anonyme (une boucle simple pouvait saturer le store).
     const state = randomBytes(24).toString('hex');
-    req.session.openidState = state;
+    res.cookie('gb_openid_state', state, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      signed: true,
+      maxAge: 10 * 60 * 1000,
+      path: '/api/auth',
+    });
     const returnTo = `${realm}/api/auth/steam/return?state=${encodeURIComponent(
       state,
     )}`;
@@ -66,12 +75,18 @@ export class AuthController {
     try {
       const state =
         typeof req.query.state === 'string' ? req.query.state : null;
-      if (!state || state !== req.session.openidState) {
+      const stateCookie = req.signedCookies?.['gb_openid_state'];
+      if (
+        !state ||
+        typeof stateCookie !== 'string' ||
+        state !== stateCookie
+      ) {
         this.logger.warn('State OpenID absent ou invalide');
+        res.clearCookie('gb_openid_state', { path: '/api/auth' });
         res.redirect(`${frontendUrl}/?auth=error`);
         return;
       }
-      delete req.session.openidState;
+      res.clearCookie('gb_openid_state', { path: '/api/auth' });
 
       const returnTo =
         typeof req.query['openid.return_to'] === 'string'
@@ -153,7 +168,20 @@ export class AuthController {
         activiteAMettreAJour ||
         embeddingsAMettreAJour
       ) {
-        void this.syncService.enqueue(userId).catch((error: unknown) => {
+        // Reprend à l'étape réellement incomplète quand l'import précédent
+        // était terminé : un reliquat de succès ou d'embeddings ne doit pas
+        // rejouer `GetOwnedGames` et 2 requêtes par jeu à chaque login.
+        const depart =
+          statut !== 'done' || activiteAMettreAJour
+            ? 'library'
+            : aRemapper || detailsAMettreAJour
+              ? 'details'
+              : succesAMettreAJour
+                ? 'achievements'
+                : embeddingsAMettreAJour
+                  ? 'embeddings'
+                  : 'library';
+        void this.syncService.enqueue(userId, { depart }).catch((error: unknown) => {
           this.logger.error(
             `Mise en file de l'import impossible: ${
               error instanceof Error ? error.message : 'erreur inconnue'

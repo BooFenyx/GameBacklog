@@ -170,23 +170,27 @@ describe('AchievementsService', () => {
 
       expect(fake.values).toHaveBeenNthCalledWith(
         1,
-        expect.objectContaining({
-          gameId: 7,
-          apiName: 'PORTAL_PUZZLE',
-          displayName: 'Les bases',
-          description: 'Résolvez la première énigme.',
-          iconUrl: 'http://cdn/1.jpg',
-        }),
+        expect.arrayContaining([
+          expect.objectContaining({
+            gameId: 7,
+            apiName: 'PORTAL_PUZZLE',
+            displayName: 'Les bases',
+            description: 'Résolvez la première énigme.',
+            iconUrl: 'http://cdn/1.jpg',
+          }),
+        ]),
       );
-      expect(fake.values).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({
-          gameId: 7,
-          apiName: 'PORTAL_FRIEND',
-          displayName: 'Coop',
-          description: null,
-          iconUrl: null,
-        }),
+      expect(fake.values).toHaveBeenCalledTimes(1);
+      expect(fake.values.mock.calls[0][0]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            gameId: 7,
+            apiName: 'PORTAL_FRIEND',
+            displayName: 'Coop',
+            description: null,
+            iconUrl: null,
+          }),
+        ]),
       );
     });
 
@@ -294,11 +298,13 @@ describe('AchievementsService', () => {
 
       expect(fake.values).toHaveBeenCalledTimes(1);
       expect(fake.values).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: 3,
-          achievementId: 1,
-          unlockedAt: new Date(1_700_000_000 * 1000),
-        }),
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 3,
+            achievementId: 1,
+            unlockedAt: new Date(1_700_000_000 * 1000),
+          }),
+        ]),
       );
       expect(fake.set).toHaveBeenCalledWith(
         expect.objectContaining({

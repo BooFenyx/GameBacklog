@@ -172,7 +172,7 @@ describe('Compteurs et reprises de fiches (intégration)', () => {
       ).planifierToutesReprises();
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(enqueue).toHaveBeenCalledWith(userId);
+      expect(enqueue).toHaveBeenCalledWith(userId, { depart: 'details' });
     } finally {
       enqueue.mockRestore();
       vi.useRealTimers();

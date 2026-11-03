@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import helmet from 'helmet';
+import { IpRateLimit } from './rate-limit/ip-rate-limit.js';
 
 /**
  * Câblage partagé entre `main.ts` et les tests e2e, pour que les deux
@@ -21,12 +22,53 @@ export function configureApp(
   databaseUrl?: string,
 ): void {
   const production = process.env.NODE_ENV === 'production';
+  // Une origine CORS ne doit jamais se terminer par un slash : sinon
+  // `Access-Control-Allow-Origin` ne correspond à aucune origine navigateur.
+  // `auth.controller.ts` normalise déjà `FRONTEND_URL` pour OpenID ; on aligne
+  // le CORS sur la même valeur pour éviter deux comportements selon la route.
+  const origineFront = frontendUrl.replace(/\/+$/, '');
 
   // Nécessaire derrière le proxy de Render, sinon le cookie de session est
   // interprété sur le mauvais protocole.
   app.set('trust proxy', 1);
 
-  app.use(cookieParser());
+  // `/api/auth/*` est anonyme : le limiteur par `steamId` des lectures ne peut
+  // pas s'appliquer. On borne les boucles avant le middleware de session, pour
+  // qu'une requête rejetée ne crée justement pas de session en base. La limite
+  // est volontairement large (60/min) : un utilisateur normal ne fait que
+  // quelques allers-retours avec Steam. Configurable pour un événement.
+  const limiteAuth = Number(
+    process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? '60',
+  );
+  const authRateLimit = new IpRateLimit(
+    Number.isFinite(limiteAuth) && limiteAuth > 0 ? limiteAuth : 60,
+  );
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (
+      req.method !== 'OPTIONS' &&
+      (req.path === '/api/auth/steam' ||
+        req.path === '/api/auth/steam/return')
+    ) {
+      const retryAfterMs = authRateLimit.retryAfterMs(
+        IpRateLimit.cleClient(req),
+      );
+      if (retryAfterMs > 0) {
+        res.setHeader(
+          'Retry-After',
+          String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
+        );
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(429).json({
+          statusCode: 429,
+          message: 'Trop de tentatives de connexion : réessaie plus tard.',
+        });
+        return;
+      }
+    }
+    next();
+  });
+
+  app.use(cookieParser(sessionSecret));
 
   // CSP stricte en production : l'API ne sert que du JSON, aucune ressource
   // exécutable n'a besoin d'être autorisée. En développement elle reste
@@ -73,7 +115,16 @@ export function configureApp(
       store:
         production && databaseUrl
           ? new PgStore({
-              conObject: { connectionString: databaseUrl },
+              conObject: {
+                connectionString: databaseUrl,
+                // Le store de session interroge la base avant chaque
+                // contrôleur : il doit échouer vite, pas attendre un client
+                // libre indéfiniment si Neon est indisponible.
+                max: 5,
+                connectionTimeoutMillis: 5_000,
+                idleTimeoutMillis: 30_000,
+                statement_timeout: 15_000,
+              },
               createTableIfMissing: true,
             })
           : undefined,
@@ -100,5 +151,5 @@ export function configureApp(
   // same-origin et n'ont pas besoin de CORS. On le laisse néanmoins, restreint
   // à l'origine du front, pour couvrir un accès direct à l'API et le proxy de
   // développement (`web/vite.config.ts`).
-  app.enableCors({ origin: frontendUrl, credentials: true });
+  app.enableCors({ origin: origineFront, credentials: true });
 }

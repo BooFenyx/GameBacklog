@@ -31,6 +31,13 @@ describe('AppController (e2e)', () => {
       .expect('Hello World!');
   });
 
+  it('/api/health (GET) vérifie la base', () => {
+    return request(app.getHttpServer())
+      .get('/api/health')
+      .expect(200)
+      .expect({ status: 'ok' });
+  });
+
   afterEach(async () => {
     await app.close();
   });

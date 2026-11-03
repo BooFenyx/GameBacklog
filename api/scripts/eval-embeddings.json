@@ -1,0 +1,28 @@
+{
+  "queries": [
+    {
+      "texte": "un rogue-like nerveux en vue de dessus",
+      "attendus": [1145360, 588650, 632360]
+    },
+    {
+      "texte": "un jeu de plateforme difficile et poétique",
+      "attendus": [367520, 504230]
+    },
+    {
+      "texte": "football et voitures",
+      "attendus": [252950]
+    },
+    {
+      "texte": "farm, vie à la campagne et relations",
+      "attendus": [413150]
+    },
+    {
+      "texte": "un grand RPG médiéval en monde ouvert",
+      "attendus": [72850, 292030]
+    },
+    {
+      "texte": "un puzzle game dans un laboratoire",
+      "attendus": [400, 620]
+    }
+  ]
+}

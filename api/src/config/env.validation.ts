@@ -7,6 +7,9 @@ const REQUIRED_IN_PRODUCTION = [
   'DATABASE_URL',
   'SESSION_SECRET',
   'FRONTEND_URL',
+  // Sans elle, l'API répond mais tout import et la récupération du profil
+  // échouent : on préfère un boot en erreur explicite.
+  'STEAM_API_KEY',
 ] as const;
 
 /**
@@ -34,6 +37,21 @@ export function validateEnv(
   if (missing.length > 0) {
     throw new Error(
       `Variables d'environnement manquantes en production : ${missing.join(', ')}`,
+    );
+  }
+
+  // Un secret présent mais égal au repli de développement rendrait les cookies
+  // forgeables exactement comme s'il était absent. On refuse aussi les secrets
+  // trop courts, qui n'offrent pas la marge attendue pour HMAC-SHA256.
+  const secret = config.SESSION_SECRET as string;
+  if (secret === 'dev-insecure-session-secret') {
+    throw new Error(
+      "SESSION_SECRET ne peut pas être le secret de développement en production",
+    );
+  }
+  if (secret.trim().length < 32) {
+    throw new Error(
+      'SESSION_SECRET doit contenir au moins 32 caractères en production',
     );
   }
 

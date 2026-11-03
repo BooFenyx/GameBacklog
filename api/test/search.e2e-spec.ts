@@ -8,7 +8,10 @@ import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { DB, type Db } from '../src/db/db.module.js';
 import { games, libraryEntries, users } from '../src/db/schema.js';
-import { EmbeddingService } from '../src/embedding/embedding.service.js';
+import {
+  EMBEDDING_TEXT_VERSION,
+  EmbeddingService,
+} from '../src/embedding/embedding.service.js';
 import { FILTERS_VERSION } from '../src/games/games.service.js';
 import { SearchRateLimitService } from '../src/search/search-rate-limit.service.js';
 import { ouvrirSessionTest } from './session-test.js';
@@ -64,6 +67,7 @@ async function semerJeu(
       headerImageUrl: `https://cdn/${appId}.jpg`,
       embedding,
       embeddingModel: 'test',
+      embeddingTextVersion: EMBEDDING_TEXT_VERSION,
       detailsFetchedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -78,6 +82,7 @@ async function semerJeu(
         controllerSupport,
         embedding,
         embeddingModel: 'test',
+        embeddingTextVersion: EMBEDDING_TEXT_VERSION,
       },
     })
     .returning();
@@ -153,6 +158,7 @@ describe('Recherche (e2e)', () => {
         embedGame: vi.fn().mockResolvedValue(null),
         buildText: vi.fn(),
         modelName: 'test',
+        textVersion: 2,
       })
       .overrideProvider(SearchRateLimitService)
       .useValue(rateLimit)
@@ -346,6 +352,7 @@ describe('Recherche (e2e)', () => {
     expect(res.body.degraded).toBe(false);
     expect(embedMock).toHaveBeenCalledWith('jeu comme Portal', {
       maxWaitMs: 1500,
+      userId,
     });
     const premiers = res.body.results.slice(0, 2);
     expect(premiers.map((resultat: { name: string }) => resultat.name)).toEqual(

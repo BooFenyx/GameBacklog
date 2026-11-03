@@ -32,8 +32,6 @@ declare module 'express-session' {
     steamId?: string;
     userId?: number;
     user?: SteamProfile | null;
-    /** Jeton anti-CSRF du retour OpenID. */
-    openidState?: string;
   }
 }
 
@@ -173,15 +171,24 @@ export class AuthService {
       key,
     )}&steamids=${encodeURIComponent(steamId)}`;
 
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      this.logger.warn(`GetPlayerSummaries a répondu ${response.status}`);
+    let data: GetPlayerSummariesResponse;
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(EXTERNAL_CALL_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        this.logger.warn(`GetPlayerSummaries a répondu ${response.status}`);
+        return null;
+      }
+      data = (await response.json()) as GetPlayerSummariesResponse;
+    } catch {
+      // Un timeout ou une coupure Steam ne doit pas faire échouer tout le
+      // login : le callback utilise déjà le profil de repli quand ce retour
+      // vaut `null`. On ne journalise pas l'URL (elle contient la clé API).
+      this.logger.warn('GetPlayerSummaries injoignable ou réponse illisible');
       return null;
     }
 
-    const data = (await response.json()) as GetPlayerSummariesResponse;
     const player = data.response?.players?.[0];
     if (!player) {
       return null;

@@ -10,6 +10,7 @@ import { GamesModule } from './games/games.module.js';
 import { SyncModule } from './sync/sync.module.js';
 import { SearchModule } from './search/search.module.js';
 import { HomeModule } from './home/home.module.js';
+import { ReadRateLimitModule } from './rate-limit/read-rate-limit.module.js';
 import { DbModule } from './db/db.module.js';
 import { validateEnv } from './config/env.validation.js';
 
@@ -29,6 +30,7 @@ import { validateEnv } from './config/env.validation.js';
       validate: validateEnv,
     }),
     DbModule,
+    ReadRateLimitModule,
     AuthModule,
     LibraryModule,
     EmbeddingModule,

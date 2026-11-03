@@ -1,6 +1,8 @@
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { SessionGuard } from '../auth/session.guard.js';
+import { LectureRateLimitGuard } from '../rate-limit/lecture-rate-limit.guard.js';
+import { LimiteLecture } from '../rate-limit/limite-lecture.decorator.js';
 import { HomeSelectionQueryDto } from './dto/home-selection-query.dto.js';
 import { HomeMenuQueryDto } from './dto/home-menu-query.dto.js';
 import { HomeService } from './home.service.js';
@@ -17,8 +19,9 @@ import type {
  * catégories et le menu sont lus en base. Les tranches suivantes ajouteront
  * `/selection` et `/menu`, avec leurs DTO dédiés.
  */
+@LimiteLecture('home')
 @Controller('home')
-@UseGuards(SessionGuard)
+@UseGuards(SessionGuard, LectureRateLimitGuard)
 export class HomeController {
   constructor(private readonly homeService: HomeService) {}
 

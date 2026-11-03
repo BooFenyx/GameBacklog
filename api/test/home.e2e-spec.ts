@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { DB, type Db } from '../src/db/db.module.js';
 import { games, libraryEntries, users } from '../src/db/schema.js';
+import { EMBEDDING_TEXT_VERSION } from '../src/embedding/embedding.service.js';
 import { FILTERS_VERSION } from '../src/games/games.service.js';
 import { ouvrirSessionTest } from './session-test.js';
 
@@ -67,6 +68,7 @@ async function semerJeu(
     detailsFetchedAt: maintenant,
     embedding: options.embedding,
     embeddingModel: 'test',
+    embeddingTextVersion: EMBEDDING_TEXT_VERSION,
     achievementsTotal,
     achievementsFetchedAt: maintenant,
   };

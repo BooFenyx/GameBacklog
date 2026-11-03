@@ -13,6 +13,8 @@ import {
   type SuccesDetail,
 } from '../achievements/achievements.service.js';
 import { SessionGuard } from '../auth/session.guard.js';
+import { LectureRateLimitGuard } from '../rate-limit/lecture-rate-limit.guard.js';
+import { LimiteLecture } from '../rate-limit/limite-lecture.decorator.js';
 import { GamesService, type UserGameDetail } from './games.service.js';
 
 /** Réponse de `GET /api/games/:appId`. */
@@ -28,8 +30,9 @@ export interface GameDetailResponse extends UserGameDetail {
  * `GET /api/games/:appId/achievements` charge la liste détaillée à la demande
  * (`GetSchemaForGame` + `GetPlayerAchievements`).
  */
+@LimiteLecture('games')
 @Controller('games')
-@UseGuards(SessionGuard)
+@UseGuards(SessionGuard, LectureRateLimitGuard)
 export class GamesController {
   constructor(
     private readonly gamesService: GamesService,
