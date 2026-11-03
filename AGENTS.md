@@ -175,6 +175,34 @@ la page `/recherche` ne lit que `q` et `mode`.** Front : barre globale dans `Roo
 bouton-icône intégré) et page protégée `/recherche` (q/mode, « Afficher plus », états
 dégradé/quota/erreur).
 
+**Accueil intelligent.** `GET /api/home` (`api/src/home/`) calcule en une lecture le
+jeu du moment (14 jours → activité dérivée → temps de jeu → embedding → nom, jamais
+`rtime_last_played`), un deck de 5 voisins, trois catégories (À finir / À découvrir /
+À retrouver), un menu par défaut (45 min, continuer, sans filtre manette) et 5 ancres
+récentes. `GET /api/home/selection` paramètre l'ancre, le genre, la découverte (10–100),
+la manette (`full` + `partial`, la bibliothèque reste `full` seul), le lancement et la
+progression ; `GET /api/home/menu` paramètre temps/intention/manette. Le genre principal
+est déduit de `short_description` + `genres` et n'est qu'un **bonus de score**, jamais un
+filtre. La similarité lit `games.embedding` (pgvector `<=>`, repli genres communs) ; aucun
+appel Steam/Gemini, aucun cache, aucune migration. L'API expose aussi
+`/api/home/menu` (temps/intention/manette), conservé mais plus affiché par le front.
+Front : `web/src/home.ts`, `web/src/pages/Accueil.tsx` et
+`web/src/components/accueil/` (deck portrait avec flèches, swipe, clavier et points ;
+`CategoriesAccueil` avec cartes enrichies ; dialogues `Ancre`, `Affiner`, `Pourquoi`,
+`Sources`). Le deck garde l'ancienne sélection pendant un fetch (débounce 150 ms +
+`AbortController`) ; la page sonde `/api/sync` toutes les 2 s et recharge dès la fin de
+l'étape `library`. Les boutons **Affiner** et **Changer de jeu** sont visibles sous le
+deck ; « Pourquoi ces jeux ? » reste discret dans l'en-tête. Les catégories ont été
+enrichies (progression des succès pour À finir, genres pour À découvrir,
+activité pour À retrouver), affichées par pages de 3 avec un bouton
+**D’autres jeux** qui fait tourner les pages à la demande. Les liens filtrent la
+bibliothèque (`etat=jamais`, `tri=recent`, `tri=temps`). Le copilote et le menu
+du soir ne sont **plus affichés** dans l'interface ; les endpoints
+`/api/home/menu` restent disponibles côté API. Le swipe du deck désactive la
+sélection de texte et le drag natif de l'image, avec capture du pointeur et
+annulation du clic accidentel. Les décisions et écarts assumés de la PR sont
+dans `features/accueil-intelligent/05-annexe-fix-pr.md`.
+
 **Sécurité.** CSP de production en place : stricte côté API (`app.setup.ts`, `default-src
 'none'`, prod uniquement) et via les en-têtes Vercel côté front (CSP SPA + `nosniff` +
 `Referrer-Policy`). Le flux OpenID porte un `state` anti-CSRF stocké en session et vérifie
@@ -185,11 +213,10 @@ place sur `GET /api/search` par `steamId` (voir Écart 10) ; les autres routes n
 limitées. `enableShutdownHooks` est activé dans `main.ts` (annulation des timers du
 scheduler).
 
-**Non implémenté :** accueil calculé (sources autorisées : `playtime_forever`,
-`playtime_2weeks`, `last_activity_source` ; dates exactes interdites), amélioration des
-embeddings (piste à étudier séparément, sans modifier le code de ce lot), purge du CSS mort
-et stabilisation des champs exacts des cartes/listes, mise en ligne (socle et déploiement
-continu front prêts, rien n'est encore réellement déployé).
+**Non implémenté :** amélioration des embeddings (piste à étudier séparément, sans
+modifier le code de ce lot), purge du CSS mort restant hors accueil et stabilisation des
+champs exacts des cartes/listes, mise en ligne (socle et déploiement continu front prêts,
+rien n'est encore réellement déployé).
 
 **Fichiers clés :**
 - `api/src/auth/` — authentification OpenID (validation `id_res`, `state` anti-CSRF, `return_to`/`realm`, `claimed_id` Steam, timeouts), session, guard `steamId + userId`
@@ -204,6 +231,8 @@ continu front prêts, rien n'est encore réellement déployé).
 - `api/src/users/` — upsert utilisateur, `syncStatus`
 - `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j, `remainingToday`, import plafonné à 80 % de la fenêtre minute)
 - `api/src/search/` — `GET /api/search` (nom/sémantique/série), limite par `steamId`, cache d'embeddings de requête, DTO ; les filtres d'URL sont réservés à la bibliothèque
+- `api/src/home/` — `GET /api/home`, `/selection` et `/menu` (jeu du moment, deck, genre principal en bonus, catégories jusqu'à 9 jeux, scoring, DTO) ; lecture seule, sans cache ni appel Steam/Gemini
+- `api/test/home.e2e-spec.ts` — e2e de l'accueil (session, bibliothèque vide, deck, filtres, menu)
 - `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
 - `api/src/db/pg-utc.ts` — lecture UTC des `timestamp` sans fuseau (OID 1114)
 - `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0011 ; 0005 compteurs de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité + drop `last_played_at`, 0010 import robuste, 0011 compteur de succès nullable)
@@ -213,27 +242,32 @@ continu front prêts, rien n'est encore réellement déployé).
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/import.ts` — `etatImport` + `messageErreurImport` : bandeau d'import (erreur, reliquats, aide profil privé/quota, reprise)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
-- `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`
+- `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`, `accueil.css`
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
 - `web/src/activite.ts` — types et libellés de l'activité dérivée
 - `web/src/filters.ts` — types, libellés et sérialisation URL des filtres
 - `web/src/library.ts` — client `/api/library` et `/api/library/facets`
+- `web/src/home.ts` — types, client `/api/home` (`/selection`) et helpers purs (titres, paramètres URL, raisons, succès) ; tests dans `web/src/home.test.ts`
 - `web/src/games.ts` — client de la fiche (`chargerFicheJeu`) et des succès (`chargerSuccesJeu`)
 - `web/src/format.ts` — formats partagés (durée, date, date relative)
 - `web/src/components/bibliotheque/` — `CarteJeu`, `LigneJeu`, `BasculeVue`, `SqueletteCarte`, helpers d'affichage
 - `web/src/components/jeu/` — `EnteteJeu`, `DescriptionJeu`, `GalerieJeu`, `PanneauJeu`, `SuccesJeu`, `SqueletteJeu`
 - `web/src/components/ui/` — `Etiquette`, `Icones`, `BarreProgression`
+- `web/src/components/accueil/` — `SelectionChef` (deck, réglages, boutons Affiner/Changer de jeu), `CarteSelection`, `CategoriesAccueil` (cartes enrichies, pages de 3) avec `categories.ts`, et dialogues `DialogueAncre`/`DialogueAffiner`/`DialoguePourquoi`/`DialogueSources`
 - `web/src/components/filtres/` — colonne latérale (`SidebarFiltres`), barre de résultats (`BarreFiltres`), panneau `<dialog>` (`PanneauFiltres`), puces actives
 - `web/src/components/BarreRecherche.tsx` — barre globale (modes, aperçu, bouton-icône de mode)
 - `web/src/components/CarteResultat.tsx` / `VedetteResultat.tsx` — cartes d'un résultat de recherche
 - `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync, grille/liste)
 - `web/src/pages/JeuDetail.tsx` — page `/jeu/:appId` (fiche et succès chargés séparément)
 - `web/src/pages/Recherche.tsx` — page `/recherche` (q/mode, pagination, états)
+- `web/src/pages/Accueil.tsx` — page `/accueil` (chargement `/api/home`, suivi de sync, deck, catégories, menu, états vides/erreur)
 - `docs/analyse-donnees-steam.md` — analyse Steam + section « Import volumineux »
 - `docs/features/recherche-vectorielle.md` — fiche de la fonctionnalité recherche
 - `docs/features/filtres-recherche.md` — fiche de la fonctionnalité filtres/facettes
 - `docs/features/refonte-bibliotheque.md` — fiche du prototype bibliothèque
 - `docs/features/refonte-fiche-jeu.md` — fiche du prototype fiche de jeu
+- `docs/features/accueil-intelligent.md` — fiche de la fonctionnalité accueil
+- `features/accueil-intelligent/05-annexe-fix-pr.md` — décisions et fixes de la PR accueil (hors maquettes)
 - `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
 - `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token, alignement de l'auteur du commit) sur push `main`
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
@@ -537,13 +571,12 @@ reste à corriger).
 | **Spec** | « Recherche : saisie libre (« un jeu calme avec des énigmes, jouable à la manette ») et résultats classés. » (`fiche_projet.md:18`) — « embedding de la requête, puis SQL unique combinant **filtres stricts** (support manette, dans la bibliothèque de l'utilisateur) et **tri par similarité cosinus**. » (`fiche_projet.md:45`) — « liste de 10 jeux de la bibliothèque de l'utilisateur, avec le score de similarité et les critères respectés. » (`fiche_projet.md:46`) |
 | **État** | ✅ Résolu — `api/src/search/` : `GET /api/search` (`search.controller.ts`) avec `SessionGuard`, `SearchQueryDto` (`mode=name\|semantic`, `limit`/`offset`), `SearchService` (nom via `strpos` + priorité de série, sémantique via embedding Gemini et tri pgvector `<=>`, pagination `hasMore` + `total`), `SearchRateLimitService` par `steamId` et cache d'embeddings de requête. Front : `web/src/components/BarreRecherche.tsx` (modes nom/description, aperçu 7 résultats en mode nom, aucun Gemini à la frappe) et `web/src/pages/Recherche.tsx` (route protégée `/recherche`, q/mode, « Afficher plus », états dégradé/quota/erreur). Les filtres d'URL sont réservés à la bibliothèque. |
 
-#### Écart 3 — Page d'accueil non fonctionnelle
+#### Écart 3 — Page d'accueil calculée — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Accueil : jeux à relancer ou à découvrir dans sa propre bibliothèque (jamais lancés, laissés en cours, proches de ses derniers jeux). » (`fiche_projet.md:16`) — « proximité vectorielle avec les jeux récemment lancés, sans appel supplémentaire à un modèle. » (`fiche_projet.md:48`) |
-| **Code réel** | `web/src/pages/Accueil.tsx:4-20` : trois sections vides avec messages fixes — « Aucun jeu importé pour le moment. » / « Arrive avec la recherche par similarité. » Aucune donnée réelle n'est affichée. |
-| **Correction** | « À relancer » = `playtime_2weeks > 0` ou `last_activity_source = 'recent_window'` ; « à découvrir » = `playtime_forever = 0` ; « proches » = embeddings des jeux `recent_window`/`playtime_2weeks`. **Jamais** de date exacte de dernière partie. Réaccord hors lot (voir `docs/analyse-donnees-steam.md` §6.7). |
+| **État** | ✅ Résolu — `api/src/home/` expose `GET /api/home` (jeu du moment, deck de 5, catégories, menu, ancres récentes), `GET /api/home/selection` (ancre, genre, découverte 10–100, manette `full` + `partial`, lancement, progression) et `GET /api/home/menu` (temps/intention/manette). Le front (`web/src/pages/Accueil.tsx`, `web/src/components/accueil/`) affiche le deck portrait, les catégories enrichies et les boutons Affiner/Changer de jeu ; la page sonde `/api/sync` et recharge dès la fin de l'étape `library`. Aucune date exacte (`rtime_last_played` jamais lu), aucun appel Steam/Gemini au chargement, aucun cache. |
 
 #### Écart 5 — Page de détail d'un jeu — ✅ Résolu
 
@@ -664,21 +697,19 @@ reste à corriger).
 | **Spec** | « Bibliothèque : liste des jeux avec temps de jeu, dernière utilisation, genres, **filtres et tri classiques**. » (`fiche_projet.md:17`) |
 | **État** | ✅ Résolu — `LibraryQueryDto` (`api/src/library/dto/`) valide `q`, `genres`, `modes`, `manette`, `etat`, `duree`, `tri`, `limit`/`offset`. `LibraryService.savedLibrary` applique les filtres en SQL (`construireConditions`), trie (`nom`/`temps`/`recent`) et pagine. **Genres et modes sont combinés en ET exclusif** (`genre_ids @>`, une condition par mode) ; les durées restent en OR. Les facettes sont exposées par `GET /api/library/facets`. Le front sérialise les filtres dans l'URL ; le panneau n'est utilisé que par la bibliothèque. |
 
-#### Écart 20 — Jeux à relancer / à découvrir absents
+#### Écart 20 — Jeux à relancer / à découvrir — ✅ Résolu
 
 | | Détail |
 |---|---|
 | **Spec** | « Accueil : jeux à relancer ou à découvrir dans sa propre bibliothèque (jamais lancés, laissés en cours, proches de ses derniers jeux). » (`fiche_projet.md:16`) |
-| **Code réel** | `web/src/pages/Accueil.tsx:4-20` : sections vides avec messages fixes. |
-| **Correction** | Mêmes sources que l'Écart 3 : `playtime_2weeks` / `last_activity_source = 'recent_window'` pour « à relancer », `playtime_forever = 0` pour « à découvrir », embeddings des jeux récents pour « proches ». Aucune date exacte. Réaccord hors lot. |
+| **État** | ✅ Résolu — l'accueil regroupe « À retrouver » (activité dérivée), « À découvrir » (`playtime_forever = 0`, tri par similarité) et « À finir » (succès restants). Les raisons sont calculées côté serveur et n'exposent jamais de date exacte. Voir Écart 3 et `docs/features/accueil-intelligent.md`. |
 
 ### Priorités d'implémentation
 
 Ordre recommandé pour combler les écarts restants :
 
-1. **Accueil calculé** (Écarts 3, 20) : trois requêtes SQL (à relancer, à découvrir, proches).
-2. **Dette visuelle** : purger le CSS mort et stabiliser les champs exacts des cartes/listes (la refonte bibliothèque et la fiche sont déjà en place).
-3. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
+1. **Dette visuelle** : purger le CSS mort et stabiliser les champs exacts des cartes/listes (la refonte bibliothèque, la fiche et l'accueil sont déjà en place).
+2. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
 
 ## Base de données
 

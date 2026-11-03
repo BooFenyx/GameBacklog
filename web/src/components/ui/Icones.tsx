@@ -80,3 +80,12 @@ export function IconeTrophee({ className }: PropsIcone) {
     </svg>
   )
 }
+
+export function IconeMelange({ className }: PropsIcone) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 8h4.5l7 8H20M4 16h4.5l7-8H20" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m17 5 3 3-3 3M17 13l3 3-3 3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
