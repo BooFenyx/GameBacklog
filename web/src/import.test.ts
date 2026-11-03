@@ -63,6 +63,22 @@ describe('etatImport', () => {
     expect(etat.alerte).toBe(true)
   })
 
+  it('précise la limite API atteinte avec les reliquats', () => {
+    const etat = etatImport(
+      job({
+        error: 'Limite API Steam atteinte',
+        pendingDetails: 12,
+        pendingEmbeddings: 8,
+      }),
+    )
+
+    expect(etat.texte).toBe(
+      'Import terminé — Limite API Steam atteinte — 12 fiches, 8 embeddings à reprendre',
+    )
+    expect(etat.action).toBe('reprendre')
+    expect(etat.alerte).toBe(true)
+  })
+
   it('signale les fiches indisponibles sans proposer de reprise', () => {
     const etat = etatImport(job({ detailsUnavailable: 2 }))
 
@@ -101,6 +117,22 @@ describe('etatImport', () => {
       action: 'aucune',
       alerte: false,
     })
+  })
+
+  it('précise la limite API pendant une passe en cours', () => {
+    const etat = etatImport(
+      job({
+        status: 'running',
+        step: 'details',
+        error: 'Limite API Steam atteinte',
+        totalGames: 250,
+        processedGames: 100,
+      }),
+    )
+
+    expect(etat.texte).toBe(
+      'Récupération des fiches des jeux — Limite API Steam atteinte — 100/250',
+    )
   })
 
   it('n’affiche pas de division par zéro sans total', () => {
