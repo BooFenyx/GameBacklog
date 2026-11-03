@@ -107,13 +107,20 @@ export const LANCEMENTS: { value: HomeLancement; label: string }[] = [
   { value: 'jamais', label: 'Jamais lancés' },
 ]
 
-/** Réglages de requête correspondant à une sélection renvoyée par le serveur. */
+/**
+ * Réglages de requête correspondant à une sélection renvoyée par le serveur.
+ *
+ * Le genre renvoyé est le genre principal **par défaut** de l'ancre : il ne doit
+ * pas être figé dans les réglages tant que l'utilisateur n'a pas cliqué un
+ * genre. La requête suivante garde donc `genreId = null` et laisse le serveur
+ * recalculer ce défaut (D22).
+ */
 export function parametresDepuisSelection(
   selection: HomeSelection,
 ): ParametresSelection {
   return {
     anchor: selection.anchor?.appId ?? null,
-    genreId: selection.genre?.id ?? null,
+    genreId: null,
     decouverte: selection.decouverte,
     manette: selection.manette,
     lancement: selection.lancement,

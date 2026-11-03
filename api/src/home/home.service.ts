@@ -730,7 +730,7 @@ export class HomeService {
         AND le.achievements_fetched_at IS NOT NULL
         AND g.achievements_total > 0
         AND le.achievements_unlocked IS NOT NULL
-        AND le.achievements_unlocked::float8 / g.achievements_total >= 0.75
+        AND le.achievements_unlocked::float8 / NULLIF(g.achievements_total, 0) >= 0.75
       ))`,
     ];
     if (exclureAncre) conditions.push('g.id <> ancre.id');

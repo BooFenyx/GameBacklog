@@ -195,6 +195,9 @@ des chips, mais la requête suivante garde `genreId = null` tant que
 l’utilisateur n’a pas cliqué un genre. Cela évite un second appel identique
 après chaque réponse et conserve la sémantique « défaut = serveur ».
 
+Implémenté dans `parametresDepuisSelection` (`web/src/home.ts`) : la sélection
+initiale ne recopie jamais `selection.genre.id` dans les réglages.
+
 ### D23. Dialogues natifs
 
 `DialogueAncre` et `DialogueAffiner` utilisent `<dialog>` + `showModal()` :
@@ -277,12 +280,13 @@ La liste socle de la tranche 4 (`.accueil-selection-liste`, `.accueil-carte`,
 la remplace. `.accueil-carte-badges` et `.accueil-carte-actions` restent
 partagés par le deck et le menu.
 
-### D33. `AGENTS.md` mis à jour
+### D33. `AGENTS.md` mis à jour pour l’accueil
 
-Après validation du développeur, `AGENTS.md` reflète l'accueil et Node 24 : sections
-« État du projet », « Fichiers clés », « Structure » (`engines >=24.0.0`, `.nvmrc`),
-« Pièges techniques » (Node 24), « Cible de déploiement » (`NODE_VERSION=24`), et
-Écarts 3/20 passés en ✅ Résolu. L'accueil n'est plus listé dans « Non implémenté ».
+Sur la branche d’accueil, `AGENTS.md` reflète l’accueil : sections « État du
+projet », « Fichiers clés », et Écarts 3/20 passés en ✅ Résolu. L’accueil n’est
+plus listé dans « Non implémenté ». **Node 24, les embeddings v2 et le rate
+limiting des lectures relèvent de la branche de préparation déploiement final**,
+pas de cette branche.
 
 ### D34. Petits correctifs de la revue finale
 
@@ -329,12 +333,23 @@ l’image : `user-select: none`, `-webkit-user-drag: none`, `draggable={false}`,
 nettoyage de la sélection et capture du pointeur. Le reste (seuil, `pointerup`
 global, `releasePointerCapture`, clic accidentel) est conservé.
 
+### D39. Correctifs ciblés du 3 novembre 2026
+
+- `parametresDepuisSelection` ne recopie plus le genre principal dans
+  `genreId` : il reste `null` jusqu’au premier clic, conformément à D22.
+- Le filtre `progression` utilise `NULLIF(g.achievements_total, 0)` : un jeu
+  sans succès (`achievements_total = 0`) ne peut plus provoquer de division par
+  zéro.
+- L’e2e de progression couvre explicitement les jeux à
+  `achievements_total = 0`.
+
 ## Reste à faire avant merge
 
 ### `AGENTS.md`
 
-Mis à jour (État du projet, Fichiers clés, Node 24, écarts 3/20). Aucune action
-restante.
+Mis à jour pour l’accueil (État du projet, Fichiers clés, écarts 3/20). Node 24,
+les embeddings v2 et le rate limiting sont documentés sur la branche de
+préparation déploiement final, pas ici.
 
 ### Vérifications manuelles restantes
 

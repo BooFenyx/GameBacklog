@@ -170,10 +170,10 @@ describe('parametresSelection', () => {
     expect(query.get('progression')).toBe('true')
   })
 
-  it('reconstruit les réglages depuis une sélection', () => {
+  it('reconstruit les réglages sans figer le genre par défaut', () => {
     expect(parametresDepuisSelection(selection())).toEqual({
       anchor: 1145360,
-      genreId: 1,
+      genreId: null,
       decouverte: 30,
       manette: false,
       lancement: 'tous',

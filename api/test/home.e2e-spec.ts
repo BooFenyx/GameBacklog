@@ -505,6 +505,8 @@ describe('Accueil (e2e)', () => {
       ),
     ).toBe(true);
 
+    // 940004 et 940005 ont `achievements_total = 0` : la division du filtre
+    // doit rester neutralisée par `NULLIF`, pas provoquer un 500.
     const proches = await agent
       .get('/api/home/selection?progression=true')
       .expect(200);
