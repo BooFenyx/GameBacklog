@@ -2,6 +2,12 @@
 
 Backlog Steam intelligent. Voir [`fiche_projet.md`](./fiche_projet.md) pour la présentation du projet.
 
+## Démo en ligne
+
+- Application : <https://fst-2026-groupe-08.vercel.app>
+- API : <https://fst-2026-groupe-08.onrender.com/api>
+- Santé de l’API : <https://fst-2026-groupe-08.onrender.com/api/health>
+
 ## Prérequis
 
 - [Node.js](https://nodejs.org/) **24** (voir `.nvmrc`, `nvm use`) et npm
