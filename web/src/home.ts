@@ -1,5 +1,5 @@
 import { libelleActiviteCourte, type Activite } from './activite'
-import { urlApi } from './api'
+import { appelApi } from './http'
 import { formaterDuree } from './format'
 
 /** Types et client de `GET /api/home`, `/api/home/selection`, `/api/home/menu`. */
@@ -128,21 +128,8 @@ export function parametresDepuisSelection(
   }
 }
 
-/** Message d'erreur lisible d'une réponse API non OK. */
-async function messageErreur(res: Response): Promise<string> {
-  const corps = (await res.json().catch(() => null)) as {
-    message?: string | string[]
-  } | null
-  const message = Array.isArray(corps?.message)
-    ? corps.message.join(' ')
-    : corps?.message
-  return message ?? `Réponse ${res.status}`
-}
-
 async function lire<T>(chemin: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(urlApi(chemin), { credentials: 'include', signal })
-  if (!res.ok) throw new Error(await messageErreur(res))
-  return (await res.json()) as T
+  return appelApi<T>(chemin, { signal })
 }
 
 /** `GET /api/home` — accueil par défaut. */

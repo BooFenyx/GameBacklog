@@ -563,11 +563,6 @@
   width: 42%;
 }
 
-.squelette-ligne--liste {
-  height: 100%;
-  margin: 0;
-}
-
 .squelette-carte--liste {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);

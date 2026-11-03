@@ -60,6 +60,7 @@ export default function Bibliotheque() {
   } | null>(null)
   const [chargementPlus, setChargementPlus] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
+  const [erreurRelance, setErreurRelance] = useState<string | null>(null)
   const [job, setJob] = useState<JobSync | null>(null)
   const [version, setVersion] = useState(0)
   const [relance, setRelance] = useState(0)
@@ -142,6 +143,7 @@ export default function Bibliotheque() {
     let actif = true
     let timer: number | undefined
     let aVoirEnCours = false
+    let etapeVue: JobSync['step'] | null = null
     let tentatives = 0
 
     const interroger = async (): Promise<void> => {
@@ -154,6 +156,13 @@ export default function Bibliotheque() {
         setErreur(null)
 
         if (estEnCours(courant)) {
+          // La bibliothèque est affichable dès la fin de `library` : sans ce
+          // rechargement, elle resterait vide pendant les étapes details /
+          // succès / embeddings alors que les jeux sont déjà en base.
+          if (etapeVue === 'library' && courant.step !== 'library') {
+            setVersion((valeur) => valeur + 1)
+          }
+          etapeVue = courant.step
           aVoirEnCours = true
           timer = window.setTimeout(() => void interroger(), 2000)
           return
@@ -259,17 +268,22 @@ export default function Bibliotheque() {
   const reessayerListe = useCallback(() => {
     setErreurListe(null)
     setErreur(null)
+    setErreurRelance(null)
     setRecharger((valeur) => valeur + 1)
+    // Relance aussi le suivi d'import : après six échecs, le polling s'est
+    // arrêté et le bandeau resterait figé sans cela.
+    setRelance((valeur) => valeur + 1)
   }, [])
 
   const relancer = async (): Promise<void> => {
     setErreur(null)
+    setErreurRelance(null)
     try {
       const courant = await relancerSync()
       setJob(courant)
       setRelance((valeur) => valeur + 1)
     } catch (error) {
-      setErreur(messageErreur(error))
+      setErreurRelance(messageErreur(error))
     }
   }
 
@@ -427,9 +441,9 @@ export default function Bibliotheque() {
             </div>
           )}
 
-          {erreur && !erreurCourante && (
+          {!erreurCourante && (erreurRelance || erreur) && (
             <div className="etat-erreur" role="alert">
-              <p className="message-erreur">{erreur}</p>
+              <p className="message-erreur">{erreurRelance ?? erreur}</p>
               <button type="button" className="btn" onClick={reessayerListe}>
                 Réessayer
               </button>

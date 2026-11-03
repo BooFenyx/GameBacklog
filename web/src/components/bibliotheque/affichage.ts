@@ -93,3 +93,108 @@ export function succesComplet(jeu: JeuBibliotheque): boolean {
     jeu.achievementsUnlocked === jeu.achievementsTotal
   )
 }
+
+/** Étiquette de mode prête à rendre, avec sa variante visuelle. */
+export type BadgeMode = {
+  valeur: string
+  libelle: string
+  variante: 'solo' | 'mode'
+}
+
+function badgesModes(jeu: JeuBibliotheque): BadgeMode[] {
+  return jeu.modes.map((mode) => ({
+    valeur: mode,
+    libelle: libelleMode(mode),
+    variante: mode === 'solo' ? 'solo' : 'mode',
+  }))
+}
+
+/**
+ * Champs exacts d'une carte de la vue grille. Centraliser ce view-model évite
+ * qu'un composant réinterprète les données à sa façon ; les tests figent la
+ * liste des champs et les cas limites (jamais lancé, succès indisponibles,
+ * manette partielle).
+ */
+export type ChampsCarteJeu = {
+  appId: number
+  nom: string
+  image: string | null
+  etat: EtatCarte
+  contexte: string
+  genres: string[]
+  genresRestants: number
+  temps: string | null
+  activite: string | null
+  activiteTitre: string | null
+  jamais: boolean
+  modes: BadgeMode[]
+  manette: boolean
+  succes: string | null
+  complet: boolean
+}
+
+export function champsCarteJeu(jeu: JeuBibliotheque): ChampsCarteJeu {
+  const etat = etatJeu(jeu)
+  const meta = metaJeu(jeu)
+  const genres = jeu.genres.slice(0, GENRES_VISIBLES)
+
+  return {
+    appId: jeu.appId,
+    nom: jeu.name,
+    image: jeu.headerImageUrl,
+    etat,
+    contexte: contexteCarte(jeu, etat),
+    genres,
+    genresRestants: jeu.genres.length - genres.length,
+    temps: meta.temps,
+    activite: meta.activite,
+    activiteTitre: meta.activiteTitre,
+    jamais: meta.jamais,
+    modes: badgesModes(jeu),
+    manette: jeu.controllerSupport === 'full',
+    succes: succesAffiche(jeu),
+    complet: succesComplet(jeu),
+  }
+}
+
+/** Champs exacts d'une ligne de la vue liste : tous les genres, manette lisible. */
+export type ChampsLigneJeu = {
+  appId: number
+  nom: string
+  image: string | null
+  etat: EtatCarte
+  contexte: string
+  genres: string[]
+  modes: BadgeMode[]
+  temps: string | null
+  activite: string | null
+  activiteTitre: string | null
+  jamais: boolean
+  manetteSupport: JeuBibliotheque['controllerSupport']
+  manetteLibelle: string
+  succes: string | null
+  complet: boolean
+}
+
+export function champsLigneJeu(jeu: JeuBibliotheque): ChampsLigneJeu {
+  const etat = etatJeu(jeu)
+  const meta = metaJeu(jeu)
+
+  return {
+    appId: jeu.appId,
+    nom: jeu.name,
+    image: jeu.headerImageUrl,
+    etat,
+    contexte: contexteCarte(jeu, etat),
+    genres: jeu.genres,
+    modes: badgesModes(jeu),
+    temps: meta.temps,
+    activite: meta.activite,
+    activiteTitre: meta.activiteTitre,
+    jamais: meta.jamais,
+    manetteSupport: jeu.controllerSupport,
+    manetteLibelle: LIBELLE_MANETTE[jeu.controllerSupport],
+    succes: succesAffiche(jeu),
+    complet: succesComplet(jeu),
+  }
+}

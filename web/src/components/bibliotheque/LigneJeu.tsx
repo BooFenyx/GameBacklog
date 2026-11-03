@@ -3,15 +3,7 @@ import type { JeuBibliotheque } from '../../library'
 import Etiquette from '../ui/Etiquette'
 import { IconeCouronne, IconeManette } from '../ui/Icones'
 import ImageJeu from './ImageJeu'
-import {
-  LIBELLE_MANETTE,
-  contexteCarte,
-  etatJeu,
-  libelleMode,
-  metaJeu,
-  succesAffiche,
-  succesComplet,
-} from './affichage'
+import { champsLigneJeu } from './affichage'
 
 type Props = {
   jeu: JeuBibliotheque
@@ -19,32 +11,28 @@ type Props = {
 
 /** Ligne compacte d'un jeu dans la vue liste. */
 export default function LigneJeu({ jeu }: Props) {
-  const etat = etatJeu(jeu)
-  const meta = metaJeu(jeu)
-  const succes = succesAffiche(jeu)
-  const complet = succesComplet(jeu)
-  const genres = jeu.genres
+  const champs = champsLigneJeu(jeu)
 
   return (
     <li className="ligne-jeu">
       <Link
-        to={`/jeu/${jeu.appId}`}
+        to={`/jeu/${champs.appId}`}
         className="ligne-jeu__lien"
-        aria-label={`Ouvrir la fiche de ${jeu.name} — ${contexteCarte(jeu, etat)}`}
+        aria-label={`Ouvrir la fiche de ${champs.nom} — ${champs.contexte}`}
       />
 
       <div className="ligne-jeu__media">
-        <ImageJeu src={jeu.headerImageUrl} nom={jeu.name} />
+        <ImageJeu src={champs.image} nom={champs.nom} />
       </div>
 
       <div className="ligne-jeu__principal">
         <div className="ligne-jeu__titre">
-          <span>{jeu.name}</span>
+          <span>{champs.nom}</span>
         </div>
       </div>
 
       <div className="ligne-jeu__genres">
-        {genres.map((genre) => (
+        {champs.genres.map((genre) => (
           <Etiquette key={genre} variante="genre">
             {genre}
           </Etiquette>
@@ -52,45 +40,47 @@ export default function LigneJeu({ jeu }: Props) {
       </div>
 
       <div className="ligne-jeu__modes">
-        {jeu.modes.map((mode) => (
-          <Etiquette key={mode} variante={mode === 'solo' ? 'solo' : 'mode'}>
-            {libelleMode(mode)}
+        {champs.modes.map((mode) => (
+          <Etiquette key={mode.valeur} variante={mode.variante}>
+            {mode.libelle}
           </Etiquette>
         ))}
       </div>
 
       <div className="ligne-jeu__temps">
-        <strong>{meta.temps ?? '—'}</strong>
-        {meta.temps && <span>de jeu</span>}
+        <strong>{champs.temps ?? '—'}</strong>
+        {champs.temps && <span>de jeu</span>}
       </div>
 
       <div
         className={
-          meta.jamais
+          champs.jamais
             ? 'ligne-jeu__dernier ligne-jeu__dernier--jamais'
             : 'ligne-jeu__dernier'
         }
-        title={meta.activiteTitre ?? undefined}
+        title={champs.activiteTitre ?? undefined}
       >
-        {meta.jamais ? 'jamais lancé' : (meta.activite ?? '—')}
+        {champs.jamais ? 'jamais lancé' : (champs.activite ?? '—')}
       </div>
 
       <div className="ligne-jeu__manette">
         <span
-          className={`manette-icone manette-icone--${jeu.controllerSupport}`}
-          title={LIBELLE_MANETTE[jeu.controllerSupport]}
+          className={`manette-icone manette-icone--${champs.manetteSupport}`}
+          title={champs.manetteLibelle}
           role="img"
-          aria-label={LIBELLE_MANETTE[jeu.controllerSupport]}
+          aria-label={champs.manetteLibelle}
         >
           <IconeManette />
         </span>
       </div>
 
       <div className="ligne-jeu__succes">
-        {succes !== null ? (
-          <Etiquette variante={complet ? 'succes-complet' : 'succes'}>
-            {complet && <IconeCouronne />}
-            {succes}
+        {champs.succes !== null ? (
+          <Etiquette
+            variante={champs.complet ? 'succes-complet' : 'succes'}
+          >
+            {champs.complet && <IconeCouronne />}
+            {champs.succes}
           </Etiquette>
         ) : (
           <span className="ligne-jeu__vide" aria-hidden="true">

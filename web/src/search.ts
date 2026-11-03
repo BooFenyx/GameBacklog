@@ -2,7 +2,7 @@ import type {
   LastActivityPrecision,
   LastActivitySource,
 } from './activite'
-import { urlApi } from './api'
+import { appelApi, ErreurApi } from './http'
 import type { DureeJeu, EtatJeu, ModeJeu } from './filters'
 
 export type ModeRecherche = 'name' | 'semantic'
@@ -96,25 +96,18 @@ export async function rechercherJeux(
     query.set('offset', String(parametres.offset))
   }
 
-  const res = await fetch(urlApi(`/api/search?${query.toString()}`), {
-    credentials: 'include',
-    signal,
-  })
-
-  if (!res.ok) {
-    const corps = (await res.json().catch(() => null)) as {
-      message?: string | string[]
-    } | null
-    const message = Array.isArray(corps?.message)
-      ? corps.message.join(' ')
-      : corps?.message
-    const retryAfter = Number(res.headers.get('Retry-After'))
-    throw new ErreurRecherche(
-      message ?? `Réponse ${res.status}`,
-      res.status,
-      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
-    )
+  try {
+    return await appelApi<ReponseRecherche>(`/api/search?${query.toString()}`, {
+      signal,
+    })
+  } catch (error) {
+    if (error instanceof ErreurApi) {
+      throw new ErreurRecherche(
+        error.message,
+        error.statut,
+        error.retryAfterSecondes,
+      )
+    }
+    throw error
   }
-
-  return (await res.json()) as ReponseRecherche
 }

@@ -179,7 +179,7 @@ function ResultatsRecherche({ q, mode }: PropsResultats) {
         resultats.length > 0 && (
           <>
             <p className="recherche-compte">
-              {total} résultat{total > 1 ? 's' : ''} affiché
+              {total} résultat{total > 1 ? 's' : ''} trouvé
               {total > 1 ? 's' : ''}
             </p>
             <VedetteResultat resultat={resultats[0]} />

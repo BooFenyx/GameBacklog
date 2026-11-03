@@ -3,6 +3,8 @@ import { TITRE_ACTIVITE_INDISPONIBLE } from '../../activite'
 import { formaterDate } from '../../format'
 import type { JeuBibliotheque } from '../../library'
 import {
+  champsCarteJeu,
+  champsLigneJeu,
   contexteCarte,
   etatJeu,
   libelleMode,
@@ -121,5 +123,88 @@ describe('affichage — contexte accessible', () => {
 
   it('compose le contexte de la carte', () => {
     expect(contexteCarte(jeu())).toBe('Joué, Solo, Coop, manette complète')
+  })
+})
+
+describe('affichage — champs exacts de la carte', () => {
+  it('fige les champs rendus par la carte', () => {
+    expect(champsCarteJeu(jeu())).toEqual({
+      appId: 620,
+      nom: 'Portal 2',
+      image: null,
+      etat: { label: 'Joué', recent: false },
+      contexte: 'Joué, Solo, Coop, manette complète',
+      genres: ['Action', 'Aventure'],
+      genresRestants: 1,
+      temps: '20 h',
+      activite: null,
+      activiteTitre: TITRE_ACTIVITE_INDISPONIBLE,
+      jamais: false,
+      modes: [
+        { valeur: 'solo', libelle: 'Solo', variante: 'solo' },
+        { valeur: 'coop', libelle: 'Coop', variante: 'mode' },
+      ],
+      manette: true,
+      succes: '12 / 51',
+      complet: false,
+    })
+  })
+
+  it('gère un jeu jamais lancé, partiel et sans succès', () => {
+    const champs = champsCarteJeu(
+      jeu({
+        playtimeForever: 0,
+        controllerSupport: 'partial',
+        achievementsUnlocked: null,
+        modes: [],
+      }),
+    )
+
+    expect(champs.etat).toEqual({ label: 'Jamais lancé', recent: false })
+    expect(champs.temps).toBeNull()
+    expect(champs.jamais).toBe(true)
+    expect(champs.manette).toBe(false)
+    expect(champs.succes).toBe('— / 51')
+    expect(champs.complet).toBe(false)
+    expect(champs.activite).toBeNull()
+    expect(champs.contexte).toBe('Jamais lancé')
+  })
+
+  it('marque un jeu à 100 % de succès', () => {
+    const champs = champsCarteJeu(jeu({ achievementsUnlocked: 51 }))
+
+    expect(champs.succes).toBe('51 / 51')
+    expect(champs.complet).toBe(true)
+  })
+})
+
+describe('affichage — champs exacts de la ligne', () => {
+  it('affiche tous les genres et la manette lisible', () => {
+    const champs = champsLigneJeu(
+      jeu({ controllerSupport: 'partial', playtimeForever: 90 }),
+    )
+
+    expect(champs.genres).toEqual(['Action', 'Aventure', 'Puzzle'])
+    expect(champs.modes.map((mode) => mode.libelle)).toEqual(['Solo', 'Coop'])
+    expect(champs.temps).toBe('1 h 30')
+    expect(champs.manetteSupport).toBe('partial')
+    expect(champs.manetteLibelle).toBe('Manette partielle')
+    expect(champs.succes).toBe('12 / 51')
+  })
+
+  it('garde les champs vides cohérents', () => {
+    const champs = champsLigneJeu(
+      jeu({
+        playtimeForever: 0,
+        achievementsTotal: 0,
+        achievementsUnlocked: 0,
+      }),
+    )
+
+    expect(champs.temps).toBeNull()
+    expect(champs.jamais).toBe(true)
+    expect(champs.activite).toBeNull()
+    expect(champs.succes).toBeNull()
+    expect(champs.complet).toBe(false)
   })
 })

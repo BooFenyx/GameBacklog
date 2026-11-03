@@ -2,7 +2,7 @@ import type {
   LastActivityPrecision,
   LastActivitySource,
 } from './activite'
-import { urlApi } from './api'
+import { appelApi, ErreurApi } from './http'
 
 /** Bloc de description longue renvoyé par l'API. */
 export type DescriptionBlock =
@@ -85,29 +85,19 @@ export class ErreurFiche extends Error {
   }
 }
 
-function messageErreur(corps: unknown, statut: number): string {
-  if (corps && typeof corps === 'object' && 'message' in corps) {
-    const message = (corps as { message?: string | string[] }).message
-    if (Array.isArray(message)) return message.join(' ')
-    if (typeof message === 'string') return message
-  }
-  return `Réponse ${statut}`
-}
-
 /** `GET /api/games/:appId` — fiche complète d'un jeu de la bibliothèque. */
 export async function chargerFicheJeu(
   appId: number | string,
   signal?: AbortSignal,
 ): Promise<FicheJeu> {
-  const res = await fetch(urlApi(`/api/games/${appId}`), {
-    credentials: 'include',
-    signal,
-  })
-  if (!res.ok) {
-    const corps = await res.json().catch(() => null)
-    throw new ErreurFiche(messageErreur(corps, res.status), res.status)
+  try {
+    return await appelApi<FicheJeu>(`/api/games/${appId}`, { signal })
+  } catch (error) {
+    if (error instanceof ErreurApi) {
+      throw new ErreurFiche(error.message, error.statut || null)
+    }
+    throw error
   }
-  return (await res.json()) as FicheJeu
 }
 
 /** `GET /api/games/:appId/achievements` — liste détaillée des succès. */
@@ -115,13 +105,14 @@ export async function chargerSuccesJeu(
   appId: number | string,
   signal?: AbortSignal,
 ): Promise<SuccesDetail> {
-  const res = await fetch(urlApi(`/api/games/${appId}/achievements`), {
-    credentials: 'include',
-    signal,
-  })
-  if (!res.ok) {
-    const corps = await res.json().catch(() => null)
-    throw new ErreurFiche(messageErreur(corps, res.status), res.status)
+  try {
+    return await appelApi<SuccesDetail>(`/api/games/${appId}/achievements`, {
+      signal,
+    })
+  } catch (error) {
+    if (error instanceof ErreurApi) {
+      throw new ErreurFiche(error.message, error.statut || null)
+    }
+    throw error
   }
-  return (await res.json()) as SuccesDetail
 }

@@ -128,17 +128,62 @@ p {
   margin: 0;
 }
 
-code,
-.counter {
+code {
   font-family: var(--mono);
   display: inline-flex;
   border-radius: 4px;
   color: var(--couleur-texte-fort);
-}
-
-code {
   font-size: 15px;
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+/* Pied de page commun et page de confidentialité. */
+.pied {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 20px;
+  margin-top: auto;
+  padding: 24px 20px;
+  border-top: 1px solid var(--couleur-bordure-douce);
+  color: var(--couleur-texte-doux);
+  font-size: 0.85rem;
+}
+
+.pied a {
+  color: inherit;
+}
+
+.confidentialite {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px 0 48px;
+}
+
+.confidentialite h2 {
+  margin-top: 28px;
+}
+
+.confidentialite p {
+  margin: 10px 0;
+  color: var(--couleur-texte-doux);
+  line-height: 1.65;
+}
+
+.confidentialite ul {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  padding-left: 1.2rem;
+  color: var(--couleur-texte-doux);
+}
+
+.chargement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 12px;
 }

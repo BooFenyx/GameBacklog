@@ -71,7 +71,7 @@ export default function DialogueAffiner({
   return (
     <dialog
       ref={dialogueRef}
-      className="accueil-dialogue accueil-dialogue--affiner"
+      className="accueil-dialogue"
       aria-labelledby="accueil-affiner-titre"
       onCancel={(evenement) => {
         evenement.preventDefault()

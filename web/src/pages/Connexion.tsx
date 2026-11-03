@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 /** Écran d'accueil de l'application pour un visiteur non connecté. */
@@ -19,8 +20,12 @@ export default function Connexion() {
       </button>
 
       <p className="aide">
-        Connexion gérée par OpenID : aucun mot de passe, et seul ton profil
-        public Steam (pseudo, avatar) est lu.
+        Connexion gérée par OpenID : aucun mot de passe Steam n’est transmis.
+        GameBacklog lit ton profil public (pseudo, avatar) et ta bibliothèque
+        (jeux, temps de jeu, succès) via l’API Steam, puis les stocke pour
+        calculer tes recommandations. Les descriptions de jeux sont envoyées à
+        Google Gemini pour l’indexation.{' '}
+        <Link to="/confidentialite">En savoir plus sur tes données</Link>.
       </p>
 
       <ol className="etapes">

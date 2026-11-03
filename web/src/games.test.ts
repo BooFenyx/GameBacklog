@@ -14,15 +14,15 @@ describe('chargerFicheJeu', () => {
     const fiche = { appId: 620, name: 'Portal 2' }
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => fiche,
+      text: async () => JSON.stringify(fiche),
     })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(chargerFicheJeu(620)).resolves.toEqual(fiche)
-    expect(fetchMock).toHaveBeenCalledWith('/api/games/620', {
-      credentials: 'include',
-      signal: undefined,
-    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/games/620',
+      expect.objectContaining({ credentials: 'include' }),
+    )
   })
 
   it('traduit un 404 en ErreurFiche', async () => {
@@ -73,14 +73,14 @@ describe('chargerSuccesJeu', () => {
     }
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => detail,
+      text: async () => JSON.stringify(detail),
     })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(chargerSuccesJeu(620)).resolves.toEqual(detail)
-    expect(fetchMock).toHaveBeenCalledWith('/api/games/620/achievements', {
-      credentials: 'include',
-      signal: undefined,
-    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/games/620/achievements',
+      expect.objectContaining({ credentials: 'include' }),
+    )
   })
 })

@@ -381,12 +381,13 @@ export default function SelectionChef({
               ? error.message
               : 'Impossible de recalculer la sélection.'
           if (message.includes('introuvable')) {
-            setParametres((actuels) => ({
-              ...actuels,
-              anchor: selectionRef.current.anchor?.appId ?? null,
-            }))
+            // Revenir au jeu du moment. Ne jamais réécrire la même ancre :
+            // cela relancerait la requête en boucle toutes les 150 ms.
+            setParametres((actuels) =>
+              actuels.anchor === null ? actuels : { ...actuels, anchor: null },
+            )
             setErreur(
-              'Ce jeu de référence n’est plus disponible. Retour au jeu précédent.',
+              'Ce jeu de référence n’est plus disponible. Retour au jeu du moment.',
             )
           } else {
             setErreur(message)

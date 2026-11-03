@@ -1,4 +1,4 @@
-import { urlApi } from './api'
+import { appelApi } from './http'
 
 /**
  * État d'un job d'import (`GET /api/sync`). `library` = écriture des
@@ -37,28 +37,12 @@ export function estEnCours(job: JobSync | null): job is JobSync {
 }
 
 /** `GET /api/sync` — état du job courant (null si jamais importé). */
-export async function lireSync(): Promise<JobSync | null> {
-  const res = await fetch(urlApi('/api/sync'), { credentials: 'include' })
-  if (!res.ok) {
-    const corps = (await res.json().catch(() => null)) as {
-      message?: string
-    } | null
-    throw new Error(corps?.message ?? `Réponse ${res.status}`)
-  }
-  return (await res.json().catch(() => null)) as JobSync | null
+export function lireSync(): Promise<JobSync | null> {
+  // Nest renvoie un corps vide pour `null` (aucun job) : autorisé ici.
+  return appelApi<JobSync | null>('/api/sync', { allowEmpty: true })
 }
 
 /** `POST /api/sync` — relance l'import en tâche de fond. */
-export async function relancerSync(): Promise<JobSync> {
-  const res = await fetch(urlApi('/api/sync'), {
-    method: 'POST',
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    const corps = (await res.json().catch(() => null)) as {
-      message?: string
-    } | null
-    throw new Error(corps?.message ?? `Réponse ${res.status}`)
-  }
-  return (await res.json()) as JobSync
+export function relancerSync(): Promise<JobSync> {
+  return appelApi<JobSync>('/api/sync', { method: 'POST' })
 }
