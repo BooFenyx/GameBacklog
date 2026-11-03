@@ -230,7 +230,7 @@ export default function BarreRecherche() {
           aria-label="Rechercher dans ta bibliothèque"
           role="combobox"
           aria-expanded={apercuOuvert}
-          aria-controls={listeId}
+          aria-controls={apercuOuvert ? listeId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={
             selection >= 0 ? `${listeId}-${selection}` : undefined

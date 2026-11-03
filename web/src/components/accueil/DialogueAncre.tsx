@@ -145,7 +145,7 @@ export default function DialogueAncre({
           })}
         </ul>
 
-        {!chargement && !erreur && resultats.length === 0 && (
+        {!chargement && !erreur && resultats.length === 0 && q.trim().length > 0 && (
           <p className="accueil-note">Aucun jeu trouvé.</p>
         )}
       </div>

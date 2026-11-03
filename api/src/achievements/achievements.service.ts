@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import {
   achievements,
@@ -318,15 +318,23 @@ export class AchievementsService {
       }
     }
 
-    for (const jeu of schema) {
-      const unlockedAt = unlockedAtByApiName.get(jeu.apiName);
-      if (!unlockedAt) continue;
+    const deblocages = [
+      ...new Map(
+        schema.flatMap((jeu) => {
+          const unlockedAt = unlockedAtByApiName.get(jeu.apiName);
+          return unlockedAt
+            ? [{ userId, achievementId: jeu.id, unlockedAt }]
+            : [];
+        }).map((deblocage) => [deblocage.achievementId, deblocage]),
+      ).values(),
+    ];
+    if (deblocages.length > 0) {
       await this.db
         .insert(userAchievements)
-        .values({ userId, achievementId: jeu.id, unlockedAt })
+        .values(deblocages)
         .onConflictDoUpdate({
           target: [userAchievements.userId, userAchievements.achievementId],
-          set: { unlockedAt },
+          set: { unlockedAt: sql`excluded.unlocked_at` },
         });
     }
 
@@ -427,23 +435,33 @@ export class AchievementsService {
       );
     }
 
-    for (const raw of list) {
-      if (!raw.apiName || !raw.displayName) continue;
+    const lignes = [
+      ...new Map(
+        list.flatMap((raw) =>
+          raw.apiName && raw.displayName
+            ? [
+                {
+                  gameId,
+                  apiName: raw.apiName,
+                  displayName: raw.displayName,
+                  description: raw.description ?? null,
+                  iconUrl: raw.iconUrl ?? null,
+                },
+              ]
+            : [],
+        ).map((ligne) => [ligne.apiName, ligne]),
+      ).values(),
+    ];
+    if (lignes.length > 0) {
       await this.db
         .insert(achievements)
-        .values({
-          gameId,
-          apiName: raw.apiName,
-          displayName: raw.displayName,
-          description: raw.description ?? null,
-          iconUrl: raw.iconUrl ?? null,
-        })
+        .values(lignes)
         .onConflictDoUpdate({
           target: [achievements.gameId, achievements.apiName],
           set: {
-            displayName: raw.displayName,
-            description: raw.description ?? null,
-            iconUrl: raw.iconUrl ?? null,
+            displayName: sql`excluded.display_name`,
+            description: sql`excluded.description`,
+            iconUrl: sql`excluded.icon_url`,
           },
         });
     }

@@ -73,6 +73,7 @@ describe('RateLimitService', () => {
     config.get.mockImplementation((key: string) => {
       if (key === 'EMBEDDING_RATE_LIMIT_PER_DAY') return 2;
       if (key === 'EMBEDDING_RATE_LIMIT_PER_MINUTE') return 10;
+      if (key === 'EMBEDDING_USER_RATE_LIMIT_PER_DAY') return 3;
       return undefined;
     });
 
@@ -168,5 +169,48 @@ describe('RateLimitService', () => {
     }
     await expect(service.acquire(0, 'import')).resolves.toBe('busy');
     await expect(service.acquire(0, 'search')).resolves.toBe('ok');
+  });
+
+  it('renvoie quota-utilisateur quand le compteur personnel est épuisé', async () => {
+    pool.query.mockImplementation((_sql: string, params: unknown[]) => {
+      if (params?.[0] === 'embedding_user:42') {
+        return Promise.resolve(row(3, new Date()));
+      }
+      return Promise.resolve(row(1, new Date()));
+    });
+
+    await expect(service.acquire(0, 'search', 42)).resolves.toBe(
+      'quota-utilisateur',
+    );
+    // Le quota global ne doit pas être consommé par un utilisateur bloqué.
+    expect(pool.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE rate_limits SET count = count + 1'),
+      [KEY],
+    );
+  });
+
+  it('incrémente le compteur personnel sous le quota', async () => {
+    pool.query.mockImplementation((_sql: string, params: unknown[]) => {
+      if (params?.[0] === 'embedding_user:42') {
+        return Promise.resolve(row(1, new Date()));
+      }
+      return Promise.resolve(row(1, new Date()));
+    });
+
+    await expect(service.acquire(0, 'search', 42)).resolves.toBe('ok');
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE rate_limits SET count = count + 1'),
+      ['embedding_user:42'],
+    );
+  });
+
+  it('ne compte pas l’import dans le quota personnel', async () => {
+    pool.query.mockResolvedValue(row(1, new Date()));
+
+    await expect(service.acquire(0, 'import', 42)).resolves.toBe('ok');
+    expect(pool.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE rate_limits SET count = count + 1'),
+      ['embedding_user:42'],
+    );
   });
 });

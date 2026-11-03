@@ -85,6 +85,13 @@
       "when": 1793654732119,
       "tag": "0011_library_achievements_unlocked_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793707623876,
+      "tag": "0012_embedding_text_version",
+      "breakpoints": true
     }
   ]
 }

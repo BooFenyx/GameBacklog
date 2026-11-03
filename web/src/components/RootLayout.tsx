@@ -27,6 +27,21 @@ export default function RootLayout() {
     window.scrollTo(0, 0)
   }, [location.pathname])
 
+  useEffect(() => {
+    const titres: Record<string, string> = {
+      '/accueil': 'Accueil',
+      '/bibliotheque': 'Bibliothèque',
+      '/recherche': 'Recherche',
+      '/confidentialite': 'Confidentialité',
+    }
+    const section = location.pathname.startsWith('/jeu/')
+      ? 'Fiche de jeu'
+      : titres[location.pathname]
+    document.title = section
+      ? `${section} — GameBacklog`
+      : 'GameBacklog — ton backlog Steam'
+  }, [location.pathname])
+
   const authResult = searchParams.get('auth')
   let notice: string | null = null
   if (!loading && authResult === 'success') {
@@ -118,7 +133,16 @@ export default function RootLayout() {
               type="button"
               className="notice-fermer"
               aria-label="Fermer le message"
-              onClick={() => setSearchParams({}, { replace: true })}
+              onClick={() =>
+                setSearchParams(
+                  (precedents) => {
+                    const suivants = new URLSearchParams(precedents)
+                    suivants.delete('auth')
+                    return suivants
+                  },
+                  { replace: true },
+                )
+              }
             >
               ×
             </button>
@@ -129,6 +153,11 @@ export default function RootLayout() {
       <main className="contenu">
         <Outlet />
       </main>
+
+      <footer className="pied">
+        <Link to="/confidentialite">Données &amp; confidentialité</Link>
+        <span>Projet étudiant — données Steam</span>
+      </footer>
     </div>
   )
 }

@@ -103,13 +103,6 @@
   }
 }
 
-.nav-avenir {
-  color: var(--text);
-  opacity: 0.45;
-  font-size: 16px;
-  cursor: not-allowed;
-}
-
 .compte {
   display: flex;
   align-items: center;
@@ -128,10 +121,6 @@
 .avatar {
   border-radius: 50%;
   display: block;
-}
-
-.avatar-grand {
-  border: 1px solid var(--border);
 }
 
 /* --- Boutons --- */
@@ -300,159 +289,6 @@
   }
 }
 
-/* --- Page d'accueil --- */
-
-.accueil {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
-.accueil-tete {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-
-  h1 {
-    margin: 4px 0 0;
-    font-size: 40px;
-    letter-spacing: -1px;
-  }
-}
-
-.cartes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
-}
-
-.carte {
-  border: 1px solid color-mix(in oklab, var(--accent) 25%, var(--border));
-  border-radius: 10px;
-  padding: 22px;
-  background: var(--social-bg);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: relative;
-  overflow: hidden;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
-
-  h2 {
-    font-size: 19px;
-    margin: 0;
-    position: relative;
-    z-index: 1;
-  }
-
-  p {
-    font-size: 15px;
-    line-height: 150%;
-    margin: 0;
-    position: relative;
-    z-index: 1;
-  }
-
-  &:hover {
-    transform: translateY(-2px);
-    border-color: color-mix(in oklab, var(--accent) 55%, var(--accent-2) 45%);
-    box-shadow: var(--shadow), 0 0 40px -20px var(--accent-glow), 0 0 40px -18px var(--accent-glow-2);
-  }
-
-  &:hover::before,
-  &:hover::after {
-    content: '';
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    pointer-events: none;
-    opacity: 0.9;
-    z-index: 2;
-  }
-
-  &:hover::before {
-    top: 8px;
-    right: 8px;
-    clip-path: polygon(0 0, 100% 0, 100% 100%);
-    background: linear-gradient(135deg, var(--accent) 0%, transparent 70%);
-  }
-
-  &:hover::after {
-    bottom: 8px;
-    left: 8px;
-    clip-path: polygon(0 0, 0 100%, 100% 100%);
-    background: linear-gradient(315deg, var(--accent-2) 0%, transparent 70%);
-  }
-}
-
-.carte-etat {
-  margin-top: auto !important;
-  padding-top: 14px;
-  font-size: 13px !important;
-  opacity: 0.7;
-  font-style: italic;
-}
-
-.accueil-import {
-  font-size: 15px;
-  padding: 14px 18px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-bg);
-  border-radius: 0 8px 8px 0;
-}
-
-/* --- Bloc session (vérification de la persistance) --- */
-
-.session {
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-
-  h2 {
-    font-size: 17px;
-    margin: 0;
-  }
-
-  dl {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 15px;
-  }
-
-  dl > div {
-    display: flex;
-    gap: 12px;
-  }
-
-  dt {
-    width: 90px;
-    opacity: 0.75;
-  }
-
-  dd {
-    margin: 0;
-    color: var(--text-h);
-  }
-}
-
-.session-aide {
-  font-size: 14px;
-  opacity: 0.75;
-  margin: 0;
-}
-
-.session-ok {
-  font-size: 14px;
-  color: var(--accent);
-  margin: 0;
-}
-
 /* --- Bibliothèque --- */
 
 .bibliotheque {
@@ -491,102 +327,6 @@
 
 .bibliotheque-tete h1:hover::after {
   transform: scaleX(1.08);
-}
-
-.bibliotheque-compte {
-  margin: 0;
-  font-size: 15px;
-  opacity: 0.75;
-}
-
-.bibliotheque-erreur .message-erreur {
-  margin: 0;
-  padding: 14px 18px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-bg);
-  border-radius: 0 8px 8px 0;
-  font-size: 15px;
-}
-
-.liste-jeux {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-}
-
-.liste-jeux li {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in oklab, var(--accent) 25%, var(--border));
-  border-radius: 10px;
-  background: var(--social-bg);
-  font-size: 15px;
-  color: var(--text-h);
-  position: relative;
-  overflow: hidden;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
-}
-
-.liste-jeux li:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in oklab, var(--accent) 60%, var(--accent-2) 40%);
-  box-shadow: var(--shadow), 0 0 45px -22px var(--accent-glow), 0 0 45px -20px var(--accent-glow-2);
-}
-
-.liste-jeux li:hover::before,
-.liste-jeux li:hover::after {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
-  opacity: 0.95;
-  z-index: 2;
-}
-
-.liste-jeux li:hover::before {
-  top: 6px;
-  right: 6px;
-  clip-path: polygon(0 0, 100% 0, 100% 100%);
-  background: linear-gradient(135deg, var(--accent) 0%, transparent 70%);
-}
-
-.liste-jeux li:hover::after {
-  bottom: 6px;
-  left: 6px;
-  clip-path: polygon(0 0, 0 100%, 100% 100%);
-  background: linear-gradient(315deg, var(--accent-2) 0%, transparent 70%);
-}
-
-.jeu-carte {
-  position: relative;
-}
-
-.jeu-lien {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  text-decoration: none;
-  color: inherit;
-  border-radius: 10px;
-}
-
-.jeu-lien:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent), 0 12px 40px -12px var(--accent-glow);
-}
-
-.jeu-carte > .jeu-image,
-.jeu-carte > .jeu-corps {
-  position: relative;
-  z-index: 1;
 }
 
 /* --- 404 --- */
@@ -628,115 +368,6 @@
   margin: 6px 0 0;
 }
 
-.bibliotheque-barre {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.bibliotheque-recherche {
-  flex: 1 1 280px;
-
-  input {
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 15px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--social-bg);
-    color: var(--text-h);
-
-    &:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-  }
-}
-
-.bibliotheque-tri {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 15px;
-  color: var(--text);
-
-  select {
-    font: inherit;
-    font-size: 15px;
-    padding: 9px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--social-bg);
-    color: var(--text-h);
-    cursor: pointer;
-
-    &:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-  }
-}
-
-.carte-vide {
-  h2 {
-    font-size: 19px;
-  }
-}
-
-.jeu-liste {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.jeu {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 14px;
-  align-items: center;
-  padding: 10px 16px;
-  background: var(--social-bg);
-
-  & + & {
-    border-top: 1px solid var(--border);
-  }
-
-  &:hover {
-    background: var(--accent-bg);
-  }
-}
-
-.jeu-nom {
-  color: var(--text-h);
-  font-size: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  white-space: normal;
-}
-
-.jeu-duree {
-  font-size: 14px;
-  white-space: nowrap;
-  color: var(--text);
-}
-
-.jeu-dernier {
-  font-size: 14px;
-  white-space: nowrap;
-  color: var(--text);
-  min-width: 118px;
-  text-align: right;
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -747,17 +378,6 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
-}
-
-@media (max-width: 1024px) {
-  .jeu {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .jeu-dernier {
-    grid-column: 2 / -1;
-    text-align: left;
-  }
 }
 
 /* --- Adaptation mobile --- */
@@ -775,10 +395,6 @@
 
   .notice-inner {
     padding: 10px 20px;
-  }
-
-  .accueil-tete h1 {
-    font-size: 30px;
   }
 
   .etapes {
@@ -810,48 +426,12 @@
     flex-wrap: wrap;
     row-gap: 6px;
   }
-  .nav a,
-  .nav-avenir {
-    font-size: 15px;
-  }
   .compte {
     margin-left: auto;
     font-size: 15px;
   }
   .compte-nom {
     display: none;
-  }
-}
-
-@media (max-width: 767px) {
-  .liste-jeux {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-}
-
-@media (min-width: 768px) and (max-width: 1024px) {
-  .liste-jeux {
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 10px;
-  }
-}
-
-@media (max-width: 767px) {
-  .liste-jeux li {
-    gap: 8px;
-    padding: 10px;
-  }
-  .jeu-image {
-    border-radius: 6px;
-  }
-  .jeu-nom {
-    font-size: 15px;
-    -webkit-line-clamp: 2;
-  }
-  .jeu-infos {
-    font-size: 13px;
-    line-height: 1.45;
   }
 }
 
@@ -865,59 +445,11 @@
   .bibliotheque-tete h1 {
     font-size: 28px;
   }
-  .bibliotheque-compte {
-    font-size: 14px;
-  }
-  .bibliotheque-barre {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  .bibliotheque-recherche {
-    flex: 1 1 100%;
-  }
-  .bibliotheque-tri {
-    align-self: flex-start;
-    gap: 8px;
-  }
-}
-
-@media (max-width: 1024px) {
-  .jeu {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-  }
-  .jeu-dernier {
-    grid-column: 2 / -1;
-    text-align: left;
-    font-size: 13px;
-  }
 }
 
 @media (max-width: 767px) {
   .detail {
     gap: 14px;
-  }
-  .detail-image {
-    max-width: 100%;
-    border-radius: 10px;
-  }
-  .detail-tete h1 {
-    font-size: 26px;
-  }
-  .detail-infos {
-    grid-template-columns: 1fr;
-    gap: 4px 0;
-  }
-  .detail-infos dt {
-    margin-top: 6px;
-  }
-  .detail-infos dd {
-    margin-bottom: 2px;
-  }
-  .liste-succes li {
-    gap: 10px;
-    padding: 8px 10px;
   }
 }
 
@@ -940,16 +472,6 @@
     font-size: 13px;
     margin-bottom: 8px;
   }
-}
-
-/* --- Bibliothèque enrichie (import en base) --- */
-
-.bibliotheque-vide {
-  padding: 24px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  color: var(--text);
-  text-align: center;
 }
 
 .message-erreur {
@@ -1001,177 +523,12 @@
   box-shadow: 0 0 20px var(--accent-glow), 0 0 20px var(--accent-glow-2);
 }
 
-.liste-jeux {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-}
-
-.liste-jeux li {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--social-bg);
-}
-
-.jeu-image {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  height: auto;
-  border-radius: 8px;
-  object-fit: cover;
-  display: block;
-}
-
-.jeu-corps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.jeu-nom {
-  color: var(--text-h);
-  font-size: 16px;
-  text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  white-space: normal;
-  position: relative;
-  z-index: 1;
-
-  &:hover {
-    color: var(--accent);
-    text-shadow: 0 0 18px rgba(184, 155, 255, 0.28);
-  }
-
-  &:hover::before {
-    content: '▸';
-    display: inline-block;
-    margin-right: 4px;
-    color: var(--accent-2);
-    text-shadow: 0 0 16px rgba(61, 245, 255, 0.4);
-  }
-}
-
-.jeu-infos {
-  font-size: 14px;
-  color: var(--text);
-}
-
 /* --- Fiche détail d'un jeu --- */
 
 .detail {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-.detail-image {
-  width: 100%;
-  max-width: 616px;
-  border-radius: 12px;
-  object-fit: cover;
-  border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--border));
-  transition: box-shadow 160ms ease, transform 160ms ease;
-
-  &:hover {
-    box-shadow: 0 40px 80px -40px var(--accent-glow), 0 30px 60px -40px var(--accent-glow-2);
-    transform: translateY(-1px);
-  }
-}
-
-.detail-tete {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-
-  h1 {
-    margin: 0;
-    font-size: 34px;
-    letter-spacing: -0.5px;
-  }
-}
-
-.detail-description {
-  max-width: 72ch;
-  font-size: 16px;
-  color: var(--text);
-}
-
-.detail-infos {
-  display: grid;
-  grid-template-columns: minmax(140px, auto) 1fr;
-  gap: 8px 24px;
-  margin: 0;
-
-  dt {
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  dd {
-    margin: 0;
-    font-size: 15px;
-    color: var(--text-h);
-  }
-}
-
-.detail-actions .btn {
-  display: inline-block;
-  text-decoration: none;
-}
-
-.detail-succes h2 {
-  font-size: 22px;
-}
-
-.liste-succes {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.liste-succes li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--social-bg);
-  border-left: 2px solid transparent;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
-
-  img {
-    flex: none;
-    border-radius: 4px;
-  }
-
-  &:hover {
-    border-left-color: color-mix(in oklab, var(--accent) 70%, var(--accent-2) 30%);
-    box-shadow: 0 8px 30px -16px var(--accent-glow);
-    transform: translateX(2px);
-  }
-}
-
-.liste-succes .succes-verrouille {
-  opacity: 0.55;
 }
 
 .succes-texte {
@@ -1923,13 +1280,6 @@
   padding: 16px 0 4px;
 }
 
-.bibliotheque-vide {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-}
-
 /* --- Panneau de filtres --- */
 
 .filtres-dialogue {
@@ -2187,134 +1537,6 @@
 
 .biblio-resultats {
   min-width: 0;
-}
-
-/* Mise à jour des filtres : la liste reste affichée mais s'estompe le temps
-   de la requête, au lieu de disparaître derrière « Chargement… ». */
-.biblio-resultats .liste-jeux {
-  transition: opacity 160ms ease;
-}
-
-.biblio-resultats--maj .liste-jeux {
-  opacity: 0.45;
-}
-
-/* La largeur des cartes est plafonnée : sur un grand écran, la grille gagne des
-   colonnes au lieu d'étirer des cartes géantes. */
-.biblio-layout .liste-jeux,
-.biblio-layout.filtres-fermes .liste-jeux {
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-}
-
-@media (max-width: 1200px) {
-  .biblio-layout .liste-jeux,
-  .biblio-layout.filtres-fermes .liste-jeux {
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  }
-}
-
-/* --- Cartes de jeux --- */
-
-.liste-jeux .jeu-carte {
-  gap: 0;
-  padding: 0;
-  border-radius: 12px;
-  background: var(--bg-surface);
-  border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
-}
-
-.jeu-media {
-  position: relative;
-  z-index: 1;
-}
-
-.jeu-media .jeu-image {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
-  border-radius: 0;
-}
-
-.jeu-image-vide {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #2a2340 0%, #16202e 100%);
-  color: var(--text-h);
-  font-size: 30px;
-  font-weight: 700;
-}
-
-.jeu-etat {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  padding: 3px 8px;
-  border: 1px solid var(--accent-border);
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--bg) 80%, transparent);
-  color: var(--text-h);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.jeu-etat-recent {
-  border-color: var(--accent-border-2);
-  color: var(--accent-2);
-}
-
-.jeu-corps {
-  gap: 7px;
-  padding: 12px 13px 14px;
-}
-
-.jeu-genres,
-.jeu-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.jeu-genre {
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--text-h);
-  font-size: 11px;
-}
-
-.jeu-genre-plus {
-  color: var(--text);
-}
-
-.jeu-meta {
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--text);
-}
-
-.jeu-badge {
-  padding: 2px 7px;
-  border: 1px solid color-mix(in oklab, var(--accent-2) 35%, var(--border));
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--accent-2) 10%, transparent);
-  color: var(--text-h);
-  font-size: 10px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-}
-
-.jeu-badge-solo {
-  border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
-  background: var(--accent-bg);
-}
-
-.jeu-badge-manette {
-  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
-  background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
 .filtres-sidebar {
@@ -2822,19 +2044,7 @@
     display: none;
   }
 
-  .biblio-layout .liste-jeux,
-  .biblio-layout.filtres-fermes .liste-jeux {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .biblio-bouton-filtres--mobile {
     display: inline-flex;
-  }
-}
-
-@media (max-width: 767px) {
-  .biblio-layout .liste-jeux,
-  .biblio-layout.filtres-fermes .liste-jeux {
-    grid-template-columns: 1fr;
   }
 }

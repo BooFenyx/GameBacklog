@@ -1,4 +1,6 @@
 import {
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -57,6 +59,8 @@ const DEFAULT_ACHIEVEMENTS_THROTTLE_MS = 200;
 const MAX_429_CONSECUTIFS = 3;
 /** Trois échecs réseau consécutifs : la passe s'arrête au lieu de balayer tout. */
 const MAX_ERREURS_RESEAU_CONSECUTIVES = 3;
+/** Délai minimal entre deux relances manuelles d'un même utilisateur. */
+const RELANCE_MANUELLE_COOLDOWN_MS = 5 * 60 * 1000;
 /** Attente maximale imposée par un `Retry-After` pendant une passe. */
 const MAX_ATTENTE_429_MS = 5 * 60 * 1000;
 /** Délais avant de retenter une fiche en échec. */
@@ -147,6 +151,12 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
    * de la prochaine fiche en backoff.
    */
   private readonly reprises = new Map<number, NodeJS.Timeout>();
+  /**
+   * Date de la dernière relance manuelle par utilisateur. Évite qu'un clic
+   * répété (ou un script) enchaîne les imports complets et affame les autres.
+   * En mémoire : perdu au redémarrage, comme les autres limiteurs.
+   */
+  private readonly relancesManuelles = new Map<number, number>();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -198,15 +208,11 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
    */
   async enqueue(
     userId: number,
-    options: { forcerFiches?: boolean } = {},
+    options: { forcerFiches?: boolean; depart?: SyncJobRow['step'] } = {},
   ): Promise<SyncJobResponse> {
     // Une relance (login ou clic) remplace la reprise programmée : le job qui
     // va tourner reprogrammera l'échéance suivante à sa fin.
     this.annulerReprise(userId);
-
-    if (options.forcerFiches) {
-      await this.forcerRepriseFiches(userId);
-    }
 
     const [existant] = await this.db
       .select()
@@ -219,12 +225,41 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       (existant.status === 'pending' || existant.status === 'running')
     ) {
       // Un job pending peut être orphelin si la boucle a été interrompue :
-      // on réarme `drain` même dans ce cas.
+      // on réarme `drain` même dans ce cas. Une relance manuelle force les
+      // fiches sans créer de nouveau job ni consommer le cooldown.
+      if (options.forcerFiches) {
+        await this.forcerRepriseFiches(userId);
+      }
       void this.drain();
       return this.toResponse(existant as SyncJobRow);
     }
 
-    const job = await this.upsertJob(userId);
+    // Cooldown uniquement pour une relance manuelle qui va réellement créer
+    // un nouveau job : renvoyer un job déjà en cours reste gratuit. Le contrôle
+    // est fait **avant** `forcerRepriseFiches` pour qu'un 429 n'ait aucun effet
+    // de bord (réinitialisation du backoff).
+    if (options.forcerFiches) {
+      const maintenant = Date.now();
+      const derniere = this.relancesManuelles.get(userId) ?? 0;
+      const reste = RELANCE_MANUELLE_COOLDOWN_MS - (maintenant - derniere);
+      if (reste > 0) {
+        throw new HttpException(
+          `Relance trop fréquente : réessaie dans ${Math.ceil(
+            reste / 1000,
+          )} s.`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      await this.forcerRepriseFiches(userId);
+    }
+
+    const job = await this.upsertJob(
+      userId,
+      options.forcerFiches ? 'library' : (options.depart ?? 'library'),
+    );
+    if (options.forcerFiches) {
+      this.relancesManuelles.set(userId, Date.now());
+    }
     // Traitement hors du cycle de requête : le front suivra via GET /api/sync.
     void this.drain();
     return this.toResponse(job);
@@ -297,13 +332,15 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     const timer = setTimeout(() => {
       this.reprises.delete(userId);
       if (Date.now() >= prochaine.getTime()) {
-        void this.enqueue(userId).catch((error: unknown) => {
-          this.logger.warn(
-            `Reprise automatique impossible pour l'utilisateur ${userId}: ${
-              error instanceof Error ? error.message : 'erreur inconnue'
-            }`,
-          );
-        });
+        void this.enqueue(userId, { depart: 'details' }).catch(
+          (error: unknown) => {
+            this.logger.warn(
+              `Reprise automatique impossible pour l'utilisateur ${userId}: ${
+                error instanceof Error ? error.message : 'erreur inconnue'
+              }`,
+            );
+          },
+        );
       } else {
         void this.planifierReprise(userId).catch((error: unknown) => {
           this.logger.warn(
@@ -695,15 +732,18 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async upsertJob(userId: number): Promise<SyncJobRow> {
+  private async upsertJob(
+    userId: number,
+    depart: SyncJobRow['step'] = 'library',
+  ): Promise<SyncJobRow> {
     const rows = await this.db
       .insert(syncJobs)
-      .values({ userId, status: 'pending', step: 'library', error: null })
+      .values({ userId, status: 'pending', step: depart, error: null })
       .onConflictDoUpdate({
         target: syncJobs.userId,
         set: {
           status: 'pending',
-          step: 'library',
+          step: depart,
           totalGames: 0,
           processedGames: 0,
           error: null,
@@ -863,52 +903,66 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       succes.map((s) => [s.gameId, normaliserDernierSucces(s.dernier)]),
     );
 
-    for (const jeu of jeux) {
-      const gameId = await this.games.upsertBasic(jeu.appId, jeu.name);
-      const precedent = parJeu.get(gameId) ?? null;
-      const activite = deriverActivite(
-        {
-          playtimeForever: jeu.playtimeForever,
-          playtime2Weeks: jeu.playtimeLast2Weeks,
-        },
-        precedent,
-        succesParJeu.get(gameId) ?? null,
-        maintenant,
-      );
+    const idsParAppId = await this.games.upsertBasicMany(
+      jeux.map((jeu) => ({ appId: jeu.appId, name: jeu.name })),
+    );
 
-      const valeurs = {
-        userId,
-        gameId,
-        playtimeForever: jeu.playtimeForever,
-        playtimeLast2Weeks: jeu.playtimeLast2Weeks,
-        lastSeenAt: maintenant,
-        ...(activite
-          ? {
-              lastActivityAt: activite.at,
-              lastActivitySource: activite.source,
-              lastActivityPrecision: activite.precision,
+    const valeurs = [
+      ...new Map(
+        jeux
+          .map((jeu) => {
+            const gameId = idsParAppId.get(jeu.appId);
+            if (gameId === undefined) {
+              throw new Error(
+                `Jeu ${jeu.appId} absent de l'upsert de bibliothèque`,
+              );
             }
-          : {}),
-      };
+            const precedent = parJeu.get(gameId) ?? null;
+            const activite = deriverActivite(
+              {
+                playtimeForever: jeu.playtimeForever,
+                playtime2Weeks: jeu.playtimeLast2Weeks,
+              },
+              precedent,
+              succesParJeu.get(gameId) ?? null,
+              maintenant,
+            );
 
-      const miseAJour = {
-        playtimeForever: jeu.playtimeForever,
-        playtimeLast2Weeks: jeu.playtimeLast2Weeks,
-        ...(activite
-          ? {
-              lastActivityAt: activite.at,
-              lastActivitySource: activite.source,
-              lastActivityPrecision: activite.precision,
-            }
-          : {}),
-      };
+            return {
+              userId,
+              gameId,
+              playtimeForever: jeu.playtimeForever,
+              playtimeLast2Weeks: jeu.playtimeLast2Weeks,
+              lastSeenAt: maintenant,
+              lastActivityAt: activite?.at ?? null,
+              lastActivitySource: activite?.source ?? null,
+              lastActivityPrecision: activite?.precision ?? null,
+            };
+          })
+          // Un doublon de `gameId` dans le même lot ferait échouer
+          // `ON CONFLICT DO UPDATE` (« cannot affect row a second time »).
+          .map((valeur) => [valeur.gameId, valeur] as const),
+      ).values(),
+    ];
 
+    // Un seul upsert par lot au lieu d'un par jeu. `coalesce` conserve
+    // l'activité déjà connue quand `deriverActivite` n'a aucun nouveau
+    // candidat : on ne remplace jamais une date par NULL.
+    const TAILLE_LOT = 500;
+    for (let debut = 0; debut < valeurs.length; debut += TAILLE_LOT) {
       await this.db
         .insert(libraryEntries)
-        .values(valeurs)
+        .values(valeurs.slice(debut, debut + TAILLE_LOT))
         .onConflictDoUpdate({
           target: [libraryEntries.userId, libraryEntries.gameId],
-          set: miseAJour,
+          set: {
+            playtimeForever: sql`excluded.playtime_forever`,
+            playtimeLast2Weeks: sql`excluded.playtime_last_2_weeks`,
+            lastSeenAt: sql`excluded.last_seen_at`,
+            lastActivityAt: sql`coalesce(excluded.last_activity_at, ${libraryEntries.lastActivityAt})`,
+            lastActivitySource: sql`coalesce(excluded.last_activity_source, ${libraryEntries.lastActivitySource})`,
+            lastActivityPrecision: sql`coalesce(excluded.last_activity_precision, ${libraryEntries.lastActivityPrecision})`,
+          },
         });
     }
     await this.setProgress(jobId, 'details', {
@@ -1289,6 +1343,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
             .set({
               embedding,
               embeddingModel: this.embedding.modelName,
+              embeddingTextVersion: this.embedding.textVersion,
             })
             .where(eq(games.appId, appId));
           progressed = true;
@@ -1340,15 +1395,19 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Conditions des jeux indexables dont l'embedding manque : fiche récupérée et
-   * au moins une description, un genre ou une catégorie. Un jeu sans texte
-   * exploitable n'est jamais retenté (aligné sur `embeddingInputFor`).
+   * Conditions des jeux indexables dont l'embedding manque ou dont le texte
+   * indexé est antérieur à la version courante : fiche récupérée et au moins
+   * une description, un genre ou une catégorie. Un jeu sans texte exploitable
+   * n'est jamais retenté (aligné sur `embeddingInputFor`).
    */
   private conditionsEmbeddingsManquants(userId: number) {
     return and(
       eq(libraryEntries.userId, userId),
-      isNull(games.embedding),
       isNotNull(games.detailsFetchedAt),
+      or(
+        isNull(games.embedding),
+        lt(games.embeddingTextVersion, this.embedding.textVersion),
+      ),
       or(
         sql`coalesce(${games.shortDescription}, '') <> ''`,
         sql`cardinality(${games.genres}) > 0`,
@@ -1357,7 +1416,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** `appId` de la bibliothèque dont l'embedding manque. */
+  /** `appId` de la bibliothèque dont l'embedding manque ou doit être rejoué. */
   private async appIdsSansEmbedding(userId: number): Promise<number[]> {
     const rows = await this.db
       .select({ appId: games.appId })
@@ -1367,7 +1426,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     return rows.map((row) => row.appId);
   }
 
-  /** Nombre de jeux indexables dont l'embedding manque. */
+  /** Nombre de jeux indexables dont l'embedding manque ou est obsolète. */
   private async compterEmbeddingsManquants(userId: number): Promise<number> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)` })

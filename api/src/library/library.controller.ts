@@ -2,6 +2,8 @@ import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import type { FacettesBibliotheque } from '../catalog/facets.js';
 import { SessionGuard } from '../auth/session.guard.js';
+import { LectureRateLimitGuard } from '../rate-limit/lecture-rate-limit.guard.js';
+import { LimiteLecture } from '../rate-limit/limite-lecture.decorator.js';
 import { LibraryQueryDto } from './dto/library-query.dto.js';
 import { LibraryService, type BibliothequePage } from './library.service.js';
 
@@ -11,8 +13,9 @@ import { LibraryService, type BibliothequePage } from './library.service.js';
  * `GET /api/library/facets` — compteurs des filtres disponibles.
  * Le `SessionGuard` garantit qu'un `userId` est présent dans la session.
  */
+@LimiteLecture('library')
 @Controller('library')
-@UseGuards(SessionGuard)
+@UseGuards(SessionGuard, LectureRateLimitGuard)
 export class LibraryController {
   constructor(private readonly libraryService: LibraryService) {}
 

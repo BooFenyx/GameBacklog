@@ -299,6 +299,7 @@ describe('SearchService — recherche sémantique', () => {
 
     expect(embed).toHaveBeenCalledWith('jeu comme Portal', {
       maxWaitMs: 1500,
+      userId: 7,
     });
     const [sql, params] = query.mock.calls[1] as [string, unknown[]];
     expect(sql).toContain('g.embedding <=> $1::vector');
@@ -475,7 +476,10 @@ describe('SearchService — recherche sémantique', () => {
 
     await service.search(7, dto({ mode: 'semantic', q: 'jeu calme' }));
 
-    expect(embed).toHaveBeenCalledWith('jeu calme', { maxWaitMs: 1500 });
+    expect(embed).toHaveBeenCalledWith('jeu calme', {
+      maxWaitMs: 1500,
+      userId: 7,
+    });
   });
 
   it('transmet l’offset à la requête vectorielle', async () => {

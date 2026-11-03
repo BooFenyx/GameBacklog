@@ -74,6 +74,7 @@ export class RateLimitService {
   private readonly logger = new Logger(RateLimitService.name);
   private readonly maxPerMinute: number;
   private readonly maxPerDay: number;
+  private readonly maxPerUserPerDay: number;
   private readonly dayWindowMs = 24 * 60 * 60 * 1000;
   private readonly minuteWindow: MinuteWindow;
 
@@ -83,6 +84,13 @@ export class RateLimitService {
   ) {
     this.maxPerMinute = this.readLimit('EMBEDDING_RATE_LIMIT_PER_MINUTE', 100);
     this.maxPerDay = this.readLimit('EMBEDDING_RATE_LIMIT_PER_DAY', 1000);
+    // Quota par utilisateur pour la recherche : sans lui, un seul compte peut
+    // consommer les 1000 appels/jour partagés et dégrader la recherche pour
+    // tous les autres. L'import n'est pas soumis à ce quota (il est global).
+    this.maxPerUserPerDay = this.readLimit(
+      'EMBEDDING_USER_RATE_LIMIT_PER_DAY',
+      100,
+    );
     this.minuteWindow = new MinuteWindow(this.maxPerMinute);
   }
 
@@ -110,7 +118,8 @@ export class RateLimitService {
   async acquire(
     maxWaitMs?: number,
     source: 'search' | 'import' = 'search',
-  ): Promise<'ok' | 'quota-journalier' | 'busy'> {
+    userId?: number,
+  ): Promise<'ok' | 'quota-journalier' | 'quota-utilisateur' | 'busy'> {
     // Fenêtre par minute (mémoire) : on attend le temps exact de libération
     // avant de consommer un créneau, sans pause fixe de 60 s. La recherche
     // borne cette attente : au-delà, elle préfère un repli immédiat.
@@ -128,35 +137,61 @@ export class RateLimitService {
     }
 
     const now = Date.now();
+    const userKey =
+      source === 'search' && userId !== undefined
+        ? `embedding_user:${userId}`
+        : null;
 
-    // Compteur quotidien (persisté, partagé) : réinitialisé après 24 h.
+    // Les deux compteurs sont lus avant toute écriture : un quota épuisé ne
+    // doit pas consommer une place dans l'autre compteur.
     const day = await this.readDayCounter();
-    if (day) {
-      if (now - day.windowStartedAt >= this.dayWindowMs) {
-        await this.resetDayCounter(now);
-      } else if (day.count >= this.maxPerDay) {
-        this.logger.warn(
-          `Quota quotidien atteint (${day.count}/${this.maxPerDay}) : import interrompu`,
-        );
-        return 'quota-journalier';
-      } else {
-        await this.incrementDayCounter();
-      }
-    } else {
+    const jourExpire = !day || now - day.windowStartedAt >= this.dayWindowMs;
+    if (!jourExpire && day.count >= this.maxPerDay) {
+      this.logger.warn(
+        `Quota quotidien atteint (${day.count}/${this.maxPerDay}) : import interrompu`,
+      );
+      return 'quota-journalier';
+    }
+
+    const userDay = userKey ? await this.readDayCounter(userKey) : null;
+    const userJourExpire =
+      !userDay || now - userDay.windowStartedAt >= this.dayWindowMs;
+    if (
+      userKey &&
+      userDay &&
+      !userJourExpire &&
+      userDay.count >= this.maxPerUserPerDay
+    ) {
+      this.logger.warn(
+        `Quota utilisateur atteint (${userDay.count}/${this.maxPerUserPerDay})`,
+      );
+      return 'quota-utilisateur';
+    }
+
+    if (jourExpire) {
       await this.resetDayCounter(now);
+    } else {
+      await this.incrementDayCounter();
+    }
+    if (userKey) {
+      if (userJourExpire) {
+        await this.resetDayCounter(now, userKey);
+      } else {
+        await this.incrementDayCounter(userKey);
+      }
     }
 
     this.minuteWindow.record(now);
     return 'ok';
   }
 
-  private async readDayCounter(): Promise<{
+  private async readDayCounter(key = RATE_LIMIT_KEY): Promise<{
     count: number;
     windowStartedAt: number;
   } | null> {
     const result = await this.db.$client.query(
       'SELECT count, window_started_at FROM rate_limits WHERE key = $1',
-      [RATE_LIMIT_KEY],
+      [key],
     );
     const row = result.rows[0];
     if (!row) {
@@ -168,19 +203,22 @@ export class RateLimitService {
     };
   }
 
-  private async resetDayCounter(now: number): Promise<void> {
+  private async resetDayCounter(
+    now: number,
+    key = RATE_LIMIT_KEY,
+  ): Promise<void> {
     await this.db.$client.query(
       `INSERT INTO rate_limits (key, count, window_started_at)
        VALUES ($1, 1, $2)
        ON CONFLICT (key) DO UPDATE SET count = 1, window_started_at = $2`,
-      [RATE_LIMIT_KEY, new Date(now)],
+      [key, new Date(now)],
     );
   }
 
-  private async incrementDayCounter(): Promise<void> {
+  private async incrementDayCounter(key = RATE_LIMIT_KEY): Promise<void> {
     await this.db.$client.query(
       'UPDATE rate_limits SET count = count + 1 WHERE key = $1',
-      [RATE_LIMIT_KEY],
+      [key],
     );
   }
 }

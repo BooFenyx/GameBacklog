@@ -38,6 +38,9 @@ const ENV_TEST: Record<string, string> = {
   ACHIEVEMENTS_BATCH_SIZE: '200',
   ACHIEVEMENTS_MAX_GAMES_PER_SYNC: '0',
   SYNC_STEP_MAX_MS: '0',
+  // Le test interroge `/api/sync` en boucle serrée (50 ms) : sans cette marge,
+  // la limite de 60/min des lectures ferait échouer l'attente.
+  SYNC_RATE_LIMIT_PER_MINUTE: '10000',
 };
 
 const JEUX_STEAM = {
@@ -172,6 +175,7 @@ describe('Import volumineux (e2e)', () => {
       .overrideProvider(EmbeddingService)
       .useValue({
         modelName: 'fake-embedding',
+        textVersion: 2,
         embedGame: async () => Array.from({ length: 1024 }, () => 0.01),
         embed: async () => Array.from({ length: 1024 }, () => 0.01),
       })

@@ -78,11 +78,13 @@ export default function Accueil() {
     let timer: number | undefined
     let aVoirEnCours = false
     let etapeVue: JobSync['step'] | null = null
+    let tentatives = 0
 
     const interroger = async (): Promise<void> => {
       try {
         const courant = await lireSync()
         if (!actif) return
+        tentatives = 0
         setJob(courant)
 
         if (estEnCours(courant)) {
@@ -102,8 +104,14 @@ export default function Accueil() {
           setVersion((valeur) => valeur + 1)
         }
       } catch {
-        // Statut neutre : une erreur de suivi ne doit pas bloquer l'accueil.
-        if (actif) setJob(null)
+        // Une coupure transitoire ne doit pas figer le statut : on garde le
+        // dernier job connu et on retente, sans marteler une API durablement
+        // indisponible.
+        if (!actif) return
+        tentatives += 1
+        if (tentatives < 6) {
+          timer = window.setTimeout(() => void interroger(), 5000)
+        }
       }
     }
 
@@ -141,6 +149,9 @@ export default function Accueil() {
     setErreur(null)
     setChargement(true)
     setVersion((valeur) => valeur + 1)
+    // Relance aussi le suivi de l'import : après six erreurs, le polling
+    // s'est arrêté et le statut resterait figé.
+    setRelance((valeur) => valeur + 1)
   }
 
   const relancer = async (): Promise<void> => {

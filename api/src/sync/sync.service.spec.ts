@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Db } from '../db/db.module.js';
 import {
@@ -222,6 +223,54 @@ describe('SyncService', () => {
     expect(drain).toHaveBeenCalledTimes(1);
   });
 
+  it('enqueue : refuse une seconde relance manuelle dans le cooldown', async () => {
+    const job: JobRow = {
+      id: 44,
+      userId: 1,
+      status: 'pending',
+      step: 'library',
+      totalGames: 0,
+      processedGames: 0,
+      error: null,
+      startedAt: null,
+      finishedAt: null,
+    };
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const db = {
+      $client: { query },
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: () => Promise.resolve([]) }),
+        }),
+      }),
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: () => ({
+            returning: () => Promise.resolve([job]),
+          }),
+        }),
+      }),
+    };
+    const service = makeService(db);
+    const drain = vi
+      .spyOn(service as never, 'drain')
+      .mockResolvedValue(undefined);
+
+    await expect(
+      service.enqueue(1, { forcerFiches: true }),
+    ).resolves.toMatchObject({ id: 44 });
+
+    const erreur = await service
+      .enqueue(1, { forcerFiches: true })
+      .catch((error: unknown) => error);
+    expect(erreur).toBeInstanceOf(HttpException);
+    expect((erreur as HttpException).getStatus()).toBe(429);
+
+    // La relance refusée ne doit pas avoir touché au backoff des fiches.
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+
   it('syncLibrary : convertit une chaîne de dernier succès en Date', async () => {
     const ecrits: Array<Record<string, unknown>> = [];
     let selectAppels = 0;
@@ -256,7 +305,9 @@ describe('SyncService', () => {
       }),
     };
     const games = {
-      upsertBasic: async () => 7,
+      upsertBasicMany: async (
+        jeux: ReadonlyArray<{ appId: number; name: string }>,
+      ) => new Map(jeux.map((jeu) => [jeu.appId, 7])),
     } as unknown as GamesService;
     const service = new SyncService(
       db as unknown as Db,
@@ -287,7 +338,8 @@ describe('SyncService', () => {
     ]);
 
     expect(ecrits).toHaveLength(1);
-    const ecrit = ecrits[0] as { lastActivityAt?: unknown };
+    const lot = ecrits[0] as Array<{ lastActivityAt?: unknown }>;
+    const ecrit = lot[0];
     expect(ecrit.lastActivityAt).toBeInstanceOf(Date);
     expect((ecrit.lastActivityAt as Date).toISOString()).toBe(
       '2025-08-13T12:21:48.000Z',
@@ -760,7 +812,7 @@ describe('SyncService', () => {
 
       await vi.advanceTimersByTimeAsync(60_000);
 
-      expect(enqueue).toHaveBeenCalledWith(7);
+      expect(enqueue).toHaveBeenCalledWith(7, { depart: 'details' });
     });
 
     it('ne programme rien quand aucune fiche n’a d’échéance', async () => {
@@ -1428,6 +1480,7 @@ describe('SyncService', () => {
         {
           embedGame: deps.embedGame ?? (async () => null),
           modelName: 'modele-test',
+          textVersion: 2,
         } as unknown as EmbeddingService,
         {} as UsersService,
         {
@@ -1532,6 +1585,7 @@ describe('SyncService', () => {
             throw new QuotaReachedError();
           },
           modelName: 'modele-test',
+          textVersion: 2,
         } as unknown as EmbeddingService,
         { setStatus } as unknown as UsersService,
         { remainingToday: async () => 0 } as unknown as RateLimitService,

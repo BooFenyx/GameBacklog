@@ -203,23 +203,45 @@ sélection de texte et le drag natif de l'image, avec capture du pointeur et
 annulation du clic accidentel. Les décisions et écarts assumés de la PR sont
 dans `features/accueil-intelligent/05-annexe-fix-pr.md`.
 
+**Embeddings versionnés.** `EmbeddingService.buildText` construit le texte
+`nom + description courte + description longue (≤ 1 200 caractères) + genres +
+catégories` ; `EMBEDDING_TEXT_VERSION = 2` est persisté dans
+`games.embedding_text_version` (migration 0012). Le sync réindexe un jeu si
+`embedding IS NULL` **ou** si sa version est antérieure, et `pendingEmbeddings`
+compte ces reliquats. La description longue vient de `games.description_blocks`
+via `texteDepuisBlocs`. Le backfill réel a réindexé 121 jeux (2 sans texte) ;
+le script `api/scripts/eval-embeddings.mjs` mesure P@5/P@10/MRR. Sur le jeu de
+requêtes local, v2 est **neutre** (P@5 0,778, P@10 0,833, MRR 0,597 contre
+0,778/0,833/0,611 en v1) : la prochaine piste est la recherche hybride, pas un
+nouveau texte à l'aveugle. Voir `docs/features/embeddings-v2.md`.
+
 **Sécurité.** CSP de production en place : stricte côté API (`app.setup.ts`, `default-src
 'none'`, prod uniquement) et via les en-têtes Vercel côté front (CSP SPA + `nosniff` +
-`Referrer-Policy`). Le flux OpenID porte un `state` anti-CSRF stocké en session et vérifie
-`return_to`/`realm`, l'origine Steam du `claimed_id` (`http`/`https`), `op_endpoint`,
-`identity` et l'absence d'`invalidate_handle` ; la réponse `check_authentication` est
-parsée ligne par ligne. `SessionGuard` exige `steamId` **et** `userId`. Rate limiting en
-place sur `GET /api/search` par `steamId` (voir Écart 10) ; les autres routes ne sont pas
-limitées. `enableShutdownHooks` est activé dans `main.ts` (annulation des timers du
-scheduler).
+`Referrer-Policy`). Le flux OpenID porte un `state` anti-CSRF dans un **cookie signé**
+(`gb_openid_state`, `httpOnly`, 10 min, `Secure` en production, `signed` par
+`cookieParser(sessionSecret)`) au lieu de la session : une visite anonyme n'écrit plus de
+ligne `session`. Le callback vérifie `return_to`/`realm`, l'origine Steam du `claimed_id`
+(`http`/`https`), `op_endpoint`, `identity` et l'absence d'`invalidate_handle` ; la réponse
+`check_authentication` est parsée ligne par ligne. `SessionGuard` exige `steamId` **et**
+`userId`. Rate limiting par `steamId` : recherche (20/min sémantique, 120/min nom),
+lectures `/api/library`, `/api/games`, `/api/home` (120/120/180 par défaut, configurables)
+et `/api/sync` (120/min par défaut), avec `429` + `Retry-After`. Un **limiteur IP** borne
+`/api/auth/*` avant le middleware de session (`AUTH_RATE_LIMIT_PER_MINUTE`, 60/min par
+défaut), et `POST /api/sync` a un cooldown de 5 min par utilisateur. Côté Gemini, le quota
+quotidien global est complété par un **quota par utilisateur**
+(`EMBEDDING_USER_RATE_LIMIT_PER_DAY`, 100/j) pour qu'un compte ne dégrade pas la recherche
+de tous. `GET /api/health` vérifie réellement la base (`SELECT 1`, 503 sinon) et sert de
+`healthCheckPath` Render. `enableShutdownHooks` est activé dans `main.ts` (annulation des
+timers du scheduler).
 
-**Non implémenté :** amélioration des embeddings (piste à étudier séparément, sans
-modifier le code de ce lot), purge du CSS mort restant hors accueil et stabilisation des
-champs exacts des cartes/listes, mise en ligne (socle et déploiement continu front prêts,
-rien n'est encore réellement déployé).
+**Non implémenté :** recherche hybride (vectoriel + lexical) et évaluation sur un jeu de
+requêtes plus large. **Déploiement :** le front et l'API sont déjà en ligne sur Vercel et
+Render (Neon pour la base) ; la PR `#19` (`preparation-deploiement-final`) apporte le
+durcissement final, le health check et le runbook, mais n'est pas encore fusionnée. Voir
+`docs/deploiement.md`.
 
 **Fichiers clés :**
-- `api/src/auth/` — authentification OpenID (validation `id_res`, `state` anti-CSRF, `return_to`/`realm`, `claimed_id` Steam, timeouts), session, guard `steamId + userId`
+- `api/src/auth/` — authentification OpenID (validation `id_res`, `state` anti-CSRF dans un cookie signé, `return_to`/`realm`, `claimed_id` Steam, timeouts), session, guard `steamId + userId`
 - `api/src/sync/` — pipeline d'import (4 étapes, lots de succès sans plafond total, reprise par étape, budget `SYNC_STEP_MAX_MS`, scheduler de reprise des fiches en backoff, progression, backfill `filters_version`, compteurs de succès)
 - `api/test/sync-large.e2e-spec.ts` + `api/test/sync-counters.e2e-spec.ts` — e2e 250 (deux passes, P0 réel) et intégration des compteurs/backoff
 - `api/test/session-test.ts` — helper e2e qui rejoue le vrai flux OpenID (`/api/auth/steam` puis callback avec `state` et `return_to`)
@@ -229,19 +251,25 @@ rien n'est encore réellement déployé).
 - `api/src/games/` — fiches `appdetails`, détail utilisateur, `GET /api/games/:appId` et `/achievements`
 - `api/src/achievements/` — cache du schéma, compteurs, TTL, liste détaillée (`GetSchemaForGame` / `GetPlayerAchievements`)
 - `api/src/users/` — upsert utilisateur, `syncStatus`
-- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j, `remainingToday`, import plafonné à 80 % de la fenêtre minute)
+- `api/src/embedding/` — service d'embedding Gemini + rate limiter (100 rpm / 1000 j global, quota utilisateur `EMBEDDING_USER_RATE_LIMIT_PER_DAY`, import plafonné à 80 % de la fenêtre minute), texte v2 versionné (`EMBEDDING_TEXT_VERSION`), module d'évaluation
+- `api/scripts/eval-embeddings.mjs` + `api/scripts/eval-embeddings.json` — évaluation manuelle P@5/P@10/MRR et backfill contrôlé des embeddings
 - `api/src/search/` — `GET /api/search` (nom/sémantique/série), limite par `steamId`, cache d'embeddings de requête, DTO ; les filtres d'URL sont réservés à la bibliothèque
+- `api/src/rate-limit/` — `ReadRateLimitService` (fenêtres par `steamId`), `LectureRateLimitGuard` et décorateur `@LimiteLecture` pour `/api/library`, `/api/games`, `/api/home` et `/api/sync` ; `IpRateLimit` pour `/api/auth/*` (clé `X-Forwarded-For`/`req.ip`, purges mémoire)
+- `api/test/read-rate-limit.e2e-spec.ts` — 429 + `Retry-After` par route et par utilisateur
 - `api/src/home/` — `GET /api/home`, `/selection` et `/menu` (jeu du moment, deck, genre principal en bonus, catégories jusqu'à 9 jeux, scoring, DTO) ; lecture seule, sans cache ni appel Steam/Gemini
 - `api/test/home.e2e-spec.ts` — e2e de l'accueil (session, bibliothèque vide, deck, filtres, menu)
-- `api/src/db/` — module Drizzle global, token `DB`, schéma pgvector
+- `api/src/db/` — module Drizzle global, token `DB`, pool borné avec `pool.on('error')`, migrations sur une connexion `pg.Client` dédiée (verrou advisory + timeouts DDL), schéma pgvector
 - `api/src/db/pg-utc.ts` — lecture UTC des `timestamp` sans fuseau (OID 1114)
-- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0011 ; 0005 compteurs de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité + drop `last_played_at`, 0010 import robuste, 0011 compteur de succès nullable)
-- `render.yaml` — blueprint Render (API seule)
-- `api/src/app.setup.ts` — câblage (session, CORS, helmet + CSP conditionnelle en prod, ValidationPipe)
-- `web/src/auth/` — provider et contexte de session
+- `api/drizzle.config.ts` + `api/drizzle/` — config et migrations (0000→0012 ; 0005 compteurs de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité + drop `last_played_at`, 0010 import robuste, 0011 compteur de succès nullable, 0012 version du texte d'embedding)
+- `render.yaml` — blueprint Render (API seule) : service `fst-2026-groupe-08`, région `oregon`, `autoDeployTrigger: checksPass`, health check `/api/health`, Node 24
+- `api/src/app.setup.ts` — câblage (session PostgreSQL bornée, cookieParser signé pour le state OpenID, limiteur IP auth, CORS normalisé, helmet + CSP conditionnelle en prod, ValidationPipe)
+- `api/src/app.controller.ts` — `GET /api` (accueil) et `GET /api/health` (`SELECT 1`, 200/503)
+- `api/src/config/env.validation.ts` — validation d'environnement de production (`DATABASE_URL`, `SESSION_SECRET` ≥ 32, `FRONTEND_URL`, `STEAM_API_KEY`, refus du secret de dev)
+- `web/src/auth/` — provider et contexte de session (état d'erreur, retry, deep links, logout après confirmation serveur)
 - `web/src/sync.ts` — suivi du job d'import (`lireSync`, `relancerSync`)
 - `web/src/import.ts` — `etatImport` + `messageErreurImport` : bandeau d'import (erreur, reliquats, aide profil privé/quota, reprise)
 - `web/src/api.ts` — helper `urlApi()`, base relative (pas de `VITE_API_URL` en prod)
+- `web/src/http.ts` — client HTTP commun (`appelApi`) : timeout, corps vide, 204, 401 global, `Retry-After`, `ErreurApi` ; tests dans `web/src/http.test.ts`
 - `web/src/styles/` — `theme.css` (tokens), `bibliotheque.css`, `fiche.css`, `accueil.css`
 - `web/src/search.ts` — client de recherche (`rechercherJeux`, `ErreurRecherche`)
 - `web/src/activite.ts` — types et libellés de l'activité dérivée
@@ -260,16 +288,21 @@ rien n'est encore réellement déployé).
 - `web/src/pages/Bibliotheque.tsx` — page `/bibliotheque` (filtres, tri, pagination, sync, grille/liste)
 - `web/src/pages/JeuDetail.tsx` — page `/jeu/:appId` (fiche et succès chargés séparément)
 - `web/src/pages/Recherche.tsx` — page `/recherche` (q/mode, pagination, états)
-- `web/src/pages/Accueil.tsx` — page `/accueil` (chargement `/api/home`, suivi de sync, deck, catégories, menu, états vides/erreur)
+- `web/src/pages/Confidentialite.tsx` — page publique `/confidentialite` (données lues, stockage, sous-traitants, droits)
+- `web/src/components/ErrorBoundary.tsx` — filet de sécurité du rendu (écran d'erreur + rechargement)
+- `web/src/pages/Accueil.tsx` — page `/accueil` (chargement `/api/home`, suivi de sync, deck, catégories par pages, états vides/erreur)
 - `docs/analyse-donnees-steam.md` — analyse Steam + section « Import volumineux »
 - `docs/features/recherche-vectorielle.md` — fiche de la fonctionnalité recherche
+- `docs/features/embeddings-v2.md` — texte enrichi, versionnement, backfill et mesures d'évaluation
 - `docs/features/filtres-recherche.md` — fiche de la fonctionnalité filtres/facettes
 - `docs/features/refonte-bibliotheque.md` — fiche du prototype bibliothèque
 - `docs/features/refonte-fiche-jeu.md` — fiche du prototype fiche de jeu
 - `docs/features/accueil-intelligent.md` — fiche de la fonctionnalité accueil
 - `features/accueil-intelligent/05-annexe-fix-pr.md` — décisions et fixes de la PR accueil (hors maquettes)
-- `web/vercel.json` — rewrite `/api` + SPA et en-têtes de sécurité (CSP) pour Vercel, `git.deploymentEnabled: false`
-- `.github/workflows/deploy.yml` — déploiement continu du front (CLI Vercel + token, alignement de l'auteur du commit) sur push `main`
+- `web/vercel.json` — rewrite `/api` + SPA, build Vite explicite, cache `immutable` des assets et en-têtes de sécurité (CSP, COOP, Permissions-Policy), `git.deploymentEnabled: false`
+- `.github/workflows/ci.yml` — CI (lint, tests unitaires, e2e PostgreSQL/pgvector, build, audit prod) sur PR et `main`, Node 24
+- `.github/workflows/deploy.yml` — déploiement Vercel conditionné à une CI verte (`workflow_run`), smoke test `/api/health` + `/`, CLI Vercel épinglée
+- `docs/deploiement.md` — runbook (URLs, variables Render/Vercel/GitHub, Neon, ordre, rollback, incidents)
 - `web/src/pages/` — pages de l'application (dont `JeuDetail.tsx`)
 - `web/src/components/RootLayout.tsx` — layout avec navigation et bandeau auth
 
@@ -290,8 +323,10 @@ les `*.tsbuildinfo` et les fichiers d'éditeur.
 donc deux copies de `vitest` sur le disque : c'est normal et voulu pour deux paquets
 autonomes, pas un oubli. Ne tente pas de mutualiser.
 
-Les deux paquets déclarent `"engines": { "node": ">=22.12.0" }`, plancher imposé par
-`vitest` 5.
+Les paquets déclarent `"engines": { "node": ">=24.0.0" }` côté API et `"node": "24.x"`
+côté web (pour que Vercel épingle bien Node 24), et le `.nvmrc` racine contient `24`. Le
+projet cible **Node 24** en local, en CI et sur Render ; `vitest` 5 imposerait au minimum
+`>=22.12.0`, mais le plancher retenu est 24.
 
 ## Commandes (toutes vérifiées fonctionnelles)
 
@@ -377,9 +412,16 @@ nodenext`, donc `import { AppController } from './app.controller'` ne se résout
 cette règle à `web/` : là, la résolution est de type *bundler* et les imports se font sans
 extension.
 
-**OpenID : le callback exige un `state` de session.** `/api/auth/steam` génère un jeton
-aléatoire, le stocke dans `req.session.openidState` et l'inclut dans `return_to`. Le
-callback refuse un `state` absent ou différent, un `return_to` hors de
+**Node 24 partout, `.nvmrc` à la racine.** `api/package.json` exige `>=24.0.0`,
+`web/package.json` épingle `24.x`, la CI et Render utilisent Node 24, et `.nvmrc` contient
+`24`. Un shell resté en Node 18 fait échouer vitest 5 au démarrage (`styleText` absent de
+`node:util`) : lance `nvm use` à la racine avant les commandes.
+
+**OpenID : le `state` est un cookie signé, pas la session.** `/api/auth/steam` génère un
+jeton aléatoire, le pose dans `gb_openid_state` (`httpOnly`, `Secure` en production,
+`SameSite=Lax`, `path=/api/auth`, 10 min, `signed` par `cookieParser(sessionSecret)`) et
+l'inclut dans `return_to`. Le callback le relit dans `req.signedCookies` et refuse un
+`state` absent ou différent, un `return_to` hors de
 `${FRONTEND_URL}/api/auth/steam/return`, un `claimed_id` hors
 `(http|https)://steamcommunity.com/openid/id/<17-25 chiffres>`, un `op_endpoint` autre
 que Steam, un `identity` différent du `claimed_id` ou un `invalidate_handle`. La réponse
@@ -387,9 +429,37 @@ que Steam, un `identity` différent du `claimed_id` ou un `invalidate_handle`. L
 Conséquence pour les tests :
 on n'appelle **jamais** `/api/auth/steam/return` directement avec une requête fabriquée.
 Utilise `ouvrirSessionTest(agent, frontendUrl, steamId)` (`api/test/session-test.ts`), qui
-suit d'abord `/api/auth/steam` pour récupérer le cookie et le `state`, puis rejoue le
+suit d'abord `/api/auth/steam` pour récupérer le cookie signé et le `state`, puis rejoue le
 callback. `SessionGuard` vérifie `steamId` **et** `userId` : une session ouverte par
 `/api/auth/steam` mais sans callback reste anonyme.
+
+**Migrations : le `statement_timeout` du pool ne s'applique pas aux DDL.** `pg` envoie
+`statement_timeout` au démarrage de chaque connexion ; `migrate()` emprunte sa propre
+connexion. Les migrations tournent donc sur un `pg.Client` dédié avec
+`lock_timeout`/`statement_timeout` dédié, verrou advisory et `end()` garanti. Ne pas
+repasser `migrate()` sur le pool HTTP : un DDL long serait annulé à 15 s et le boot Render
+échouerait.
+
+**Auth anonyme : limiteur IP avant la session.** `/api/auth/steam` et `steam/return` ne
+créent plus de session anonyme, mais restent bornés par `IpRateLimit` avant le middleware
+de session (`AUTH_RATE_LIMIT_PER_MINUTE`). La clé est la première entrée
+`X-Forwarded-For` avec repli `req.ip` : derrière Vercel → Render, `req.ip` peut être l'IP
+du proxy et créer un bucket global. `/api/health` reste public et non limité.
+
+**Sync : `GET` limité, `POST` avec cooldown.** `SyncController` porte
+`@LimiteLecture('sync')` (120/min par défaut) pour le polling 2 s. `POST /api/sync` a un
+cooldown de 5 min par utilisateur : une seconde relance renvoie `429` sans toucher au
+backoff des fiches. Un job `done` reprend à l'étape réellement incomplète (`depart`
+calculé au login) ; une relance manuelle force `library`.
+
+**Front : un seul client HTTP.** Passer par `web/src/http.ts` (`appelApi`) pour les appels
+API : il gère timeout, `204`, corps vide (`GET /api/sync`), `401` global et `Retry-After`.
+Ne pas réintroduire de `fetch` direct dans les pages. Un `200` sans corps n'est accepté que
+via `allowEmpty: true` (réservé à `/api/sync`).
+
+**Clés API dans les logs.** Les erreurs Gemini peuvent contenir l'URL complète
+(`?key=...`) : le service masque `key=***` avant de journaliser. Ne jamais logger une URL
+d'appel externe brute. `STEAM_API_KEY` est exigée par `validateEnv` en production.
 
 **L'activité dérivée remplace `lastPlayedAt`.** Ne jamais réintroduire `lastPlayedAt`,
 `last_played_at` ou `rtime_last_played` : Steam ne fournit `rtime_last_played` qu'au
@@ -521,6 +591,22 @@ doit être **vérifié sur GitHub** et lié au compte Vercel (Login Connections)
 seulement l'email Vercel. Un email `noreply` mal formé (identifiant converti en
 notation scientifique) est un piège connu et échoue.
 
+**Render ne doit pas déployer avant la CI.** Utiliser
+`autoDeployTrigger: checksPass` (et non `autoDeploy: true`) dans `render.yaml` : l'API
+n'applique ses migrations qu'après une CI verte. Le front est déjà conditionné par
+`workflow_run` dans `deploy.yml`. La protection de `main` (PR obligatoire + check `CI`)
+reste un réglage GitHub à activer dans le dépôt.
+
+**Le health check Render est `/api/health`, pas `/api`.** `GET /api/health` exécute
+`SELECT 1` et renvoie 503 si la base est indisponible ; `/api` reste le message d'accueil.
+Au premier déploiement, `/api/health` peut répondre 404 tant que Render n'a pas fini : le
+smoke test Vercel attend jusqu'à 2 min.
+
+**Render fige le nom et la région d'un service.** `render.yaml` déclare
+`fst-2026-groupe-08` / `oregon` pour coller au service existant et à l'URL codée dans
+`web/vercel.json`. Resynchroniser le blueprint sur un service créé avec un autre nom peut
+créer un second service ou échouer : vérifier le dashboard avant « Sync ».
+
 **Le `ValidationPipe` est global et strict.** `whitelist` +
 `forbidNonWhitelisted` signifient qu'un champ non déclaré dans un DTO provoque un 400, pas
 qu'il est silencieusement ignoré. C'est voulu : ajoute la propriété au DTO, ne la supprime
@@ -537,17 +623,19 @@ nul besoin d'importer `AuthModule` pour l'obtenir. Corollaire : `SyncService` es
 
 ## Sécurité — état des points ouverts
 
-**Points volontairement laissés de côté :**
-
-- **Rate limiting limité à la recherche.** La spécification exige que l'entrée de recherche
-  soit « limitée en fréquence par utilisateur » (`fiche_projet.md`) : c'est fait par
-  `steamId` sur `GET /api/search` (voir Écart 10). Les autres routes (bibliothèque, détail
-  d'un jeu, sync) ne sont toujours pas limitées ; `@nestjs/throttler` n'a pas été installé
-  car il raisonne par IP, ce qui n'est pas la clé demandée.
+**Points ouverts :** aucun point bloquant connu. Le rate limiting par `steamId` couvre la
+recherche (`SearchRateLimitService`, 20/min sémantique et 120/min nom), les lectures
+(`ReadRateLimitService`, 120/min bibliothèque et fiches, 180/min accueil et 120/min sync,
+configurables). Un **limiteur IP** couvre `/api/auth/*` avant la session
+(`AUTH_RATE_LIMIT_PER_MINUTE`, 60/min par défaut) et `POST /api/sync` a un cooldown de
+5 min par utilisateur. Les fenêtres sont en mémoire : elles sont perdues au redémarrage et
+supposent une seule instance API ; une réplication demanderait un compteur persisté.
+`/api/health` est public et non limité (sonde Render). Les quotas Gemini sont persistés
+(`rate_limits`) avec un plafond global et un plafond par utilisateur.
 
 Résolus depuis : **timeouts** (`AbortSignal.timeout(5000)`), **validation de
 `openid.mode === 'id_res'`** (voir Écarts 15 et 16), **CSP de production** (voir Écart 14)
-et **rate limiting de la recherche** (voir Écart 10).
+et **rate limiting de la recherche, des lectures, de l'auth et de la sync** (voir Écart 10).
 
 ## Écarts spec ↔ code
 
@@ -564,7 +652,7 @@ reste à corriger).
 | **Spec** | « Connexion : authentification via Steam (OpenID), puis **import de la bibliothèque** avec suivi de progression. » (`fiche_projet.md:15`) — « L'import se fait en **tâche de fond** avec reprise : les entrées de bibliothèque d'abord, puis les fiches manquantes, puis les embeddings. » (`fiche_projet.md:39`) |
 | **État** | ✅ Résolu — `api/src/sync/sync.service.ts` : `enqueue()` déclenché au callback (`api/src/auth/auth.controller.ts`) si le `syncStatus` n'est pas `done` ou si un reliquat le justifie, **quatre étapes** reprises (`onModuleInit` remet les jobs `running` en `pending`) : `library`, `details`, `achievements`, `embeddings`. L'upsert de login ne remet pas `syncStatus` à `pending`. `drain()` traite tous les jobs `pending` du tour (pas seulement le premier). `ownedGames()` (Steam) n'est appelé qu'à l'import ; `savedLibrary(userId)` sert la page (`library_entries ⋈ games`). L'import est découpé en lots de succès (200) sans plafond total, avec budget par étape (`SYNC_STEP_MAX_MS`), reprise `job.step` et reliquats exposés par `GET /api/sync`. Les limites Steam (~200 `appdetails`/5 min, 429) et Gemini (100/min, 1 000/j) sont absorbées par throttle, backoff et reprise. |
 
-#### Écart 2 — Recherche vectorielle
+#### Écart 2 — Recherche vectorielle — ✅ Résolu
 
 | | Détail |
 |---|---|
@@ -629,7 +717,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | « Entrée : phrase libre, longueur limitée (ex. 300 caractères), **limitée en fréquence par utilisateur**. » (`fiche_projet.md:44`) |
-| **État** | ✅ Résolu — `SearchRateLimitService` (`api/src/search/search-rate-limit.service.ts`) limite `GET /api/search` par `steamId` (clé de session, pas par IP) : 20/min en sémantique, 120/min en nom, compteur en mémoire. Dépassement → `429` + `Retry-After`. `@nestjs/throttler` n'a pas été installé (il raisonne par IP). |
+| **État** | ✅ Résolu — `SearchRateLimitService` (`api/src/search/search-rate-limit.service.ts`) limite `GET /api/search` par `steamId` (clé de session, pas par IP) : 20/min en sémantique, 120/min en nom, compteur en mémoire. Dépassement → `429` + `Retry-After`. `@nestjs/throttler` n'a pas été installé (il raisonne par IP). `ReadRateLimitService` couvre en plus les lectures `/api/library`, `/api/games`, `/api/home` et `/api/sync` par `steamId`. `IpRateLimit` borne `/api/auth/*` par IP avant la session, et `POST /api/sync` a un cooldown de 5 min par utilisateur. Côté Gemini, `EMBEDDING_USER_RATE_LIMIT_PER_DAY` ajoute un quota par utilisateur au quota global. |
 
 #### Écart 11 — Repli si échec de la recherche — ✅ Résolu
 
@@ -643,7 +731,7 @@ reste à corriger).
 | | Détail |
 |---|---|
 | **Spec** | Non mentionné explicitement dans la spec. |
-| **État** | ✅ Résolu — CSP stricte activée **en production** sur l'API (`api/src/app.setup.ts` : `default-src 'none'`, `base-uri`, `frame-ancestors`, `form-action`, désactivée en dev/test) et sur le front via les en-têtes Vercel (`web/vercel.json` : CSP SPA, `X-Content-Type-Options: nosniff`, `Referrer-Policy`). `style-src` autorise l'inline (une style inline dans `Bibliotheque.tsx`) et `img-src` les hôtes d'images Steam (`*.steamstatic.com`, `*.akamaihd.net`, `*.steamcontent.com`, `*.steampowered.com`) — à confirmer une fois le site déployé. |
+| **État** | ✅ Résolu — CSP stricte activée **en production** sur l'API (`api/src/app.setup.ts` : `default-src 'none'`, `base-uri`, `frame-ancestors`, `form-action`, désactivée en dev/test) et sur le front via les en-têtes Vercel (`web/vercel.json` : CSP SPA, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Permissions-Policy`). `style-src` autorise l'inline (styles inline React) et `img-src` les hôtes d'images Steam (`*.steamstatic.com`, `*.akamaihd.net`, `*.steamcontent.com`, `*.steampowered.com`). Vérifié en production sur `fst-2026-groupe-08.vercel.app`. |
 
 #### Écart 15 — Timeouts sur les appels externes — ✅ Résolu
 
@@ -661,13 +749,12 @@ reste à corriger).
 
 ### Écarts faibles (incohérences mineures)
 
-#### Écart 12 — Hébergement : spec vs réalité
+#### Écart 12 — Hébergement : spec alignée — ✅ Résolu
 
 | | Détail |
 |---|---|
-| **Spec** | « Hébergement : Render (Front + API), Neon (PostgreSQL) » (`fiche_projet.md:58`) |
-| **Code réel** | `render.yaml:1-4` : « Le front est hébergé sur Vercel (voir web/vercel.json) ; ce fichier ne décrit que l'API. » `web/vercel.json` existe. La décision Vercel + Render + Neon est implémentée et documentée dans la section « Cible de déploiement » de ce fichier. |
-| **Correction** | Mettre à jour `fiche_projet.md:58` pour refléter la décision Vercel + Render + Neon. La spec est obsolète sur ce point. |
+| **Spec** | « Hébergement : Render (Front + API), Neon (PostgreSQL) » (`fiche_projet.md:60`), mis à jour en « Vercel (front) + Render (API) + Neon ». |
+| **État** | ✅ Résolu — la décision Vercel + Render + Neon est implémentée et documentée dans `AGENTS.md` (« Cible de déploiement ») et `fiche_projet.md`. La spec n'est plus obsolète sur ce point. |
 
 #### Écart 13 — DTO validés — ✅ Résolu
 
@@ -706,10 +793,12 @@ reste à corriger).
 
 ### Priorités d'implémentation
 
-Ordre recommandé pour combler les écarts restants :
+Les écarts numérotés sont résolus. Les chantiers restants sont :
 
-1. **Dette visuelle** : purger le CSS mort et stabiliser les champs exacts des cartes/listes (la refonte bibliothèque, la fiche et l'accueil sont déjà en place).
-2. **Divers** (Écart 12) : mettre à jour `fiche_projet.md` (hébergement).
+1. **Recherche hybride** (vectoriel + lexical) et jeu d'évaluation plus large.
+2. **Finaliser la PR `#19`** : merger `preparation-deploiement-final`, vérifier le
+   déploiement Render/Neon/Vercel, activer la protection de `main` et suivre
+   `docs/deploiement.md` (voir « Cible de déploiement »).
 
 ## Base de données
 
@@ -724,15 +813,17 @@ classique — la spécification exige une recherche par similarité vectorielle 
 `Game.embedding`.
 
 Drizzle est configuré : `api/drizzle.config.ts` (charge `../.env`), schéma dans
-`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0011 ; 0005 compteurs
+`api/src/db/schema.ts`, migrations dans `api/drizzle/` (0000→0012 ; 0005 compteurs
 de succès, 0006 champs de fiche, 0007 correctif manette, 0008 dates de sortie, 0009 activité
-+ drop `last_played_at`, 0010 import robuste, 0011 compteur de succès nullable). `npm run db:migrate`
++ drop `last_played_at`, 0010 import robuste, 0011 compteur de succès nullable, 0012
+version du texte d'embedding). `npm run db:migrate`
 applique à la main, **mais ce n'est plus nécessaire** : `DbModule` applique les migrations
 manquantes au démarrage, sous verrou advisory (`pg_advisory_lock`) pour sérialiser les
-démarreurs concurrents (workers e2e, chevauchement de déploiements). La 0000 crée
-`CREATE EXTENSION IF NOT EXISTS vector` — obligatoire sur une base fraîche type Neon.
-Les 0005 à 0011 sont idempotentes (`IF NOT EXISTS`) pour les bases de dev
-partagées ; l'ordre reste 0005 → 0011, la branche fiche empilant la 0006.
+démarreurs concurrents (workers e2e, chevauchement de déploiements). Les migrations
+tournent sur une connexion `pg.Client` dédiée (timeouts DDL, verrou, `end()` garanti), pas
+sur le pool HTTP. La 0000 crée `CREATE EXTENSION IF NOT EXISTS vector` — obligatoire sur
+une base fraîche type Neon. Les 0005 à 0011 sont idempotentes (`IF NOT EXISTS`) pour les
+bases de dev partagées ; l'ordre reste 0005 → 0012, la branche fiche empilant la 0006.
 
 `DbModule` est global et **exige `DATABASE_URL` et une base joignable au boot** : la
 migration s'exécute immédiatement, la base doit donc être up avant l'API (c'est le cas
@@ -742,12 +833,15 @@ sur Render).
 
 Variables requises, toutes côté API uniquement, jamais dans git : `DATABASE_URL`,
 `STEAM_API_KEY`, `EMBEDDING_API_KEY`, `SESSION_SECRET`, `FRONTEND_URL`. Elles sont chargées
-par `ConfigModule.forRoot()` dans `app.module.ts`, à partir du `.env` **racine**. Les trois
-clés (`STEAM_API_KEY`, `EMBEDDING_API_KEY`, `SESSION_SECRET`) sont vides dans le dépôt :
-rien de lié à Steam ou aux embeddings n'est testable avant de les remplir.
+par `ConfigModule.forRoot()` dans `app.module.ts`, à partir du `.env` **racine**. Les clés
+sont vides dans `.env.example` : rien de lié à Steam ou aux embeddings n'est testable avant
+de les remplir.
 
-`STEAM_API_KEY` est requise pour l'authentification (profil) et la bibliothèque (jeux).
-Sans elle, `fetchPlayerSummary` renvoie `null` et `ownedGames` lève un 503.
+En production, `validateEnv` exige `DATABASE_URL`, `SESSION_SECRET`, `FRONTEND_URL` et
+`STEAM_API_KEY`, refuse le secret de développement et les `SESSION_SECRET` de moins de
+32 caractères. `EMBEDDING_API_KEY` reste optionnelle : sans elle, `needsEmbeddings` est faux
+et la recherche sémantique se replie sur le nom. Sans `STEAM_API_KEY`, `fetchPlayerSummary`
+renvoie `null` et `ownedGames` lève un 503.
 
 `EMBEDDING_MODEL` et `EMBEDDING_DIMENSIONS` sont optionnels (défauts :
 `gemini-embedding-001` / `1024`). Changer les dimensions exige une migration de
@@ -755,7 +849,15 @@ Sans elle, `fetchPlayerSummary` renvoie `null` et `ownedGames` lève un 503.
 
 `EMBEDDING_RATE_LIMIT_PER_MINUTE` et `EMBEDDING_RATE_LIMIT_PER_DAY` sont optionnels
 (défauts : `100` / `1000`) : ils plafonnent les appels Gemini, le job reprenant plus tard
-au-delà du quota.
+au-delà du quota. `EMBEDDING_USER_RATE_LIMIT_PER_DAY` (défaut `100`) plafonne en plus la
+recherche sémantique par utilisateur, pour qu'un compte ne consomme pas le quota global.
+
+`LIBRARY_RATE_LIMIT_PER_MINUTE`, `GAMES_RATE_LIMIT_PER_MINUTE`,
+`HOME_RATE_LIMIT_PER_MINUTE` et `SYNC_RATE_LIMIT_PER_MINUTE` sont optionnels (défauts :
+`120`, `120`, `180`, `120`) : ils plafonnent les lectures par `steamId`.
+`AUTH_RATE_LIMIT_PER_MINUTE` (défaut `60`) plafonne les routes anonymes `/api/auth/*` par
+IP avant la session. La recherche garde `SEARCH_RATE_LIMIT_PER_MINUTE` (20) et
+`SEARCH_NAME_RATE_LIMIT_PER_MINUTE` (120).
 
 Réglages d'import, tous optionnels : `SYNC_STEP_MAX_MS` (`900000`, `0` = illimité),
 `APPDETAILS_THROTTLE_MS` (`1500`), `ACHIEVEMENTS_BATCH_SIZE` (`200`),
@@ -767,24 +869,37 @@ Réglages d'import, tous optionnels : `SYNC_STEP_MAX_MS` (`900000`, `0` = illimi
 Hébergement retenu — **départ de la fiche**, qui prévoyait Render pour le front :
 **Vercel** (`web`) + **Render** (`api`) + **Neon** (PostgreSQL).
 
+**État actuel :** le front (`https://fst-2026-groupe-08.vercel.app`) et l'API
+(`https://fst-2026-groupe-08.onrender.com/api`) sont déjà en ligne. La PR `#19`
+(`preparation-deploiement-final`) n'est pas encore fusionnée ; elle apporte le
+durcissement final, `/api/health`, la CI e2e et le runbook `docs/deploiement.md`.
+
 - `render.yaml` (racine) : blueprint de l'API — `New → Blueprint` sur Render le
-  crée avec les bonnes commandes. Build `npm ci --include=dev && npm run build` :
-  le `--include=dev` est **indispensable**, car `NODE_ENV=production` ferait
-  omettre les devDependencies requises par `nest build` (`@nestjs/cli`,
-  `typescript`). `NODE_VERSION=22` fixe le plancher `>=22.12.0`. Les variables
-  `sync: false` (`DATABASE_URL`, `STEAM_API_KEY`, `EMBEDDING_API_KEY`,
-  `FRONTEND_URL`) sont demandées **une seule fois** à la création,
-  `SESSION_SECRET` est générée. Auto-deploy à chaque push, plan gratuit.
+  crée avec les bonnes commandes. Service `fst-2026-groupe-08`, région `oregon`,
+  plan gratuit, `autoDeployTrigger: checksPass` (l'API ne part qu'après une CI
+  verte) et `healthCheckPath: /api/health`. Build
+  `npm ci --include=dev && npm run build` : le `--include=dev` est
+  **indispensable**, car `NODE_ENV=production` ferait omettre les devDependencies
+  requises par `nest build` (`@nestjs/cli`, `typescript`). `NODE_VERSION=24`
+  fixe le plancher `>=24.0.0` (Node 24 partout : `.nvmrc` local, CI et Render).
+  Les variables `sync: false` (`DATABASE_URL`, `STEAM_API_KEY`,
+  `EMBEDDING_API_KEY`, `FRONTEND_URL`) sont demandées **une seule fois** à la
+  création, `SESSION_SECRET` est générée.
 - `web/vercel.json` : **rewrite externe** `/api/:path*` → URL de l'API Render,
-  catch-all SPA, et en-têtes de sécurité (CSP, `nosniff`, `Referrer-Policy`).
+  catch-all SPA, build Vite explicite (`framework`, `installCommand`,
+  `buildCommand`, `outputDirectory`), cache `immutable` des assets et en-têtes de
+  sécurité (CSP, `nosniff`, `Referrer-Policy`, `COOP`, `Permissions-Policy`).
   Import du dépôt sur Vercel avec Root Directory = `web`. **Ne pas définir
   `VITE_API_URL`** : les appels `/api` du front restent relatifs et passent par
   le rewrite, ce qui rend le navigateur **same-origin** (cookie first-party).
+  `git.deploymentEnabled: false` désactive l'intégration Git native.
 - Déploiement du front : **GitHub Actions** (`.github/workflows/deploy.yml`),
-  déclenché par un push sur `main` (donc à chaque merge de PR). Le workflow
-  utilise la CLI Vercel avec un token (`VERCEL_TOKEN`, `VERCEL_ORG_ID`,
-  `VERCEL_PROJECT_ID`, `VERCEL_DEPLOYER_EMAIL` en secrets GitHub) : il construit
-  l'artefact (`vercel build`) puis le déploie (`vercel deploy --prebuilt --prod`).
+  déclenché par `workflow_run` quand `CI` termine en `success` sur `main` (donc
+  jamais sur un commit rouge). Le workflow checkout le `head_sha` validé, utilise
+  la CLI Vercel avec un token (`VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID`, `VERCEL_DEPLOYER_EMAIL` en secrets GitHub), construit
+  l'artefact (`vercel build`) puis le déploie (`vercel deploy --prebuilt --prod`),
+  et termine par un smoke test `/api/health` + `/`.
   **La CLI (>= v44) contrôle l'auteur du commit même en déploiement par token** :
   Vercel exige que l'auteur de `HEAD` soit le propriétaire du compte Hobby. Le
   workflow réécrit donc l'auteur dans le runner avant de déployer

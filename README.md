@@ -4,7 +4,7 @@ Backlog Steam intelligent. Voir [`fiche_projet.md`](./fiche_projet.md) pour la p
 
 ## Prérequis
 
-- [Node.js](https://nodejs.org/) (LTS) et npm
+- [Node.js](https://nodejs.org/) **24** (voir `.nvmrc`, `nvm use`) et npm
 - [Git](https://git-scm.com/)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
@@ -20,13 +20,16 @@ cp .env.example .env
 
 # 3. Lancer la base de données (PostgreSQL + pgvector)
 docker compose up -d
-docker compose exec db psql -U gamebacklog -c "CREATE EXTENSION IF NOT EXISTS vector;"
+# L'extension vector est créée par la migration 0000 au démarrage de l'API.
 
 # 4. Installer les dépendances
-cd api && npm install
-cd ../web && npm install
+cd api && npm ci
+cd ../web && npm ci
 cd ..
 ```
+
+Le déploiement (Vercel + Render + Neon) est décrit dans
+[`docs/deploiement.md`](./docs/deploiement.md).
 
 ## OpenCode (agent de code)
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import {
   games,
@@ -10,7 +10,10 @@ import {
   type LastActivitySource,
   type Plateforme,
 } from '../db/schema.js';
-import type { EmbeddingInput } from '../embedding/embedding.service.js';
+import {
+  MAX_LONG_DESCRIPTION_CHARS,
+  type EmbeddingInput,
+} from '../embedding/embedding.service.js';
 
 const STEAM_STORE_APPDETAILS = 'https://store.steampowered.com/api/appdetails';
 const EXTERNAL_CALL_TIMEOUT_MS = 5000;
@@ -624,6 +627,23 @@ export function backoffRateLimitMs(tentative: number): number {
   return Math.min(RATE_LIMIT_BACKOFF_MS[index], RATE_LIMIT_BACKOFF_MAX_MS);
 }
 
+/** Convertit les blocs de description en texte brut borné pour l'embedding. */
+export function texteDepuisBlocs(blocks: DescriptionBlock[]): string {
+  const morceaux: string[] = [];
+  let total = 0;
+
+  for (const bloc of blocks) {
+    const texte = bloc.type === 'liste' ? bloc.items.join(', ') : bloc.texte;
+    const propre = texte.replace(/\s+/g, ' ').trim();
+    if (!propre) continue;
+    morceaux.push(propre);
+    total += propre.length;
+    if (total >= MAX_LONG_DESCRIPTION_CHARS) break;
+  }
+
+  return morceaux.join(' ').slice(0, MAX_LONG_DESCRIPTION_CHARS);
+}
+
 @Injectable()
 export class GamesService {
   private readonly logger = new Logger(GamesService.name);
@@ -736,14 +756,39 @@ export class GamesService {
   }
 
   /** Ligne minimale (nom seul), en attendant la fiche complète. */
-  async upsertBasic(appId: number, name: string): Promise<number> {
-    const [row] = await this.db
-      .insert(games)
-      .values({ appId, name })
-      .onConflictDoUpdate({ target: games.appId, set: { name } })
-      .returning({ id: games.id });
+  /**
+   * Upsert par lots de la bibliothèque : évite un aller-retour par jeu
+   * (2 000 requêtes pour 1 000 jeux). Les lots restent sous la limite de
+   * paramètres PostgreSQL et renvoient la correspondance `appId → id`
+   * nécessaire aux `library_entries`.
+   */
+  async upsertBasicMany(
+    jeux: ReadonlyArray<{ appId: number; name: string }>,
+  ): Promise<Map<number, number>> {
+    const correspondance = new Map<number, number>();
+    // Un `appId` dupliqué dans le même lot ferait échouer PostgreSQL
+    // (`ON CONFLICT DO UPDATE cannot affect row a second time`). La dernière
+    // occurrence gagne, comme le faisait l'ancienne boucle séquentielle.
+    const uniques = [...new Map(jeux.map((jeu) => [jeu.appId, jeu])).values()];
+    const TAILLE_LOT = 500;
 
-    return row.id;
+    for (let debut = 0; debut < uniques.length; debut += TAILLE_LOT) {
+      const lot = uniques.slice(debut, debut + TAILLE_LOT);
+      const lignes = await this.db
+        .insert(games)
+        .values(lot)
+        .onConflictDoUpdate({
+          target: games.appId,
+          set: { name: sql`excluded.name` },
+        })
+        .returning({ id: games.id, appId: games.appId });
+
+      for (const ligne of lignes) {
+        correspondance.set(ligne.appId, ligne.id);
+      }
+    }
+
+    return correspondance;
   }
 
   /** Texte d'entrée pour l'embedding, depuis la fiche persistée. */
@@ -754,8 +799,10 @@ export class GamesService {
       .where(eq(games.appId, appId))
       .limit(1);
     if (!row) return null;
+    const longDescription = texteDepuisBlocs(row.descriptionBlocks ?? []);
     if (
       !row.shortDescription &&
+      !longDescription &&
       row.genres.length === 0 &&
       row.categories.length === 0
     ) {
@@ -764,6 +811,7 @@ export class GamesService {
     return {
       name: row.name,
       shortDescription: row.shortDescription ?? undefined,
+      longDescription: longDescription || undefined,
       genres: row.genres,
       categories: row.categories,
     };

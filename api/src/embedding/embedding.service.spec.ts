@@ -81,6 +81,41 @@ describe('EmbeddingService', () => {
       });
       expect(result).toBe('The Witcher 3');
     });
+
+    it('devrait ajouter la description longue après la courte', () => {
+      const result = service.buildText({
+        name: 'Hades',
+        shortDescription: 'Un rogue-like nerveux.',
+        longDescription: 'Frayez-vous un chemin hors des Enfers.',
+        genres: ['Action'],
+      });
+      expect(result).toBe(
+        'Hades. Un rogue-like nerveux. Frayez-vous un chemin hors des Enfers. Genres: Action',
+      );
+    });
+
+    it('ne duplique pas une description longue identique à la courte', () => {
+      const result = service.buildText({
+        name: 'Hades',
+        shortDescription: 'Un rogue-like nerveux.',
+        longDescription: 'Un rogue-like nerveux.',
+      });
+      expect(result).toBe('Hades. Un rogue-like nerveux.');
+    });
+
+    it('tronque la description longue et normalise les espaces', () => {
+      const result = service.buildText({
+        name: 'Hades',
+        shortDescription: '  Un   rogue-like\n nerveux.  ',
+        longDescription: 'a '.repeat(2000),
+      });
+      expect(result.startsWith('Hades. Un rogue-like nerveux. ')).toBe(true);
+      expect(result.length).toBeLessThan(1300);
+    });
+
+    it('expose la version du texte indexé', () => {
+      expect(service.textVersion).toBe(2);
+    });
   });
 
   describe('embed', () => {
@@ -161,6 +196,7 @@ describe('EmbeddingService', () => {
       expect(mockRateLimitService.acquire).toHaveBeenCalledWith(
         1500,
         undefined,
+        undefined,
       );
     });
 
@@ -183,6 +219,7 @@ describe('EmbeddingService', () => {
       expect(mockRateLimitService.acquire).toHaveBeenCalledWith(
         undefined,
         'import',
+        undefined,
       );
     });
 

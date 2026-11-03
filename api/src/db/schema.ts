@@ -102,6 +102,14 @@ export const games = pgTable(
     achievementsFetchedAt: timestamp('achievements_fetched_at'),
     embedding: vector('embedding', { dimensions: 1024 }),
     embeddingModel: text('embedding_model'),
+    /**
+     * Version du texte d'embedding utilisé. 0 = ancienne version ou jeu jamais
+     * indexé ; le sync réindexe tant que la version est inférieure à la version
+     * courante (`EMBEDDING_TEXT_VERSION`).
+     */
+    embeddingTextVersion: integer('embedding_text_version')
+      .notNull()
+      .default(0),
     detailsFetchedAt: timestamp('details_fetched_at'),
     /** Nombre d'échecs « jeu délisté » ; remis à 0 après un succès. */
     detailsAttempts: integer('details_attempts').notNull().default(0),

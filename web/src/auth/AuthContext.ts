@@ -12,6 +12,8 @@ export type AuthContextValue = {
   user: SteamUser | null
   /** `true` tant que la première vérification de session n'a pas répondu. */
   loading: boolean
+  /** Message d'erreur de session (API injoignable, expiration) ou `null`. */
+  erreurSession: string | null
   /** Redirige le navigateur vers l'authentification OpenID de Steam. */
   login: () => void
   /** Détruit la session côté API puis deconnecte l'état local. */
@@ -19,6 +21,9 @@ export type AuthContextValue = {
   /** Re-relit `GET /api/auth/me` (après une connexion, pour rafraîchir). */
   refresh: () => Promise<void>
 }
+
+/** Clé de session navigateur qui mémorise la page à rouvrir après le login. */
+export const CLE_APRES_LOGIN = 'gamebacklog:apres-login'
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
