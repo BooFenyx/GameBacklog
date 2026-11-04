@@ -1,0 +1,2605 @@
+<!doctype html>
+<html lang="fr"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>GameBacklog — soutenance</title>
+<style>
+  /* ============================================================
+     Canvas fixe 1280 × 720, mis à l'échelle par JS.
+     Toutes les mesures internes sont donc en px « de slide »,
+     ce qui garantit un rendu identique à l'écran et à l'impression.
+     ============================================================ */
+
+  :root {
+    --ink: #050308;
+    --ink-2: #0b0812;
+    --surface: #14101f;
+    --surface-2: #1c162b;
+    --line: #32284a;
+    --line-soft: rgba(199, 194, 211, 0.13);
+    --text: #ddd9e8;
+    --text-soft: #9a93ae;
+    --strong: #f5f3ff;
+    --violet: #b89bff;
+    --violet-deep: #9d7bff;
+    --cyan: #3df5ff;
+    --gold: #f6c453;
+    --green: #7ef0b2;
+    --display: 'Lato', 'Noto Sans', 'Liberation Sans', sans-serif;
+    --mono: 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--ink);
+  }
+
+  body {
+    overflow: hidden;
+    color: var(--text);
+    font-family: var(--display);
+    font-feature-settings: 'kern' 1, 'liga' 1;
+    -webkit-font-smoothing: antialiased;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* ---------- Décor de fond global ---------- */
+
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(900px 620px at 8% -12%, rgba(157, 123, 255, 0.20), transparent 62%),
+      radial-gradient(820px 600px at 106% 112%, rgba(61, 245, 255, 0.10), transparent 58%),
+      var(--ink);
+  }
+
+  .backdrop::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(199, 194, 211, 0.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(199, 194, 211, 0.055) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(circle at 50% 42%, #000 0%, transparent 78%);
+    -webkit-mask-image: radial-gradient(circle at 50% 42%, #000 0%, transparent 78%);
+  }
+
+  /* ---------- Scène ---------- */
+
+  .deck {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+  }
+
+  .stage {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 1280px;
+    height: 720px;
+    transform-origin: center center;
+    transform: translate(-50%, -50%);
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    padding: 60px 72px 88px;
+    background: var(--ink);
+    overflow: hidden;
+  }
+
+  .slide.is-active { display: flex; }
+
+  /* Grain discret, commun à toutes les slides */
+  .slide::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+  }
+
+  .slide > * { position: relative; z-index: 1; }
+
+  /* ---------- Typographie ---------- */
+
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .eyebrow::before {
+    content: '';
+    width: 26px;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.7;
+  }
+
+  h1, h2, h3, p { margin: 0; }
+
+  .h1 {
+    font-size: 58px;
+    line-height: 1.02;
+    font-weight: 900;
+    letter-spacing: -0.035em;
+    color: var(--strong);
+    text-wrap: balance;
+  }
+
+  .lead {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    max-width: 54ch;
+  }
+
+  .body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 40px;
+    min-height: 0;
+  }
+
+  .accent { color: var(--violet); }
+  .mono { font-family: var(--mono); }
+
+  /* ---------- Pied de slide ---------- */
+
+  .foot {
+    position: absolute;
+    left: 72px;
+    right: 72px;
+    bottom: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(199, 194, 211, 0.42);
+  }
+
+  .foot .num { font-family: var(--mono); letter-spacing: 0.12em; }
+
+  /* ---------- Couverture ---------- */
+
+  .cover { justify-content: center; }
+
+  .cover .halo {
+    position: absolute;
+    width: 720px;
+    height: 720px;
+    right: -220px;
+    top: -160px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(157, 123, 255, 0.28), transparent 62%);
+    filter: blur(20px);
+    pointer-events: none;
+  }
+
+  .cover-grid {
+    display: grid;
+    grid-template-columns: 1fr 26px;
+    gap: 28px;
+    align-items: center;
+  }
+
+  .cover-title {
+    font-size: 124px;
+    line-height: 0.86;
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    color: var(--strong);
+    margin: 18px 0 0;
+  }
+
+  .cover-sub {
+    margin-top: 26px;
+    font-size: 26px;
+    line-height: 1.3;
+    font-weight: 400;
+    color: var(--text);
+    text-wrap: balance;
+  }
+
+  .cover-sub em {
+    font-style: normal;
+    color: var(--cyan);
+  }
+
+  .cover-meta {
+    margin-top: 34px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .cover-meta span:first-child { color: var(--strong); font-weight: 700; }
+  .cover-meta .sep { width: 22px; height: 1px; background: var(--line); }
+
+  .cover-rail {
+    writing-mode: vertical-rl;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: rgba(199, 194, 211, 0.40);
+    border-left: 1px solid var(--line-soft);
+    padding-left: 14px;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cover-stats {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    justify-content: start;
+    gap: 36px;
+    margin-top: 44px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .cover-stats .k {
+    display: block;
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    color: var(--strong);
+  }
+
+  .cover-stats .v {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Slide « problème » ---------- */
+
+  .split {
+    display: grid;
+    grid-template-columns: 0.92fr 1.08fr;
+    gap: 64px;
+    align-items: center;
+  }
+
+  .rows { display: flex; flex-direction: column; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 18px;
+    padding: 20px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .row:last-child { border-bottom: 1px solid var(--line-soft); }
+
+  .row .idx {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--violet);
+    padding-top: 4px;
+  }
+
+  .row h3 {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--strong);
+    letter-spacing: -0.01em;
+  }
+
+  .row p {
+    margin-top: 6px;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Cartes « réponse » ---------- */
+
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 268px;
+    padding: 24px 22px;
+    border: 1px solid var(--line-soft);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012));
+    overflow: hidden;
+  }
+
+  .card::after {
+    content: '';
+    position: absolute;
+    left: 22px;
+    right: 22px;
+    bottom: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--violet), transparent 78%);
+    opacity: 0.55;
+  }
+
+  .card .num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--violet);
+  }
+
+  .card h3 {
+    font-size: 21px;
+    font-weight: 900;
+    letter-spacing: -0.015em;
+    color: var(--strong);
+  }
+
+  .card p {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .card .tag {
+    margin-top: auto;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(199, 194, 211, 0.55);
+  }
+
+  /* ---------- Sous le capot : définitions ---------- */
+
+  .defs { display: flex; flex-direction: column; gap: 16px; }
+
+  .def {
+    padding-top: 12px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .def .k {
+    display: block;
+    margin-bottom: 5px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .def p {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .def p b { color: var(--strong); font-weight: 700; }
+
+  .aside-note {
+    margin-top: 16px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+    max-width: 58ch;
+  }
+
+  .aside-note b { color: var(--gold); font-weight: 700; }
+
+  /* ---------- Carte « vecteur » ---------- */
+
+  .vector-card {
+    padding: 24px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: #08050d;
+  }
+
+  .vector-card .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .vector-input {
+    margin-top: 10px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+
+  .vector-input b { color: var(--strong); font-weight: 700; }
+
+  .vector-input .dim { color: var(--text-soft); }
+
+  .vector-arrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 18px 0;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .vector-arrow::before {
+    content: '';
+    width: 22px;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .vector-arrow .model {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--cyan);
+  }
+
+  .vector-strip {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 2.05;
+    color: #cfc8e0;
+    white-space: nowrap;
+    overflow: hidden;
+    mask-image: linear-gradient(90deg, #000 60%, transparent 97%);
+    -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent 97%);
+  }
+
+  .vector-strip .pos { color: var(--violet); }
+  .vector-strip .neg { color: var(--cyan); }
+
+  .vector-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 14px;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+  }
+
+  .vector-foot .dims { font-family: var(--mono); color: var(--strong); }
+
+  /* ---------- Cosinus ---------- */
+
+  .formula {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 26px;
+    color: var(--strong);
+  }
+
+  .formula .frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 19px;
+    line-height: 1.2;
+  }
+
+  .formula .frac .top {
+    padding: 0 10px 5px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .formula .frac .bot {
+    padding-top: 5px;
+    color: var(--text-soft);
+  }
+
+  .formula .op { color: var(--violet); }
+
+  .scale {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .scale i {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--cyan), var(--violet));
+    opacity: 0.5;
+  }
+
+  .plot { width: 100%; height: auto; display: block; max-height: 330px; }
+
+  /* La colonne de gauche est dense : on resserre plutôt que de réduire le schéma. */
+  .slide--cos .h1 { font-size: 44px; }
+  .slide--cos .lead { font-size: 15px; margin-top: 12px; }
+  .slide--cos .formula { margin-top: 18px; font-size: 24px; }
+  .slide--cos .scale { margin-top: 12px; }
+  .slide--cos .defs { margin-top: 18px; gap: 12px; }
+  .slide--cos .def p { font-size: 13px; }
+
+  /* ---------- Schémas SVG (données, séquence) ---------- */
+
+  .schema { width: 100%; height: auto; display: block; max-height: 336px; }
+  .schema text { font-family: var(--mono); }
+  .schema .t { font-size: 12px; letter-spacing: 1.2px; fill: var(--violet); }
+  .schema .a { font-size: 11px; fill: var(--text-soft); }
+  .schema .n { font-size: 10px; fill: var(--violet); }
+  .schema .box { fill: #0b0812; stroke: var(--line); }
+  .schema .rule { stroke: #241c36; }
+  .schema .link { fill: none; stroke: #4a3d68; }
+
+  .caption {
+    margin-top: 12px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+    max-width: 92ch;
+  }
+
+  .caption b { color: var(--strong); font-weight: 700; }
+
+  .caption .mono { color: var(--violet); }
+
+  .slide--data .body { gap: 22px; }
+  .slide--data .h1 { font-size: 46px; }
+  .slide--data .lead { font-size: 15px; margin-top: 10px; }
+  .slide--data .schema { max-height: 310px; }
+  .slide--data .caption { margin-top: 8px; font-size: 12px; }
+
+  /* ---------- Robustesse ---------- */
+
+  .bars { display: flex; flex-direction: column; gap: 8px; }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: 118px 1fr;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .bar-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+
+  .seg {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-soft);
+  }
+
+  .seg .mark { font-size: 10px; }
+
+  .seg.done {
+    color: var(--text);
+    border-color: rgba(126, 240, 178, 0.26);
+    background: rgba(126, 240, 178, 0.06);
+  }
+
+  .seg.done .mark { color: var(--green); }
+
+  .seg.active {
+    color: var(--strong);
+    border-color: rgba(184, 155, 255, 0.5);
+    background: rgba(184, 155, 255, 0.13);
+  }
+
+  .seg.active .mark { color: var(--violet); }
+
+  .seg.todo { opacity: 0.42; }
+
+  .cut {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: 132px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .cut::before, .cut::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.3;
+  }
+
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    margin-top: 18px;
+  }
+
+  .principle .k {
+    display: block;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    color: var(--violet);
+  }
+
+  .principle h3 {
+    font-size: 14.5px;
+    font-weight: 800;
+    color: var(--strong);
+  }
+
+  .principle p {
+    margin-top: 4px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Architecture (SVG) ---------- */
+
+  .diagram { width: 100%; height: auto; max-height: 384px; display: block; }
+
+  /* L'architecture est dense : on resserre la pile pour que le schéma respire. */
+  .slide--arch .body { justify-content: flex-start; gap: 18px; margin-top: 16px; }
+  .slide--arch .h1 { font-size: 44px; }
+  .slide--arch .lead { font-size: 15.5px; max-width: 80ch; }
+
+  .legend {
+    display: flex;
+    gap: 22px;
+    font-size: 11px;
+    color: var(--text-soft);
+  }
+
+  .legend b { color: var(--text); font-weight: 700; }
+
+  /* ---------- Pipeline ---------- */
+
+  .steps { display: flex; flex-direction: column; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 42px 150px 1fr 178px;
+    align-items: baseline;
+    gap: 14px;
+    padding: 15px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .step:last-of-type { border-bottom: 1px solid var(--line-soft); }
+
+  .step .idx {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--violet);
+  }
+
+  .step .name {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--strong);
+  }
+
+  .step .desc {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  .step .meta {
+    font-size: 11px;
+    text-align: right;
+    letter-spacing: 0.04em;
+    color: rgba(199, 194, 211, 0.55);
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 13px;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    font-size: 11.5px;
+    color: var(--text-soft);
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .chip::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan);
+  }
+
+  .chip.gold::before { background: var(--gold); }
+  .chip.green::before { background: var(--green); }
+
+  /* ---------- Recherche ---------- */
+
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1.02fr;
+    gap: 56px;
+    align-items: center;
+  }
+
+  .steps-mini { display: flex; flex-direction: column; gap: 22px; }
+
+  .mini { display: grid; grid-template-columns: 34px 1fr; gap: 14px; }
+
+  .mini .n {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--violet);
+  }
+
+  .mini h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--strong);
+  }
+
+  .mini p {
+    margin-top: 4px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .code {
+    margin: 0;
+    padding: 22px 24px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #08050d;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.85;
+    color: #cfc8e0;
+    overflow: hidden;
+  }
+
+  .code .k { color: var(--violet); }
+  .code .op { color: var(--cyan); }
+  .code .v { color: var(--gold); }
+  .code .c { color: #6f6787; }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .metric {
+    padding: 14px 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .metric .v {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    color: var(--strong);
+  }
+
+  .metric .l {
+    margin-top: 2px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .note-line {
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: var(--text-soft);
+  }
+
+  .note-line b { color: var(--gold); font-weight: 700; }
+
+  /* ---------- Chiffres ---------- */
+
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--line-soft);
+    border-left: 1px solid var(--line-soft);
+  }
+
+  .figure {
+    padding: 26px 26px 24px;
+    border-right: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .figure .v {
+    font-size: 56px;
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    color: var(--strong);
+  }
+
+  .figure .v small {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--violet);
+    margin-left: 4px;
+  }
+
+  .figure .l {
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Difficultés ---------- */
+
+  .pairs { display: flex; flex-direction: column; gap: 0; }
+
+  .pair {
+    display: grid;
+    grid-template-columns: 1.05fr 18px 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 19px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .pair:last-child { border-bottom: 1px solid var(--line-soft); }
+
+  .pair .p { font-size: 14px; line-height: 1.4; color: var(--text); }
+  .pair .arrow { color: var(--violet); font-size: 13px; text-align: center; }
+  .pair .s { font-size: 14px; line-height: 1.4; color: var(--text-soft); }
+
+  .pair .s b { color: var(--strong); font-weight: 700; }
+
+  .next {
+    padding: 20px 22px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(184, 155, 255, 0.10), rgba(61, 245, 255, 0.05));
+  }
+
+  .next .k {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .next p {
+    margin-top: 8px;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--strong);
+    font-weight: 700;
+  }
+
+  /* ---------- Fin ---------- */
+
+  .end { justify-content: center; }
+
+  .end .h1 { font-size: 118px; }
+
+  .end-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 60px;
+  }
+
+  .end-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .end-list .i {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    color: var(--text-soft);
+  }
+
+  .end-list .i::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    background: var(--violet);
+    opacity: 0.8;
+  }
+
+  /* ---------- Chrome (hors slide) ---------- */
+
+  .chrome { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+
+  .progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 2px;
+    width: 0;
+    background: linear-gradient(90deg, var(--violet), var(--cyan));
+    transition: width 0.35s ease;
+  }
+
+  .hint {
+    position: absolute;
+    right: 24px;
+    bottom: 18px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: rgba(199, 194, 211, 0.32);
+    transition: opacity 0.4s ease;
+  }
+
+  .hint.is-hidden { opacity: 0; }
+
+  /* Notes de présentateur : hors flux, lues par le panneau `.notes`. */
+  .speaker { display: none !important; }
+
+  .notes {
+    position: fixed;
+    left: 50%;
+    bottom: 20px;
+    transform: translate(-50%, 130%);
+    z-index: 6;
+    width: min(760px, calc(100vw - 48px));
+    padding: 18px 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(11, 8, 18, 0.96);
+    box-shadow: 0 30px 80px -30px #000;
+    transition: transform 0.28s ease;
+    pointer-events: none;
+  }
+
+  .notes.is-open { transform: translate(-50%, 0); }
+
+  .notes .k {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .notes .t { font-size: 14px; line-height: 1.55; color: var(--text); }
+
+  /* ---------- Animation d'entrée ---------- */
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide.is-active .fade {
+    animation: rise 0.55s cubic-bezier(0.22, 0.7, 0.3, 1) both;
+    animation-delay: calc(var(--d, 0) * 70ms);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slide.is-active .fade { animation: none; }
+    .progress { transition: none; }
+  }
+
+  /* ---------- Impression / export PDF ---------- */
+
+  @page { size: 1280px 720px; margin: 0; }
+
+  /* ============================================================
+     Slides de soutenance
+     ============================================================ */
+
+  .quote-line {
+    margin-top: 24px;
+    padding-left: 16px;
+    border-left: 2px solid var(--violet);
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text);
+    font-style: italic;
+    max-width: 42ch;
+  }
+
+  /* ---------- Authentification ---------- */
+
+  .slide--auth .body { gap: 14px; }
+  .slide--auth .h1 { font-size: 46px; }
+  .slide--auth .lead { margin-top: 6px; font-size: 14px; }
+  .slide--auth .schema { max-height: 286px; }
+
+  .cover-demo {
+    margin-top: 30px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+  }
+
+  .cover-demo b {
+    color: var(--cyan);
+    font-weight: 500;
+  }
+
+  .cover-quote {
+    margin-top: 44px;
+    padding-left: 16px;
+    border-left: 2px solid var(--violet);
+    font-size: 15px;
+    line-height: 1.55;
+    font-style: italic;
+    color: var(--text-soft);
+    max-width: 46ch;
+  }
+
+  /* ---------- Plan / répartition ---------- */
+
+  .slide--plan .body { gap: 28px; }
+  .slide--plan .h1 { font-size: 50px; }
+
+  .plan-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .plan-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 188px;
+    padding: 20px 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.038), rgba(255, 255, 255, 0.010));
+  }
+
+  .plan-item--accent {
+    border-color: rgba(184, 155, 255, 0.42);
+    background: linear-gradient(160deg, rgba(184, 155, 255, 0.13), rgba(61, 245, 255, 0.035));
+  }
+
+  .plan-time {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--violet);
+  }
+
+  .plan-item h3 {
+    font-size: 19px;
+    font-weight: 900;
+    color: var(--strong);
+  }
+
+  .plan-item p {
+    margin-top: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .plan-item p b { color: var(--strong); }
+
+  /* ---------- Démonstration ---------- */
+
+  .slide--demo .body { gap: 22px; }
+  .slide--demo .h1 { font-size: 44px; }
+
+  .demo-layout {
+    display: grid;
+    grid-template-columns: 1.6fr 0.9fr;
+    gap: 26px;
+    align-items: start;
+  }
+
+  .demo-list { display: flex; flex-direction: column; }
+
+  .demo-item {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .demo-item:last-child { border-bottom: 1px solid var(--line-soft); }
+
+  .demo-time {
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--violet);
+    padding-top: 4px;
+  }
+
+  .demo-item h3 {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--strong);
+  }
+
+  .demo-item p {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  .demo-item p b { color: var(--strong); }
+
+  .demo-side { display: flex; flex-direction: column; gap: 12px; }
+
+  .side-box {
+    padding: 14px 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.022);
+  }
+
+  .side-box--warn {
+    border-color: rgba(246, 196, 83, 0.28);
+    background: rgba(246, 196, 83, 0.045);
+  }
+
+  .side-box .k {
+    display: block;
+    margin-bottom: 5px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .side-box--warn .k { color: var(--gold); }
+
+  .side-box p {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Sécurité ---------- */
+
+  .slide--security .body { gap: 26px; }
+  .slide--security .h1 { font-size: 43px; }
+  .slide--security .lead { font-size: 14.5px; }
+
+  .security-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .security-card {
+    padding: 17px 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.008));
+  }
+
+  .security-card--warn {
+    border-color: rgba(246, 196, 83, 0.26);
+    background: rgba(246, 196, 83, 0.04);
+  }
+
+  .security-card .k {
+    display: block;
+    margin-bottom: 5px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .security-card--warn .k { color: var(--gold); }
+
+  .security-card h3 {
+    font-size: 14.5px;
+    font-weight: 800;
+    color: var(--strong);
+    line-height: 1.25;
+  }
+
+  .security-card p {
+    margin-top: 5px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Méthode / qualité ---------- */
+
+  .slide--method .body { gap: 26px; }
+  .slide--method .h1 { font-size: 46px; }
+
+  .method-layout {
+    display: grid;
+    grid-template-columns: 1fr 1.08fr;
+    gap: 42px;
+    align-items: start;
+  }
+
+  .method-k {
+    display: block;
+    margin-bottom: 10px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .method-item {
+    padding: 9px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .method-item h3 {
+    font-size: 14.5px;
+    font-weight: 800;
+    color: var(--strong);
+  }
+
+  .method-item p {
+    margin-top: 3px;
+    font-size: 12px;
+    line-height: 1.42;
+    color: var(--text-soft);
+  }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .stat {
+    padding: 14px 15px;
+    border: 1px solid var(--line-soft);
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .stat .v {
+    display: block;
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--strong);
+  }
+
+  .stat .l {
+    display: block;
+    margin-top: 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .ci-box {
+    margin-top: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.022);
+  }
+
+  .ci-box--accent {
+    border-color: rgba(126, 240, 178, 0.24);
+    background: rgba(126, 240, 178, 0.045);
+  }
+
+  .ci-box .k {
+    display: block;
+    margin-bottom: 5px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+
+  .ci-box--accent .k { color: var(--green); }
+
+  .ci-box p {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .ci-box p b { color: var(--strong); }
+
+  /* ---------- Démonstration en grille ---------- */
+
+  .demo-grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 34px;
+  }
+
+  .demo-item2 {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 12px;
+    padding: 13px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .demo-item2:nth-last-child(-n + 2) {
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .demo-item2 .n {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--violet);
+    padding-top: 2px;
+  }
+
+  .demo-item2 h3 {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--strong);
+  }
+
+  .demo-item2 p {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Flux OpenID simplifié ---------- */
+
+  .flow4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-top: 6px;
+  }
+
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-height: 178px;
+    padding: 18px 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 15px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.038), rgba(255, 255, 255, 0.010));
+  }
+
+  .flow-step .n {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--violet);
+  }
+
+  .flow-step h3 {
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.3;
+    color: var(--strong);
+  }
+
+  .flow-step p {
+    margin-top: auto;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  /* ---------- Notes en ligne, sans pastilles ---------- */
+
+  .inline-notes {
+    margin-top: 12px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .inline-notes b {
+    color: var(--strong);
+    font-weight: 700;
+  }
+
+  .security-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 26px;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-soft);
+  }
+
+  .security-line span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .security-line span + span::before {
+    content: '';
+    width: 1px;
+    height: 12px;
+    background: var(--line);
+  }
+
+  .security-line b {
+    color: var(--strong);
+    font-weight: 700;
+  }
+
+  /* ---------- Méthode : lignes de preuve ---------- */
+
+  .proof-line {
+    padding: 13px 0;
+    border-top: 1px solid var(--line-soft);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-soft);
+  }
+
+  .proof-line:last-child {
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .proof-line b {
+    color: var(--strong);
+    font-weight: 800;
+  }
+
+  /* ---------- Annexes ---------- */
+
+  .slide--appendix .body { gap: 26px; }
+  .slide--appendix .h1 { font-size: 44px; }
+
+  .map-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+  }
+
+  .map-col {
+    padding: 16px 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.022);
+  }
+
+  .map-col h3 {
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 900;
+    color: var(--strong);
+  }
+
+  .map-col ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .map-col li {
+    padding: 5px 0;
+    border-top: 1px solid var(--line-soft);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-soft);
+  }
+
+  .map-col li .mono { color: var(--violet); }
+
+  .qa-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 22px;
+  }
+
+  .qa {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .qa .q {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--strong);
+    line-height: 1.3;
+  }
+
+  .qa .a {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-soft);
+  }
+
+  .qa .a .mono { color: var(--violet); }
+
+  @media print {
+    html, body { overflow: visible; height: auto; background: var(--ink); }
+    .backdrop, .chrome, .notes { display: none !important; }
+    .deck { position: static; overflow: visible; }
+    .stage {
+      position: static;
+      width: 1280px;
+      height: auto;
+      transform: none !important;
+    }
+    .slide {
+      position: relative;
+      display: flex !important;
+      width: 1280px;
+      height: 720px;
+      break-inside: avoid;
+      break-after: page;
+      page-break-after: always;
+    }
+    .slide:last-child { break-after: auto; page-break-after: auto; }
+    /* Chrome fige les animations au moment d'imprimer : sans ça, la slide
+       active est capturée à l'état initial (opacity 0) et sort vide. */
+    .fade {
+      animation: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="backdrop" aria-hidden="true"></div>
+
+<div class="deck" id="deck">
+  <div class="stage" id="stage" style="transform: translate(-50%, -50%) scale(0.934375);">
+
+    <!-- ================= 01 · Couverture ================= -->
+    <section class="slide cover" data-section="Introduction" aria-label="Couverture">
+      <div class="halo"></div>
+
+      <div class="cover-grid">
+        <div>
+          <p class="eyebrow fade" style="--d:0">FST · M2 Informatique · Groupe 08</p>
+          <h1 class="cover-title fade" style="--d:1">Game<br>Backlog</h1>
+          <p class="cover-sub fade" style="--d:2">
+            Ta bibliothèque Steam devient une <em>décision</em>,<br>
+            pas un catalogue.
+          </p>
+          <div class="cover-meta fade" style="--d:3">
+            <span>Soutenance</span>
+            <span class="sep"></span>
+            <span>4 novembre 2026</span>
+          </div>
+          <p class="cover-demo fade" style="--d:4">
+            Démo en ligne · <b>fst-2026-groupe-08.vercel.app</b>
+          </p>
+          <p class="cover-quote fade" style="--d:5">
+            « Steam sait ce que tu possèdes.<br>GameBacklog sait à quoi tu veux jouer. »
+          </p>
+        </div>
+
+        <div class="cover-rail fade" style="--d:4">Steam · React · NestJS · PostgreSQL · pgvector</div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Introduction</span><span class="num">01 / 15</span></footer>
+      <aside class="speaker" hidden="">Accroche : « Steam sait ce que tu possèdes, pas à quoi tu veux jouer ce soir. » Nous allons montrer l’application, puis expliquer les choix qui la rendent tenable : import reprenable, recherche sémantique locale, dégradation propre.</aside>
+    </section>
+
+    <!-- ================= 02 · Plan ================= -->
+    <section class="slide slide--plan" data-section="Plan" aria-label="Plan">
+      <p class="eyebrow fade" style="--d:0">Plan</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">La démo au centre,<br>le code comme preuve.</h2>
+          <p class="lead" style="margin-top:14px;max-width:74ch">
+            Quatre temps : le produit, la démonstration, les choix techniques,
+            puis le bilan. Les deux membres répondent aux questions.
+          </p>
+        </div>
+
+        <div class="plan-grid fade" style="--d:2">
+          <div class="plan-item">
+            <span class="plan-time">Produit</span>
+            <h3>Le problème</h3>
+            <p>Une bibliothèque qui grandit, une intention floue, et aucun outil pour décider.</p>
+          </div>
+          <div class="plan-item plan-item--accent">
+            <span class="plan-time">Démonstration</span>
+            <h3>L’application</h3>
+            <p>Connexion, accueil, bibliothèque, fiche, recherche et tests.</p>
+          </div>
+          <div class="plan-item">
+            <span class="plan-time">Sous le capot</span>
+            <h3>Les choix</h3>
+            <p>Architecture, données, import, embeddings et recherche.</p>
+          </div>
+          <div class="plan-item">
+            <span class="plan-time">Bilan</span>
+            <h3>Ce qu’on en retient</h3>
+            <p>La méthode, les difficultés rencontrées et ce que le projet démontre.</p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Plan</span><span class="num">02 / 15</span></footer>
+      <aside class="speaker" hidden="">Ce slide sert à annoncer le fil conducteur : on montre d’abord, on explique ensuite. Insister sur le fait que les deux membres peuvent répondre sur n’importe quelle partie.</aside>
+    </section>
+
+    <!-- ================= 03 · Problème ================= -->
+    <section class="slide" data-section="Le problème" aria-label="Le problème">
+      <p class="eyebrow fade" style="--d:0">Le problème</p>
+
+      <div class="body">
+        <div class="split">
+          <div class="fade" style="--d:1">
+            <h2 class="h1">Posséder 400 jeux ne dit pas à quoi jouer ce soir.</h2>
+            <p class="lead" style="margin-top:22px">
+              Steam répond à « que puis-je lancer ? ». Il ne répond pas à
+              « qu’est-ce qui me correspond, maintenant, dans ma propre bibliothèque ? ».
+            </p>
+            <p class="quote-line">
+              « Le temps de choisir dépasse parfois le temps de jouer. »
+            </p>
+          </div>
+
+          <div class="rows fade" style="--d:2">
+            <div class="row">
+              <span class="idx">01</span>
+              <div>
+                <h3>La bibliothèque grandit plus vite que la mémoire</h3>
+                <p>Les achats en soldes disparaissent du radar : aucun tri ne dit « jamais lancé, mais proche de ce que tu aimes ».</p>
+              </div>
+            </div>
+            <div class="row">
+              <span class="idx">02</span>
+              <div>
+                <h3>Le temps de jeu n’est pas une intention</h3>
+                <p>« 40 h » ne dit pas si on veut 45 minutes de coop ou une session solo de trois heures.</p>
+              </div>
+            </div>
+            <div class="row">
+              <span class="idx">03</span>
+              <div>
+                <h3>Chercher un jeu n’est pas chercher un titre</h3>
+                <p>On cherche « un jeu calme avec des énigmes, jouable à la manette », pas « Hollow ».</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Le problème</span><span class="num">03 / 15</span></footer>
+      <aside class="speaker" hidden="">Insister sur l’asymétrie : Steam expose des faits (temps, succès), pas des intentions. Les trois constats annoncent les trois briques : import, accueil, recherche.</aside>
+    </section>
+
+    <!-- ================= 04 · Réponse ================= -->
+    <section class="slide" data-section="La réponse" aria-label="La réponse en quatre gestes">
+      <p class="eyebrow fade" style="--d:0">La réponse</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">Quatre gestes, une seule promesse :<br>que la bibliothèque serve à décider.</h2>
+        </div>
+
+        <div class="grid-4">
+          <article class="card fade" style="--d:2">
+            <span class="num">01</span>
+            <h3>Importer</h3>
+            <p>Quatre étapes idempotentes en tâche de fond, reprises après une coupure, sans bloquer l’interface.</p>
+            <span class="tag">Steam → PostgreSQL</span>
+          </article>
+          <article class="card fade" style="--d:3">
+            <span class="num">02</span>
+            <h3>Décider</h3>
+            <p>Un jeu du moment, cinq voisins vectoriels et trois catégories : À finir, À découvrir, À retrouver.</p>
+            <span class="tag">Accueil calculé</span>
+          </article>
+          <article class="card fade" style="--d:4">
+            <span class="num">03</span>
+            <h3>Chercher</h3>
+            <p>Par nom, ou par description : « un jeu calme avec des énigmes » trouve les jeux proches, pas les homonymes.</p>
+            <span class="tag">pgvector · Gemini</span>
+          </article>
+          <article class="card fade" style="--d:5">
+            <span class="num">04</span>
+            <h3>Filtrer</h3>
+            <p>Genres, modes, manette, durée, activité : en SQL, sur les identifiants Steam, avec facettes et tri.</p>
+            <span class="tag">SQL · 100 max par page</span>
+          </article>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — La réponse</span><span class="num">04 / 15</span></footer>
+      <aside class="speaker" hidden="">Chaque geste correspond à un module : api/src/sync, api/src/home, api/src/search, api/src/library. C’est le plan de la démo, puis on ouvrira le code.</aside>
+    </section>
+
+    <!-- ================= 05 · Démonstration ================= -->
+    <section class="slide slide--demo" data-section="Démonstration" aria-label="Démonstration">
+      <p class="eyebrow fade" style="--d:0">Démonstration</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">On ne raconte pas le produit :<br>on l’utilise.</h2>
+          <p class="lead" style="margin-top:12px;max-width:78ch">
+            Six scènes, un seul onglet préparé. La démo est le fil conducteur ;
+            les slides suivantes expliquent ce qu’on vient de voir.
+          </p>
+        </div>
+
+        <div class="demo-grid2 fade" style="--d:2">
+          <div class="demo-item2">
+            <span class="n">01</span>
+            <div><h3>Connexion Steam</h3><p>OpenID, retour, session qui persiste après un F5.</p></div>
+          </div>
+          <div class="demo-item2">
+            <span class="n">02</span>
+            <div><h3>Accueil</h3><p>Jeu du moment, deck, catégories, Affiner, Pourquoi.</p></div>
+          </div>
+          <div class="demo-item2">
+            <span class="n">03</span>
+            <div><h3>Bibliothèque</h3><p>Deux genres = ET, coop, tri, URL copiée, bouton Retour.</p></div>
+          </div>
+          <div class="demo-item2">
+            <span class="n">04</span>
+            <div><h3>Fiche d’un jeu</h3><p>Hero, galerie, description en blocs, succès, lien steam://run.</p></div>
+          </div>
+          <div class="demo-item2">
+            <span class="n">05</span>
+            <div><h3>Recherche</h3><p>Nom à la frappe, description à la validation, score de similarité.</p></div>
+          </div>
+          <div class="demo-item2">
+            <span class="n">06</span>
+            <div><h3>Tests & CI</h3><p>npm test, puis GitHub Actions : le rouge ne part pas en production.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Démonstration</span><span class="num">05 / 15</span></footer>
+      <aside class="speaker" hidden="">Garder un onglet déjà chargé, sans console ni notification. Si une scène échoue, passer au plan B et l’annoncer calmement : Gemini indisponible → repli par nom ; Steam indisponible → bibliothèque déjà importée ; réseau → partage de connexion.</aside>
+    </section>
+
+    <!-- ================= 06 · Architecture ================= -->
+    <section class="slide slide--arch" data-section="Architecture" aria-label="Architecture">
+      <p class="eyebrow fade" style="--d:0">Architecture</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">Un front, une API, une base vectorielle.</h2>
+          <p class="lead" style="margin-top:14px;max-width:78ch">
+            Le navigateur reste same-origin ; l’API parle à Steam à l’import
+            et à Gemini pour les embeddings.
+          </p>
+        </div>
+
+        <div class="fade" style="--d:2">
+          <svg class="diagram" viewBox="0 0 1136 408" role="img" aria-label="Schéma : navigateur vers Vercel, API NestJS, PostgreSQL pgvector, Steam et Gemini">
+            <defs>
+              <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="#6f6787"></path>
+              </marker>
+              <marker id="ar-v" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="#9d7bff"></path>
+              </marker>
+              <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur stdDeviation="26"></feGaussianBlur>
+              </filter>
+            </defs>
+
+            <rect x="330" y="42" width="380" height="318" rx="24" fill="#9d7bff" opacity="0.10" filter="url(#glow)"></rect>
+
+            <rect x="0" y="96" width="250" height="204" rx="16" fill="rgba(255,255,255,0.035)" stroke="#32284a"></rect>
+            <text x="24" y="130" fill="#b89bff" font-family="'DejaVu Sans Mono', monospace" font-size="10" letter-spacing="2.4">FRONT</text>
+            <text x="24" y="164" fill="#f5f3ff" font-family="'Lato', sans-serif" font-size="20" font-weight="900">React 19 · Vite</text>
+            <text x="24" y="192" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12.5">Vercel — SPA + rewrite /api</text>
+            <text x="24" y="212" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12.5">Cookie de session first-party</text>
+            <text x="24" y="232" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12.5">CSP stricte en production</text>
+            <rect x="24" y="252" width="92" height="22" rx="11" fill="rgba(184,155,255,0.12)" stroke="#4a3d68"></rect>
+            <text x="38" y="267" fill="#b89bff" font-family="'DejaVu Sans Mono', monospace" font-size="10">same-origin</text>
+
+            <rect x="330" y="42" width="380" height="318" rx="20" fill="#0b0812" stroke="#32284a"></rect>
+            <text x="356" y="80" fill="#b89bff" font-family="'DejaVu Sans Mono', monospace" font-size="10" letter-spacing="2.4">API</text>
+            <text x="356" y="114" fill="#f5f3ff" font-family="'Lato', sans-serif" font-size="26" font-weight="900" letter-spacing="-0.5">NestJS</text>
+            <text x="640" y="80" fill="#3df5ff" font-family="'DejaVu Sans Mono', monospace" font-size="10" text-anchor="end">/api/*</text>
+            <line x1="356" y1="132" x2="684" y2="132" stroke="#241c36"></line>
+            <circle cx="362" cy="164" r="3.5" fill="#b89bff"></circle>
+            <text x="378" y="168" fill="#ddd9e8" font-family="'Lato', sans-serif" font-size="13.5">OpenID 2.0 · session</text>
+            <circle cx="362" cy="200" r="3.5" fill="#b89bff"></circle>
+            <text x="378" y="204" fill="#ddd9e8" font-family="'Lato', sans-serif" font-size="13.5">Import en 4 étapes</text>
+            <circle cx="362" cy="236" r="3.5" fill="#b89bff"></circle>
+            <text x="378" y="240" fill="#ddd9e8" font-family="'Lato', sans-serif" font-size="13.5">Recherche · Accueil · Bibliothèque</text>
+            <line x1="356" y1="268" x2="684" y2="268" stroke="#241c36"></line>
+            <text x="356" y="294" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="11.5">DTO validés · rate limit par steamId</text>
+            <text x="356" y="314" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="11.5">timeouts 5 s · erreurs explicites</text>
+            <text x="356" y="340" fill="#8b83a3" font-family="'DejaVu Sans Mono', monospace" font-size="10">migrations au démarrage · verrou advisory</text>
+
+            <rect x="784" y="42" width="286" height="132" rx="16" fill="rgba(255,255,255,0.035)" stroke="#32284a"></rect>
+            <text x="808" y="76" fill="#3df5ff" font-family="'DejaVu Sans Mono', monospace" font-size="10" letter-spacing="2.4">BASE</text>
+            <text x="808" y="110" fill="#f5f3ff" font-family="'Lato', sans-serif" font-size="19" font-weight="900">PostgreSQL 16</text>
+            <text x="808" y="134" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12.5">pgvector · games.embedding</text>
+            <text x="808" y="154" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12.5">1 024 dims · cosinus</text>
+
+            <rect x="784" y="208" width="286" height="72" rx="14" fill="rgba(255,255,255,0.028)" stroke="#32284a"></rect>
+            <text x="808" y="236" fill="#f5f3ff" font-family="'Lato', sans-serif" font-size="17" font-weight="900">Steam Web API</text>
+            <text x="808" y="258" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12">bibliothèque · fiches · succès</text>
+
+            <rect x="784" y="312" width="286" height="72" rx="14" fill="rgba(255,255,255,0.028)" stroke="#32284a"></rect>
+            <text x="808" y="340" fill="#f5f3ff" font-family="'Lato', sans-serif" font-size="17" font-weight="900">Gemini</text>
+            <text x="808" y="362" fill="#9a93ae" font-family="'Lato', sans-serif" font-size="12">gemini-embedding-001 · 1 024 dims</text>
+
+            <line x1="250" y1="196" x2="322" y2="196" stroke="#9d7bff" stroke-width="1.5" marker-end="url(#ar-v)"></line>
+            <text x="286" y="186" fill="#6f6787" font-family="'DejaVu Sans Mono', monospace" font-size="9.5" text-anchor="middle">HTTPS</text>
+
+            <line x1="710" y1="118" x2="776" y2="118" stroke="#9d7bff" stroke-width="1.5" marker-end="url(#ar-v)"></line>
+            <text x="743" y="108" fill="#6f6787" font-family="'DejaVu Sans Mono', monospace" font-size="9.5" text-anchor="middle">SQL</text>
+
+            <path d="M710 200 C 748 200, 748 244, 776 244" fill="none" stroke="#6f6787" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#ar)"></path>
+            <path d="M710 232 C 748 232, 748 348, 776 348" fill="none" stroke="#6f6787" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#ar)"></path>
+
+            <text x="0" y="392" fill="#8b83a3" font-family="'Lato', sans-serif" font-size="11">Trait plein : requête interne · pointillé : service externe</text>
+          </svg>
+        </div>
+
+        <p class="security-line fade" style="--d:3">
+          <span>OpenID + session <b>httpOnly</b></span>
+          <span>DTO stricts</span>
+          <span>Rate limiting par utilisateur</span>
+        </p>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Architecture</span><span class="num">06 / 15</span></footer>
+      <aside class="speaker" hidden="">Point clé : le front est same-origin, donc cookie first-party. L’API ne rappelle Steam que pendant l’import ou pour une fiche à la demande, et Gemini seulement pour les embeddings. Une seule base porte le relationnel et le vectoriel.</aside>
+    </section>
+
+    <!-- ================= 07 · Données ================= -->
+    <section class="slide slide--data" data-section="Données" aria-label="Modèle de données">
+      <p class="eyebrow fade" style="--d:0">Données</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">Le jeu est partagé,<br>la possession est personnelle.</h2>
+          <p class="lead" style="margin-top:10px;max-width:84ch">
+            Une fiche Steam n’est pas recopiée par utilisateur. Les succès séparent
+            le schéma du jeu et la progression du joueur.
+          </p>
+        </div>
+
+        <div class="fade" style="--d:2">
+          <svg class="schema" viewBox="0 0 1136 330" role="img" aria-label="Schéma relationnel : users, games, library_entries, achievements, user_achievements">
+            <style>
+              text { font-family: 'DejaVu Sans Mono', monospace; }
+              .t { font-size: 12px; letter-spacing: 1.2px; fill: #b89bff; }
+              .a { font-size: 11px; fill: #9a93ae; }
+              .n { font-size: 10px; fill: #b89bff; }
+              .box { fill: #0b0812; stroke: #32284a; }
+              .rule { stroke: #241c36; }
+              .link { fill: none; stroke: #4a3d68; }
+            </style>
+            <defs>
+              <marker id="er-ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="#4a3d68"></path>
+              </marker>
+            </defs>
+
+            <rect class="box" x="0" y="16" width="250" height="132" rx="12"></rect>
+            <text class="t" x="18" y="42">users</text>
+            <line class="rule" x1="12" y1="54" x2="238" y2="54"></line>
+            <text class="a" x="18" y="76">id · serial</text>
+            <text class="a" x="18" y="96">steam_id · unique</text>
+            <text class="a" x="18" y="116">display_name · avatar_url</text>
+            <text class="a" x="18" y="136">sync_status · last_sync_at</text>
+
+            <rect class="box" x="368" y="16" width="306" height="160" rx="12"></rect>
+            <text class="t" x="386" y="42">games</text>
+            <line class="rule" x1="380" y1="54" x2="662" y2="54"></line>
+            <text class="a" x="386" y="76">id · serial</text>
+            <text class="a" x="386" y="96">app_id · unique</text>
+            <text class="a" x="386" y="116">name · genre_ids · category_ids</text>
+            <text class="a" x="386" y="136">embedding · vector(1024)</text>
+            <text class="a" x="386" y="156">details_fetched_at · filters_version</text>
+
+            <rect class="box" x="782" y="16" width="250" height="132" rx="12"></rect>
+            <text class="t" x="800" y="42">achievements</text>
+            <line class="rule" x1="794" y1="54" x2="1020" y2="54"></line>
+            <text class="a" x="800" y="76">id · serial</text>
+            <text class="a" x="800" y="96">game_id · FK</text>
+            <text class="a" x="800" y="116">api_name · display_name</text>
+            <text class="a" x="800" y="136">description · icon_url</text>
+
+            <rect class="box" x="188" y="214" width="300" height="100" rx="12"></rect>
+            <text class="t" x="206" y="240">library_entries</text>
+            <line class="rule" x1="200" y1="252" x2="476" y2="252"></line>
+            <text class="a" x="206" y="274">user_id + game_id · clé</text>
+            <text class="a" x="206" y="294">playtime_forever · 2 weeks</text>
+
+            <rect class="box" x="660" y="214" width="290" height="100" rx="12"></rect>
+            <text class="t" x="678" y="240">user_achievements</text>
+            <line class="rule" x1="672" y1="252" x2="938" y2="252"></line>
+            <text class="a" x="678" y="274">user_id + achievement_id</text>
+            <text class="a" x="678" y="294">unlocked_at</text>
+
+            <polyline class="link" points="120,148 120,190 300,190 300,214" marker-end="url(#er-ar)"></polyline>
+            <polyline class="link" points="470,176 470,214" marker-end="url(#er-ar)"></polyline>
+            <polyline class="link" points="674,70 782,70" marker-end="url(#er-ar)"></polyline>
+            <polyline class="link" points="850,148 850,190 800,190 800,214" marker-end="url(#er-ar)"></polyline>
+
+            <text class="n" x="108" y="164">1</text>
+            <text class="n" x="306" y="208">N</text>
+            <text class="n" x="480" y="186">1</text>
+            <text class="n" x="460" y="210">N</text>
+            <text class="n" x="684" y="64">1</text>
+            <text class="n" x="768" y="64">N</text>
+            <text class="n" x="858" y="164">1</text>
+            <text class="n" x="806" y="208">N</text>
+          </svg>
+
+          <p class="inline-notes">
+            <b>games</b> partagé entre comptes · <b>(user_id, game_id)</b> unique ·
+            <b>7 tables</b> + session
+          </p>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Données</span><span class="num">07 / 15</span></footer>
+      <aside class="speaker" hidden="">Deux décisions structurantes : games est partagé entre utilisateurs, et les succès ont deux niveaux — le schéma et la progression. C’est ce qui permet un cache par jeu et un compteur par joueur.</aside>
+    </section>
+
+    <!-- ================= 08 · Identité ================= -->
+    <section class="slide slide--auth" data-section="Identité" aria-label="Authentification Steam OpenID">
+      <p class="eyebrow fade" style="--d:0">Identité</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">Steam prouve l’identité,<br>l’API garde la session.</h2>
+          <p class="lead" style="margin-top:8px;max-width:84ch">
+            OpenID 2.0 : aucun mot de passe stocké. L’API vérifie l’assertion
+            auprès de Steam, puis pose un cookie de session.
+          </p>
+        </div>
+
+        <div class="flow4 fade" style="--d:2">
+          <div class="flow-step">
+            <span class="n">01</span>
+            <h3>Le navigateur demande la connexion</h3>
+            <p>L’API génère un <span class="mono">state</span> signé et redirige vers Steam.</p>
+          </div>
+          <div class="flow-step">
+            <span class="n">02</span>
+            <h3>Steam authentifie</h3>
+            <p>L’utilisateur autorise l’application ; Steam renvoie une assertion.</p>
+          </div>
+          <div class="flow-step">
+            <span class="n">03</span>
+            <h3>L’API vérifie</h3>
+            <p><span class="mono">check_authentication</span> : validation serveur à serveur.</p>
+          </div>
+          <div class="flow-step">
+            <span class="n">04</span>
+            <h3>La session est posée</h3>
+            <p>Cookie <span class="mono">httpOnly</span>, <span class="mono">SameSite=Lax</span>, 7 jours.</p>
+          </div>
+        </div>
+
+        <p class="inline-notes fade" style="--d:3">
+          <b>State</b> signé et borné · <b>return_to</b> contrôlé · <b>claimed_id</b> limité à Steam
+        </p>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Identité</span><span class="num">08 / 15</span></footer>
+      <aside class="speaker" hidden="">Le point de sécurité : le state est généré côté serveur, posé dans un cookie signé, puis comparé au callback. On refuse un state absent ou différent, un return_to hors domaine, un claimed_id qui ne vient pas de Steam. La vérification de signature est un aller-retour serveur à serveur.</aside>
+    </section>
+
+    <!-- ================= 09 · Pipeline ================= -->
+    <section class="slide" data-section="Import" aria-label="Pipeline d'import">
+      <p class="eyebrow fade" style="--d:0">Pipeline d’import</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">Quatre étapes, reprises à la coupure.</h2>
+          <p class="lead" style="margin-top:12px;max-width:80ch">
+            Le job est persisté par utilisateur : un redémarrage reprend à l’étape
+            en cours. La base devient le cache ; Steam n’est plus appelé au fil des pages.
+          </p>
+        </div>
+
+        <div class="fade" style="--d:2">
+          <div class="steps">
+            <div class="step">
+              <span class="idx">01</span>
+              <span class="name">library</span>
+              <span class="desc">Entrées depuis <span class="mono">GetOwnedGames</span> : temps de jeu, activité, succès.</span>
+              <span class="meta">1 appel · bloquant</span>
+            </div>
+            <div class="step">
+              <span class="idx">02</span>
+              <span class="name">details</span>
+              <span class="desc">Fiches <span class="mono">appdetails</span> : genres, modes, manette, date de sortie.</span>
+              <span class="meta">throttle · backoff</span>
+            </div>
+            <div class="step">
+              <span class="idx">03</span>
+              <span class="name">achievements</span>
+              <span class="desc">Schéma une fois par jeu, progression du joueur, par lots.</span>
+              <span class="meta">429 respecté · null si privé</span>
+            </div>
+            <div class="step">
+              <span class="idx">04</span>
+              <span class="name">embeddings</span>
+              <span class="desc">Texte du jeu → Gemini, stocké avec la version du texte.</span>
+              <span class="meta">quota → reprise</span>
+            </div>
+          </div>
+
+          <p class="inline-notes">
+            Budget par étape · reprise à <b>job.step</b> · <b>429</b> temporisé ·
+            quota épuisé → <b>done</b> avec reliquats
+          </p>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Import</span><span class="num">09 / 15</span></footer>
+      <aside class="speaker" hidden="">L’ordre est une chaîne de dépendances : library crée les entrées, details enrichit les fiches, achievements et embeddings en ont besoin. Le point à vendre : couper le serveur pendant l’import, relancer, le job reprend à l’étape en cours.</aside>
+    </section>
+
+    <!-- ================= 10 · Robustesse ================= -->
+    <section class="slide" data-section="Robustesse" aria-label="Robustesse de l'import">
+      <p class="eyebrow fade" style="--d:0">Robustesse</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">Une coupure ne coûte que l’étape en cours.</h2>
+          <p class="lead" style="margin-top:8px;max-width:84ch">
+            Chaque étape écrit son point de reprise ; les erreurs temporaires sont
+            temporisées au lieu d’être oubliées.
+          </p>
+        </div>
+
+        <div class="fade" style="--d:2">
+          <div class="bars">
+            <div class="bar-row">
+              <span class="bar-label">1<sup>re</sup> passe</span>
+              <div class="bar">
+                <span class="seg done">library <span class="mark">✓</span></span>
+                <span class="seg done">details <span class="mark">✓</span></span>
+                <span class="seg active">achievements <span class="mark">✕</span></span>
+                <span class="seg todo">embeddings</span>
+              </div>
+            </div>
+
+            <div class="cut">coupure — redémarrage du serveur</div>
+
+            <div class="bar-row">
+              <span class="bar-label">reprise</span>
+              <div class="bar">
+                <span class="seg done">library <span class="mark">✓</span></span>
+                <span class="seg done">details <span class="mark">✓</span></span>
+                <span class="seg active">achievements <span class="mark">↻</span></span>
+                <span class="seg todo">embeddings</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="principles">
+            <div class="principle">
+              <span class="k">01 · Idempotence</span>
+              <h3>Rejouer ne duplique rien</h3>
+              <p>Upserts sur des clés naturelles : un jeu réimporté reste une seule ligne.</p>
+            </div>
+            <div class="principle">
+              <span class="k">02 · Reprise</span>
+              <h3>L’étape est persistée</h3>
+              <p><span class="mono">job.step</span> survit au redémarrage : on reprend au bon endroit.</p>
+            </div>
+            <div class="principle">
+              <span class="k">03 · Backoff</span>
+              <h3>Le 429 est temporisé</h3>
+              <p>Une erreur réseau ou un <span class="mono">Retry-After</span> reporte la fiche.</p>
+            </div>
+            <div class="principle">
+              <span class="k">04 · Budget</span>
+              <h3>La passe rend la main</h3>
+              <p>Un plafond par étape évite la boucle infinie ; le tour suivant reprend.</p>
+            </div>
+          </div>
+
+          <p class="aside-note">
+            Un quota épuisé termine le job en <b>done</b> avec des reliquats, jamais en
+            <b>error</b> : la reprise est simplement repoussée.
+          </p>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Robustesse</span><span class="num">10 / 15</span></footer>
+      <aside class="speaker" hidden="">Ces quatre principes sont indépendants du langage : idempotence, point de reprise, backoff, budget. C’est ce qui distingue un script qu’on peut laisser tourner d’une démo qui casse au premier 429. Une erreur par cause : ok, removed, network, rate-limit.</aside>
+    </section>
+
+    <!-- ================= 11 · Embeddings ================= -->
+    <section class="slide" data-section="Embeddings" aria-label="Comment un texte devient un vecteur">
+      <p class="eyebrow fade" style="--d:0">Sous le capot · 1 / 2</p>
+
+      <div class="body">
+        <div class="duo">
+          <div class="fade" style="--d:1">
+            <h2 class="h1">Un jeu devient un point dans un espace.</h2>
+            <p class="lead" style="margin-top:14px">
+              Un modèle transforme un texte en une suite de nombres : deux textes
+              qui parlent de la même chose donnent des points proches.
+            </p>
+
+            <div class="defs" style="margin-top:24px">
+              <div class="def">
+                <span class="k">Entrée</span>
+                <p>Nom, descriptions, <b>genres</b> et <b>catégories</b> — un texte unique pour chaque jeu.</p>
+              </div>
+              <div class="def">
+                <span class="k">Sortie</span>
+                <p><b>1 024 nombres.</b> C’est leur combinaison qui situe le jeu dans l’espace.</p>
+              </div>
+              <div class="def">
+                <span class="k">Indexation</span>
+                <p>Une fois par jeu à l’import. La version du texte est persistée pour pouvoir réindexer.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="fade" style="--d:2">
+            <div class="vector-card">
+              <span class="label">Texte source</span>
+              <p class="vector-input">
+                <b>Hollow Knight</b> — « Un metroidvania exigeant dans un royaume souterrain… »<br>
+                <span class="dim">Action · Aventure · Indé · Solo · Manette</span>
+              </p>
+
+              <p class="vector-arrow">encodage <span class="model">gemini-embedding-001</span></p>
+
+              <div class="vector-strip">
+                <span class="pos">0.0184</span> <span class="neg">-0.0421</span> <span class="pos">0.0093</span> <span class="pos">0.0210</span> <span class="neg">-0.0077</span><br>
+                <span class="neg">-0.0031</span> <span class="pos">0.0288</span> <span class="neg">-0.0119</span> <span class="pos">0.0064</span> <span class="pos">0.0311</span><br>
+                <span class="pos">0.0007</span> <span class="neg">-0.0193</span> <span class="pos">0.0244</span> <span class="neg">-0.0102</span> <span class="pos">0.0176</span>
+              </div>
+
+              <div class="vector-foot">
+                <span>valeurs illustratives</span>
+                <span class="dims">1 024 dimensions</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Embeddings</span><span class="num">11 / 15</span></footer>
+      <aside class="speaker" hidden="">L’embedding ne « comprend » pas le jeu : il capte des régularités de co-occurrence. Le modèle ne génère pas de texte : il encode. La version du texte est persistée pour éviter de comparer deux formats différents.</aside>
+    </section>
+
+    <!-- ================= 12 · Recherche ================= -->
+    <section class="slide" data-section="Recherche" aria-label="Recherche sémantique">
+      <p class="eyebrow fade" style="--d:0">Sous le capot · 2 / 2</p>
+
+      <div class="body">
+        <div class="duo">
+          <div class="fade" style="--d:1">
+            <h2 class="h1">Chercher une intention,<br>pas une chaîne.</h2>
+
+            <div class="steps-mini" style="margin-top:24px">
+              <div class="mini">
+                <span class="n">1</span>
+                <div>
+                  <h3>La requête devient un vecteur</h3>
+                  <p>Gemini <span class="mono">gemini-embedding-001</span>, 1 024 dimensions, avec cache.</p>
+                </div>
+              </div>
+              <div class="mini">
+                <span class="n">2</span>
+                <div>
+                  <h3>Les voisins de ta bibliothèque</h3>
+                  <p>Tri par distance cosinus <span class="mono">&lt;=&gt;</span> sur les jeux que tu possèdes.</p>
+                </div>
+              </div>
+              <div class="mini">
+                <span class="n">3</span>
+                <div>
+                  <h3>Un repli, jamais une erreur</h3>
+                  <p>Gemini indisponible : retour à la recherche par nom, signalé à l’utilisateur.</p>
+                </div>
+              </div>
+            </div>
+
+            <p class="aside-note" style="margin-top:20px">
+              <b>Aucun Gemini à la frappe</b> : le mode nom part à la frappe, le mode
+              sémantique uniquement à la validation.
+            </p>
+          </div>
+
+          <div class="fade" style="--d:2">
+            <pre class="code"><code><span class="k">SELECT</span> g.app_id, g.name,
+       <span class="v">1 - (g.embedding &lt;=&gt; $1::vector)</span> <span class="k">AS</span> score
+<span class="k">FROM</span> library_entries le
+<span class="k">JOIN</span> games g <span class="k">ON</span> g.id = le.game_id
+<span class="k">WHERE</span> le.user_id = <span class="v">$2</span>
+  <span class="k">AND</span> g.embedding <span class="k">IS NOT NULL</span>
+<span class="k">ORDER BY</span> <span class="v">score</span> <span class="k">DESC</span>
+<span class="k">LIMIT</span> <span class="v">10</span>;</code></pre>
+
+            <p class="note-line">
+              La similarité ne lit ni la négation ni une contrainte exacte :
+              le mode nom reste complémentaire.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Recherche</span><span class="num">12 / 15</span></footer>
+      <aside class="speaker" hidden="">Le mode nom est gratuit et part à la frappe. Le mode sémantique coûte un appel Gemini : il ne part qu’à la validation. Si Gemini échoue, on retombe sur une recherche par nom et on l’affiche.</aside>
+    </section>
+
+    <!-- ================= 13 · Méthode ================= -->
+    <section class="slide slide--method" data-section="Méthode" aria-label="Méthode de développement avec l'IA">
+      <p class="eyebrow fade" style="--d:0">Méthode</p>
+
+      <div class="body">
+        <div class="fade" style="--d:1">
+          <h2 class="h1">L’IA écrit vite ;<br>nous relisons, testons, commitons.</h2>
+        </div>
+
+        <div class="method-layout fade" style="--d:2">
+          <div class="method-col">
+            <span class="method-k">Ce qui est en place</span>
+            <div class="method-item"><h3>AGENTS.md à la racine</h3><p>Commandes, conventions, pièges, état du projet.</p></div>
+            <div class="method-item"><h3>Tranches verticales</h3><p>Données → API → client → UI → doc : chaque tranche testée et commitée.</p></div>
+            <div class="method-item"><h3>Revue des diffs</h3><p>On lit ce que l’agent produit ; on ne fait pas confiance sans vérifier.</p></div>
+            <div class="method-item"><h3>Commits en français</h3><p>Un commit = une intention. Deux auteurs dans l’historique.</p></div>
+          </div>
+
+          <div class="method-col method-col--proof">
+            <span class="method-k">Les preuves</span>
+            <div class="proof-line"><b>312</b> tests API · <b>89</b> tests web · <b>52</b> e2e sur PostgreSQL/pgvector</div>
+            <div class="proof-line">CI sur chaque PR : <b>audit</b>, <b>lint</b>, <b>tests</b>, <b>build</b></div>
+            <div class="proof-line">Déploiement conditionné à une <b>CI verte</b></div>
+            <div class="proof-line">Tests e2e sur une vraie base, pas seulement des mocks</div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Méthode</span><span class="num">13 / 15</span></footer>
+      <aside class="speaker" hidden="">Répondre au critère « méthode de dev avec l’IA » : AGENTS.md vivant, tranches verticales, revue des diffs, CI à trois jobs, e2e sur une vraie base. C’est nous qui relisons, lançons les tests et décidons.</aside>
+    </section>
+
+    <!-- ================= 14 · Bilan ================= -->
+    <section class="slide" data-section="Bilan" aria-label="Bilan">
+      <p class="eyebrow fade" style="--d:0">Bilan</p>
+
+      <div class="body">
+        <div class="duo" style="align-items:start;gap:48px">
+          <div class="fade" style="--d:1">
+            <h2 class="h1" style="font-size:42px">Ce qui a résisté,<br>et ce qu’on en a fait.</h2>
+
+            <div class="pairs" style="margin-top:22px">
+              <div class="pair">
+                <span class="p">Dernière partie : <span class="mono">rtime_last_played</span> inaccessible</span>
+                <span class="arrow">→</span>
+                <span class="s"><b>Activité dérivée</b> à trois sources, jamais de date inventée</span>
+              </div>
+              <div class="pair">
+                <span class="p">Profil de succès privé</span>
+                <span class="arrow">→</span>
+                <span class="s">Compteur à <b>null</b> (« — / total »), jamais à zéro</span>
+              </div>
+              <div class="pair">
+                <span class="p">Fiches en 429 ou délistées</span>
+                <span class="arrow">→</span>
+                <span class="s"><b>Backoff persistant</b>, reprise planifiée sans clic</span>
+              </div>
+              <div class="pair">
+                <span class="p">Dates partielles (« Oct 2023 »)</span>
+                <span class="arrow">→</span>
+                <span class="s"><b>Année seule</b> ou « date inconnue », jamais de jour fabriqué</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="fade" style="--d:2">
+            <div class="next">
+              <span class="k">En ligne</span>
+              <p>Front Vercel · API Render · base Neon.</p>
+            </div>
+
+            <div class="defs" style="margin-top:22px">
+              <div class="def">
+                <span class="k">Ce qu’on retient</span>
+                <p><b>La base est le cache</b> : Steam n’est appelé qu’à l’import.</p>
+              </div>
+              <div class="def">
+                <span class="k">Ce qu’on retient</span>
+                <p><b>L’import est un job reprenable</b>, pas un script.</p>
+              </div>
+              <div class="def">
+                <span class="k">Ce qu’on retient</span>
+                <p><b>On dégrade plutôt que d’échouer</b> : Gemini, quota, Steam, succès.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Bilan</span><span class="num">14 / 15</span></footer>
+      <aside class="speaker" hidden="">Chaque difficulté est présentée comme une décision. Terminer sur les trois phrases à retenir : la base est le cache, l’import est un job reprenable, on dégrade plutôt que d’échouer.</aside>
+    </section>
+
+    <!-- ================= 15 · Fin ================= -->
+    <section class="slide end" data-section="Fin" aria-label="Fin">
+      <div class="halo" style="left:auto;right:-240px;top:auto;bottom:-260px"></div>
+
+      <div class="body">
+        <div class="end-grid">
+          <div>
+            <p class="eyebrow fade" style="--d:0">GameBacklog · Groupe 08</p>
+            <h2 class="h1 fade" style="--d:1;margin-top:18px">Merci.</h2>
+            <p class="lead fade" style="--d:2;margin-top:14px;font-size:21px;color:var(--text)">
+              Questions sur le code, l’architecture ou les choix.
+            </p>
+          </div>
+
+          <div class="end-list fade" style="--d:3">
+            <span class="i">Démo — <span class="mono">fst-2026-groupe-08.vercel.app</span></span>
+            <span class="i">API — <span class="mono">fst-2026-groupe-08.onrender.com/api</span></span>
+            <span class="i">Santé — <span class="mono">/api/health</span></span>
+            <span class="i">Dépôt — <span class="mono">fst-2026-groupe-08</span></span>
+          </div>
+        </div>
+      </div>
+
+      <footer class="foot"><span>GameBacklog — Fin</span><span class="num">15 / 15</span></footer>
+      <aside class="speaker" hidden="">Laisser cette slide affichée pendant les questions. Ne pas relancer la démo sans filet : garder un onglet déjà chargé.</aside>
+    </section>
+
+  </div>
+</div>
+
+<div class="chrome" aria-hidden="true">
+  <div class="progress" id="progress" style="width: 14.2857%;"></div>
+  <div class="hint" id="hint">← → naviguer · F plein écran · N notes · P pdf</div>
+</div>
+
+<div class="notes" id="notes" role="status" aria-live="polite">
+  <span class="k">Notes</span>
+  <span class="t">Accroche : « Steam sait ce que tu possèdes, pas à quoi tu veux jouer ce soir. » Nous allons montrer l’application, puis expliquer les choix qui la rendent tenable.</span>
+</div>
+
+<script>
+  (function () {
+    const stage = document.getElementById('stage')
+    const deck = document.getElementById('deck')
+    const progress = document.getElementById('progress')
+    const hint = document.getElementById('hint')
+    const notesBox = document.getElementById('notes')
+    const notesText = notesBox.querySelector('.t')
+    const slides = Array.from(document.querySelectorAll('.slide'))
+
+    const start = Math.min(
+      Math.max((parseInt(location.hash.slice(1), 10) || 1) - 1, 0),
+      slides.length - 1,
+    )
+    let current = start
+    let notesOpen = false
+
+    // Numérotation et libellé de section, écrits une fois.
+    slides.forEach((slide, index) => {
+      const foot = slide.querySelector('.foot .num')
+      if (foot) {
+        foot.textContent = String(index + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0')
+      }
+      const label = slide.dataset.section
+      if (label) {
+        const left = slide.querySelector('.foot span:first-child')
+        if (left) left.textContent = 'GameBacklog — ' + label
+      }
+      const speaker = slide.querySelector('.speaker')
+      if (speaker) speaker.removeAttribute('hidden')
+    })
+
+    function fit() {
+      const pad = 32
+      const scale = Math.min(
+        (window.innerWidth - pad) / 1280,
+        (window.innerHeight - pad) / 720,
+      )
+      stage.style.transform =
+        'translate(-50%, -50%) scale(' + Math.max(scale, 0.1) + ')'
+    }
+
+    function render() {
+      slides.forEach((slide, index) => {
+        const active = index === current
+        slide.classList.toggle('is-active', active)
+        slide.setAttribute('aria-hidden', active ? 'false' : 'true')
+      })
+
+      progress.style.width = ((current + 1) / slides.length) * 100 + '%'
+
+      const speaker = slides[current].querySelector('.speaker')
+      notesText.textContent = speaker ? speaker.textContent.trim() : ''
+
+      if (history.replaceState) {
+        history.replaceState(null, '', '#' + (current + 1))
+      }
+    }
+
+    function go(index) {
+      const next = Math.min(Math.max(index, 0), slides.length - 1)
+      if (next === current) return
+      current = next
+      render()
+    }
+
+    const next = () => go(current + 1)
+    const prev = () => go(current - 1)
+
+    function toggleNotes() {
+      notesOpen = !notesOpen
+      notesBox.classList.toggle('is-open', notesOpen)
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      switch (event.key) {
+        case 'ArrowRight':
+        case 'ArrowDown':
+        case ' ':
+        case 'PageDown':
+          event.preventDefault()
+          next()
+          break
+        case 'ArrowLeft':
+        case 'ArrowUp':
+        case 'PageUp':
+          event.preventDefault()
+          prev()
+          break
+        case 'Home':
+          event.preventDefault()
+          go(0)
+          break
+        case 'End':
+          event.preventDefault()
+          go(slides.length - 1)
+          break
+        case 'f':
+        case 'F':
+          if (document.fullscreenElement) document.exitFullscreen()
+          else document.documentElement.requestFullscreen?.()
+          break
+        case 'n':
+        case 'N':
+          toggleNotes()
+          break
+        case 'p':
+        case 'P':
+          window.print()
+          break
+        default:
+          break
+      }
+    })
+
+    // Balayage tactile.
+    let touchX = null
+    stage.addEventListener('touchstart', (event) => {
+      touchX = event.changedTouches[0].clientX
+    }, { passive: true })
+    stage.addEventListener('touchend', (event) => {
+      if (touchX === null) return
+      const delta = event.changedTouches[0].clientX - touchX
+      if (Math.abs(delta) > 60) (delta < 0 ? next : prev)()
+      touchX = null
+    }, { passive: true })
+
+    // Clic sur le fond : avancer (pratique derrière une télécommande).
+    deck.addEventListener('click', (event) => {
+      if (event.target.closest('a, button, pre')) return
+      const rect = deck.getBoundingClientRect()
+      if (event.clientX > rect.left + rect.width * 0.72) next()
+      else if (event.clientX < rect.left + rect.width * 0.28) prev()
+    })
+
+    document.addEventListener('fullscreenchange', fit)
+    window.addEventListener('resize', fit)
+
+    setTimeout(() => hint.classList.add('is-hidden'), 4200)
+
+    fit()
+    render()
+  })()
+</script>
+
+
+</body></html>
