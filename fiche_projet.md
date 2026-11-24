@@ -57,11 +57,10 @@ Aujourd'hui, le joueur parcourt sa bibliothèque Steam à la main : tri par nom,
 | Base de données | PostgreSQL + pgvector, accès via ORM avec support vectoriel (Drizzle) |
 | Données jeux | Steam Web API + Store `appdetails` |
 | IA | API d'embeddings (Gemini ou Mistral, modèle unique fixé) |
-| Hébergement | Vercel (front) + Render (API) + Neon (PostgreSQL) — décision détaillée dans `AGENTS.md` |
+| Hébergement | Vercel (front) + Render (API) + Neon (PostgreSQL) |
 
 > **Hébergement** : le front est servi par Vercel, l'API par Render et la base par Neon.
-> La fiche initiale prévoyait Render pour le front ; la décision et le câblage sont
-> détaillés dans `AGENTS.md` (« Cible de déploiement »).
+> La fiche initiale prévoyait Render pour le front ; Vercel a été retenu.
 
 Toutes les clés (Steam, modèle) restent **côté API**, hors dépôt Git.
 

@@ -1,125 +1,87 @@
 # GameBacklog
 
-Backlog Steam intelligent. Voir [`fiche_projet.md`](./fiche_projet.md) pour la présentation du projet.
+**Aider un joueur à décider quoi jouer dans sa bibliothèque Steam — en langage naturel.**
 
-## Démo en ligne
+[Démo en ligne](https://fst-2026-groupe-08.vercel.app) · [État de l'API](https://fst-2026-groupe-08.onrender.com/api/health)
 
-- Application : <https://fst-2026-groupe-08.vercel.app>
-- API : <https://fst-2026-groupe-08.onrender.com/api>
-- Santé de l’API : <https://fst-2026-groupe-08.onrender.com/api/health>
+---
 
-## Prérequis
+## Le problème
 
-- [Node.js](https://nodejs.org/) **24** (voir `.nvmrc`, `nvm use`) et npm
-- [Git](https://git-scm.com/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+Un joueur PC avec plusieurs centaines de jeux Steam passe plus de temps à choisir qu'à jouer. Les outils existants — tri par nom, par temps de jeu, par date d'achat — supposent qu'il sait déjà ce qu'il cherche.
 
-## Installation
+Or sa vraie question est : **« qu'est-ce que j'ai envie de jouer maintenant ? »**. Elle s'exprime en ambiance, en mécanique, en matériel — pas en titre. Steam ne sait pas y répondre.
 
-```bash
-# 1. Récupérer le projet
-git clone <URL_DU_DEPOT>
-cd gamebacklog
+## Ce que fait l'application
 
-# 2. Créer le fichier de configuration
-cp .env.example .env
+- **Connexion Steam** (OpenID) et import de la bibliothèque avec suivi de progression.
+- **Accueil personnalisé** : jeux à relancer, jeux jamais lancés, jeux proches de ses habitudes récentes.
+- **Bibliothèque** : temps de jeu, activité récente, genres, filtres et tris classiques.
+- **Recherche en langage naturel** : « un jeu calme avec des énigmes, jouable à la manette ».
+- **Fiche jeu** : description, genres, support manette, succès obtenus, lancement direct dans Steam.
 
-# 3. Lancer la base de données (PostgreSQL + pgvector)
-docker compose up -d
-# L'extension vector est créée par la migration 0000 au démarrage de l'API.
+## La partie intéressante : la recherche sémantique
 
-# 4. Installer les dépendances
-cd api && npm ci
-cd ../web && npm ci
-cd ..
-```
+La recherche ne repose pas sur des mots-clés. Chaque jeu est converti en **vecteur** à partir de sa description et de ses genres, stocké dans PostgreSQL via l'extension **pgvector**. La requête de l'utilisateur est vectorisée de la même manière, et les résultats sont classés par similarité.
 
-Le déploiement (Vercel + Render + Neon) est décrit dans
-[`docs/deploiement.md`](./docs/deploiement.md).
+C'est ce qui permet de trouver « un jeu calme avec des énigmes » alors que ni « calme » ni « énigmes » n'apparaissent dans la fiche du jeu. Une recherche par mots-clés ne peut pas le faire.
 
-## OpenCode (agent de code)
+Le projet embarque aussi une **procédure d'évaluation des embeddings** (`npm run eval:embeddings`) pour mesurer la pertinence des résultats et comparer les modèles, plutôt que de les choisir au hasard.
 
-Le projet est développé avec [OpenCode](https://opencode.ai), un agent de code en terminal. Installation :
+## Stack
 
-```bash
-# Avec npm (Node.js déjà installé)
-npm i -g opencode-ai@latest
-
-# Ou sur macOS / Linux avec Homebrew
-brew install opencode
-
-# Ou avec le script d'installation
-curl -fsSL https://opencode.ai/install | bash
-```
-
-Sous Windows, utilise la commande npm ci-dessus (ou `scoop bucket add extras; scoop install extras/opencode`).
-
-Vérifier l'installation, puis le lancer à la racine du projet :
-
-```bash
-opencode --version
-cd gamebacklog
-opencode
-```
-
-### Extension VsCode et utilisation de base.
-
-Installer l'extension VsCode [OpenCode](https://marketplace.visualstudio.com/items?itemName=sst-dev.opencode)
-
-Une fois installé, un onglet devrait apparaitre en haut à droite de la fenêtre de développement, -la.
-Une fois ouverte, tape `/` suivi d'une commande. Tape `/` seul pour voir la liste.
- 
-| Commande | À quoi ça sert |
+| Couche | Technologies |
 |---|---|
-| `/connect` | Ajouter un fournisseur de modèle IA et saisir sa clé API (à faire une seule fois) |
-| `/models` | Choisir le modèle utilisé |
-| `/init` | Créer ou mettre à jour le fichier `AGENTS.md` (les règles du projet pour l'agent) |
-| `/new` | Démarrer une nouvelle conversation (une par tâche) |
-| `/sessions` | Retrouver une ancienne conversation |
-| `/undo` | Annuler le dernier message et les modifications de fichiers qu'il a faites |
-| `/redo` | Rétablir ce qui vient d'être annulé |
-| `/help` | Afficher l'aide |
-| `/exit` | Quitter OpenCode |
- 
-`/undo` et `/redo` utilisent Git : le projet doit être un dépôt Git.
- 
-Raccourcis utiles :
- 
-- `@` suivi d'un nom de fichier pour le donner en référence à l'agent (ex. `@api/src/main.ts`)
-- `Tab` pour passer du mode **build** (l'agent peut modifier les fichiers) au mode **plan** (lecture seule, pour analyser ou planifier)
-Premier lancement : `/connect`, choisis un fournisseur, colle ta clé, puis `/models` pour sélectionner un modèle.
+| **Front** | React, React Router, TypeScript, Vite |
+| **API** | Node.js, NestJS, TypeScript, Drizzle ORM |
+| **Base** | PostgreSQL + pgvector |
+| **Authentification** | Steam OpenID, sessions Express (`connect-pg-simple`) |
+| **Tests** | Jest (unitaires et end-to-end) |
+| **Déploiement** | Vercel (front), Render (API), Neon (base) |
+| **CI** | GitHub Actions |
 
+## Lancer le projet en local
 
-## Configuration
+Prérequis : Node.js 24 (voir `.nvmrc`), Docker, Git.
 
-Ouvre `.env` et renseigne :
+```bash
+git clone https://github.com/BooFenyx/GameBacklog.git
+cd GameBacklog
 
-| Variable | Valeur |
+cp .env.example .env          # renseigner les clés (voir ci-dessous)
+docker compose up -d          # PostgreSQL + pgvector
+
+cd api && npm ci && cd ../web && npm ci && cd ..
+```
+
+Variables à renseigner dans `.env` :
+
+| Variable | Rôle |
 |---|---|
 | `STEAM_API_KEY` | Clé Steam Web API |
 | `EMBEDDING_API_KEY` | Clé du fournisseur d'embeddings |
-| `SESSION_SECRET` | Chaîne aléatoire (voir ci-dessous) |
+| `SESSION_SECRET` | Chaîne aléatoire de 32 octets |
 
-Les autres variables ont déjà une valeur par défaut pour le développement local.
-
-Générer `SESSION_SECRET` :
+Puis, dans deux terminaux :
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+cd api && npm run start:dev   # http://localhost:3000
+cd web && npm run dev         # http://localhost:5173
 ```
 
-## Lancement
+L'application exige un compte Steam dont les **détails de jeux sont publics**.
 
-Dans deux terminaux :
+## Tests
 
 ```bash
-# API : http://localhost:3000
-cd api && npm run start:dev
+cd api && npm test            # unitaires
+cd api && npm run test:e2e    # end-to-end
 ```
 
-```bash
-# Front : http://localhost:5173
-cd web && npm run dev
-```
+## Crédits
 
-Pour utiliser l'application, il faut un compte Steam dont les **détails des jeux sont publics**.
+Projet réalisé en binôme dans le cadre du M2 Informatique de l'Université de Lorraine :
+Mathys Bertrand ([@BooFenyx](https://github.com/BooFenyx))
+et [@GamersOD](https://github.com/GamersOD).
+
+Cette copie est un fork personnel du dépôt de groupe, allégé de la documentation de travail interne.
